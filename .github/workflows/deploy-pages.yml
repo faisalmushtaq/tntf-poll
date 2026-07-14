@@ -1,12 +1,15 @@
 name: Deploy to GitHub Pages
 
-# Publishes the static app in public/ to GitHub Pages on every push to main.
+# Publishes the static app in public/ to GitHub Pages on every push.
+# The live site follows the working branch (push = live), and main too.
 # One-time setup: repo Settings → Pages → Build and deployment → Source:
 # "GitHub Actions". After that this workflow handles every deploy.
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - claude/football-player-selection-mobile-wrz0zz
   workflow_dispatch:
 
 permissions:
