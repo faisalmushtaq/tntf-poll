@@ -155,3 +155,9 @@ nav.tabs svg { width: 22px; height: 22px; }
 .link-tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 4px; }
 .link-tag.ok { background: #e4f3ea; color: var(--in); }
 .link-tag.no { background: #fbf1df; color: var(--amber); }
+/* Form guide: coloured W/D/L chips (Guardian match style) */
+.form-guide { display: inline-flex; gap: 3px; vertical-align: middle; }
+.fchip { width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 10px; font-weight: 800; color: #fff; }
+.fchip.w { background: var(--in); }
+.fchip.d { background: #8a8a8a; }
+.fchip.l { background: var(--danger); }

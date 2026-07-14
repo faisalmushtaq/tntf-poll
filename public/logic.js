@@ -119,6 +119,50 @@ export function playerStats(playerId, games = []) {
   return { played, invited, dropouts, attendancePct: invited ? Math.round(played / invited * 100) : 0, history };
 }
 
+// Win/loss analytics from games that recorded two teams + a score.
+// Each such game has teams:{bibs:[ids],nonbibs:[ids]} and scores:{bibs,nonbibs}.
+export function playerAnalytics(playerId, games = []) {
+  const rel = games
+    .filter(g => g.status === 'completed' && g.teams && g.scores)
+    .map(g => {
+      const side = (g.teams.bibs || []).includes(playerId) ? 'bibs'
+        : (g.teams.nonbibs || []).includes(playerId) ? 'nonbibs' : null;
+      if (!side) return null;
+      const other = side === 'bibs' ? 'nonbibs' : 'bibs';
+      const gf = g.scores[side], ga = g.scores[other];
+      return { date: g.date, dateLabel: g.dateLabel, gf, ga, outcome: gf > ga ? 'W' : gf < ga ? 'L' : 'D' };
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  const played = rel.length;
+  const wins = rel.filter(r => r.outcome === 'W').length;
+  const draws = rel.filter(r => r.outcome === 'D').length;
+  const losses = rel.filter(r => r.outcome === 'L').length;
+  const gf = rel.reduce((s, r) => s + r.gf, 0);
+  const ga = rel.reduce((s, r) => s + r.ga, 0);
+
+  let longestWin = 0, longestUnbeaten = 0, w = 0, u = 0;
+  for (const r of rel) {
+    w = r.outcome === 'W' ? w + 1 : 0; longestWin = Math.max(longestWin, w);
+    u = r.outcome !== 'L' ? u + 1 : 0; longestUnbeaten = Math.max(longestUnbeaten, u);
+  }
+  let current = { type: null, count: 0 };
+  for (let i = rel.length - 1; i >= 0; i--) {
+    if (current.type === null) current = { type: rel[i].outcome, count: 1 };
+    else if (rel[i].outcome === current.type) current.count++;
+    else break;
+  }
+  return {
+    played, wins, draws, losses,
+    winPct: played ? Math.round(wins / played * 100) : 0,
+    gf, ga, gd: gf - ga,
+    currentStreak: current, longestWin, longestUnbeaten,
+    form: rel.slice(-6).reverse().map(r => r.outcome),   // newest first
+    log: rel.slice().reverse()
+  };
+}
+
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export function nextKickoffISO(config = DEFAULT_CONFIG, now = new Date()) {

@@ -5,6 +5,7 @@
 
 import { FIREBASE_ENABLED } from './firebase-config.js';
 import { getFirebaseApp, FB_VERSION } from './firebase.js';
+import { SEED } from './seed-data.js';
 import * as logic from './logic.js';
 
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
@@ -12,13 +13,15 @@ const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
       const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
     }));
 
+// Roster seeded from the parsed history (data/history.txt → seed-data.js),
+// keyed by the stable historic ids so imported games line up with players.
 function seedPlayers() {
   const players = {};
-  for (const name of logic.SEED_NAMES) {
-    const id = uuid();
-    players[id] = { id, name, loyalty: 0, gamesPlayed: 0, dropouts: 0, createdAt: new Date().toISOString() };
-  }
+  for (const p of SEED.players) players[p.id] = { ...p };
   return players;
+}
+function seedGames() {
+  return SEED.games.map(g => ({ ...g, signups: [] }));
 }
 
 // Shared shape emitted to subscribers.
@@ -42,7 +45,7 @@ function createLocalDB() {
   function read() {
     const raw = localStorage.getItem(KEY);
     if (raw) return JSON.parse(raw);
-    const fresh = { config: { ...logic.DEFAULT_CONFIG }, players: seedPlayers(), games: [], currentGameId: null };
+    const fresh = { config: { ...logic.DEFAULT_CONFIG }, players: seedPlayers(), games: seedGames(), currentGameId: null };
     localStorage.setItem(KEY, JSON.stringify(fresh));
     return fresh;
   }
@@ -147,6 +150,8 @@ async function createFirestoreDB() {
     if (existing.empty) {
       const batch = writeBatch(dbf);
       for (const p of Object.values(seedPlayers())) batch.set(doc(playersCol, p.id), p);
+      // Historic games (completed, with teams + scores) for analytics/history.
+      for (const g of seedGames()) { const { signups, ...doc0 } = g; batch.set(gameRef(g.id), doc0); }
       await batch.commit();
     }
   }

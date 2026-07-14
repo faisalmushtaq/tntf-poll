@@ -237,12 +237,16 @@ function identityPrompt() {
 }
 
 function tableScreen() {
-  const rows = state.roster.map((p, i) => playerRow(p, {
-    num: i + 1, meta: `${p.gamesPlayed} games · ${p.dropouts} dropout${p.dropouts === 1 ? '' : 's'}`, right: `<div class="loyalty">${p.loyalty}</div>`
-  })).join('');
+  const rows = state.roster.map((p, i) => {
+    const an = history ? logic.playerAnalytics(p.id, history) : null;
+    const meta = an && an.played
+      ? `${an.wins}W-${an.draws}D-${an.losses}L · ${an.winPct}% ${formGuide(an.form.slice(0, 5))}`
+      : `${p.gamesPlayed} games · ${p.dropouts} dropout${p.dropouts === 1 ? '' : 's'}`;
+    return playerRow(p, { num: i + 1, meta, right: `<div class="loyalty">${p.loyalty}</div>` });
+  }).join('');
   return `<div class="card">
     <h2>Loyalty table</h2>
-    <p class="hint">Everyone's standing. Higher loyalty = higher priority when a game is oversubscribed. +${state.config.scoring.playedReward} for every game played; late dropouts cost points.</p>
+    <p class="hint">Ranked by loyalty (priority when oversubscribed). Each row shows record and recent form. Tap <b>You</b> for your full profile.</p>
     ${rows || '<div class="empty">No players yet.</div>'}
   </div>`;
 }
@@ -302,6 +306,28 @@ function youScreen() {
     notif = `<div class="card"><h2>Notifications</h2><p class="hint">Email & push alerts activate once the organiser connects Firebase (see README). For now this device shows in-app alerts when your status changes.</p></div>`;
   }
 
+  // Win/loss analytics from the historic results.
+  const an = history ? logic.playerAnalytics(me.id, history) : null;
+  const cs = an?.currentStreak;
+  const streakText = cs && cs.type
+    ? (cs.type === 'W' ? `${cs.count}-game win streak 🔥` : cs.type === 'L' ? `${cs.count}-game losing run` : `${cs.count} draws in a row`)
+    : '—';
+  const analyticsCard = an && an.played ? `
+    <div class="card">
+      <h2>Form &amp; record</h2>
+      <p class="hint">From ${an.played} games with a recorded result. ${an.wins}W · ${an.draws}D · ${an.losses}L.</p>
+      <div class="statgrid">
+        <div class="stat"><div class="statnum">${an.winPct}%</div><div class="statlbl">win rate</div></div>
+        <div class="stat"><div class="statnum">${an.gd > 0 ? '+' : ''}${an.gd}</div><div class="statlbl">goal diff (${an.gf}-${an.ga})</div></div>
+        <div class="stat"><div class="statnum">${an.longestWin}</div><div class="statlbl">best win streak</div></div>
+        <div class="stat"><div class="statnum">${an.longestUnbeaten}</div><div class="statlbl">longest unbeaten</div></div>
+      </div>
+      <div class="section-title">Current run</div>
+      <p style="margin:0 0 10px;font-weight:700">${streakText}</p>
+      <div class="section-title">Form (recent first)</div>
+      ${formGuide(an.form)}
+    </div>` : (history ? '' : '');
+
   const account = auth?.enabled
     ? `<div class="card"><h2>Account</h2><p class="hint">Signed in as ${esc(user.email)} · linked to ${esc(me.name)}.</p><button class="btn-ghost" onclick="signOutUser()">Sign out</button></div>`
     : `<div class="card"><h2>You</h2><p class="hint">Playing as ${esc(me.name)} on this device.</p><button class="btn-ghost" onclick="forgetMe()">Not you? Switch name</button></div>`;
@@ -310,7 +336,13 @@ function youScreen() {
       <div class="avatar big" style="background:${avatarColor(me.name)}">${initials(me.name)}</div>
       <h2 style="margin-top:8px">${esc(me.name)}</h2>
       <p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p>
-    </div>${statsCard}${notif}${account}`;
+    </div>${analyticsCard}${statsCard}${notif}${account}`;
+}
+
+// Guardian-style form guide: coloured W/D/L chips, newest first.
+function formGuide(form) {
+  if (!form || !form.length) return '<p class="small">No games yet.</p>';
+  return `<div class="form-guide">${form.map(o => `<span class="fchip ${o.toLowerCase()}">${o}</span>`).join('')}</div>`;
 }
 
 // ---- admin ----------------------------------------------------------------
@@ -394,15 +426,15 @@ function render() {
     `<button class="${tab === k ? 'active' : ''}" onclick="go('${k}')"><svg viewBox="0 0 24 24">${icon[k]}</svg>${label[k]}</button>`).join('');
 }
 
-// Load completed-game history once, for the Stats screen.
+// Load completed-game history once — used by Table (form) and You (analytics).
 async function ensureHistory() {
   if (history !== null) return;
   history = [];
-  try { history = await db.loadHistory(); if (tab === 'you') render(); } catch (e) { console.error(e); }
+  try { history = await db.loadHistory(); render(); } catch (e) { console.error(e); }
 }
 
 // ---- actions --------------------------------------------------------------
-window.go = t => { tab = t; render(); if (t === 'you') ensureHistory(); };
+window.go = t => { tab = t; render(); };
 
 // demo-mode name pick
 window.join = async () => {
@@ -513,9 +545,10 @@ window.addEventListener('tntf-push', e => {
     auth = await createAuth();
     if (auth.enabled) {
       await auth.complete().catch(err => console.error('sign-in link', err));
-      auth.onChange(u => { user = u; history = null; buildView(); render(); });
+      auth.onChange(u => { user = u; history = null; buildView(); render(); ensureHistory(); });
     }
     db.subscribe(raw => { lastRaw = raw; buildView(); render(); });
+    ensureHistory(); // load past results for form/analytics on Table & You
   } catch (e) {
     console.error(e);
     $app.innerHTML = `<div class="loading">Couldn't start: ${esc(e.message || e)}.<br>If you just added Firebase config, check firestore.rules are published.</div>`;

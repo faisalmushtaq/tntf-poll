@@ -100,4 +100,25 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('player C was reserve in wk1, played wk2', c.played === 1 && c.history.some(h => h.reserve));
 }
 
+// --- win/loss analytics ----------------------------------------------------
+{
+  const games = [
+    { id: '1', status: 'completed', date: '2026-01-01', teams: { bibs: ['x', 'y'], nonbibs: ['z'] }, scores: { bibs: 3, nonbibs: 1 } }, // X win
+    { id: '2', status: 'completed', date: '2026-01-08', teams: { bibs: ['z'], nonbibs: ['x'] }, scores: { bibs: 2, nonbibs: 0 } },       // X loss
+    { id: '3', status: 'completed', date: '2026-01-15', teams: { bibs: ['x'], nonbibs: ['z'] }, scores: { bibs: 4, nonbibs: 4 } },       // X draw
+    { id: '4', status: 'completed', date: '2026-01-22', teams: { bibs: ['x'], nonbibs: ['z'] }, scores: { bibs: 6, nonbibs: 2 } },       // X win
+    { id: '5', status: 'open', teams: { bibs: ['x'], nonbibs: [] }, scores: { bibs: 0, nonbibs: 0 } } // ignored
+  ];
+  const a = logic.playerAnalytics('x', games);
+  ok('analytics played=4', a.played === 4);
+  ok('analytics W/D/L = 2/1/1', a.wins === 2 && a.draws === 1 && a.losses === 1);
+  ok('analytics win% = 50', a.winPct === 50);
+  ok('goals for/against aggregated', a.gf === 13 && a.ga === 9);
+  ok('current streak = W1', a.currentStreak.type === 'W' && a.currentStreak.count === 1);
+  ok('longest unbeaten = 2', a.longestUnbeaten === 2);
+  ok('form newest-first starts W, length 4', a.form[0] === 'W' && a.form.length === 4);
+  const z = logic.playerAnalytics('z', games);
+  ok('opponent mirror: Z 1W/2L/1D', z.wins === 1 && z.losses === 2 && z.draws === 1);
+}
+
 console.log(`\n${pass} checks passed ✅`);

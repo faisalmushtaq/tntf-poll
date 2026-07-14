@@ -1,0 +1,134 @@
+// build-seed.mjs — parse data/history.txt into structured, canonicalised
+// games and emit public/seed-data.js. Run: node scripts/build-seed.mjs
+import { readFileSync, writeFileSync } from 'node:fs';
+
+const raw = readFileSync(new URL('../data/history.txt', import.meta.url), 'utf8');
+
+// --- name canonicalisation -------------------------------------------------
+// Maps the many spellings/short forms in the chat to one canonical name.
+const ALIAS = {
+  'craig': 'Craig Wilson', 'craig wilson': 'Craig Wilson',
+  'umar': 'Umar Zaffar', 'umar zaffar': 'Umar Zaffar',
+  'shergal': 'Shergal Rodaina', 'shergal rodaina': 'Shergal Rodaina',
+  'ismael nazar': 'Ismael Nazar', 'ismael': 'Ismael Nazar', 'ismaeel': 'Ismael Nazar',
+  'matthew eastwood': 'Matthew Eastwood', 'matt': 'Matthew Eastwood', 'matt eastwood': 'Matthew Eastwood',
+  'james': 'James Roberts', 'james roberts': 'James Roberts',
+  'ian': 'Ian Anderson', 'ian anderson': 'Ian Anderson',
+  'darren': 'Darren Ellis', 'darren ellis': 'Darren Ellis',
+  'dec': 'Declan', 'declan': 'Declan',
+  'haris': 'Haris Farooq', 'harris': 'Haris Farooq', 'haris farooq': 'Haris Farooq',
+  'umair': 'Umair Noor', 'umair noor': 'Umair Noor',
+  'haroon': 'Haroon Hanif', 'haroon hanif': 'Haroon Hanif',
+  'riz': 'Riz Khan', 'riz khan': 'Riz Khan', 'rik': 'Riz Khan',
+  'haseeb': 'Haseeb', 'haseeb football': 'Haseeb',
+  'aadil farooq': 'Aadil Farooq',
+  'tom clapham': 'Tom Clapham', 'tom exon': 'Tom Exon'
+};
+
+function canonical(name, tomCounter) {
+  const key = name.toLowerCase();
+  if (key === 'tom') {
+    // Two bare "Tom" entries in one game = Tom Clapham then Tom Exon.
+    const which = tomCounter.n++ % 2;
+    return which === 0 ? 'Tom Clapham' : 'Tom Exon';
+  }
+  return ALIAS[key] || name;
+}
+
+// --- parsing ---------------------------------------------------------------
+const DATE_RE = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{2,4})/;
+const TEAM_RE = /^\s*#*\s*(non[-\s]?bibs|no\s?bibs|bibs)\s*\(?\s*(\d+)\s*\)?/i;
+const SKIP_RE = /^(line ?ups?|the fight)$/i;
+
+function clean(line) {
+  let s = line.replace(/^[\s\-*•·#•⁠ ​  ]+/, '');
+  s = s.replace(/\s*\([^)]*\)\s*/g, ' ');   // drop "(red card)" etc.
+  s = s.replace(/[.:,\s]+$/, '').trim();
+  return s;
+}
+
+const games = [];
+let cur = null, curTeam = null, tomCounter = { n: 0 };
+
+for (const line of raw.split('\n')) {
+  const t = line.trim();
+  if (!t) continue;
+  const dm = t.match(DATE_RE);
+  if (dm) {
+    if (cur) games.push(cur);
+    const [_, d, m, y] = dm;
+    const year = Number(y.length === 2 ? '20' + y : y);
+    const date = new Date(year, Number(m) - 1, Number(d));
+    cur = { date, iso: date.toISOString(), teams: { bibs: { score: null, players: [] }, nonbibs: { score: null, players: [] } } };
+    curTeam = null; tomCounter = { n: 0 };
+    continue;
+  }
+  const tm = t.match(TEAM_RE);
+  if (tm && cur) {
+    const side = /^non|^no/i.test(tm[1]) ? 'nonbibs' : 'bibs';
+    cur.teams[side].score = Number(tm[2]);
+    curTeam = side;
+    continue;
+  }
+  if (!cur || !curTeam) continue;
+  const name = clean(t);
+  if (!name || SKIP_RE.test(name) || /bibs/i.test(name)) continue;
+  cur.teams[curTeam].players.push(canonical(name, tomCounter));
+}
+if (cur) games.push(cur);
+
+// --- build players + game docs --------------------------------------------
+const slug = n => n.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const players = {};    // canonicalName -> { id, name, appearances }
+function pid(name) {
+  if (!players[name]) players[name] = { id: 'h_' + slug(name), name, appearances: 0 };
+  return players[name].id;
+}
+
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const gameDocs = games.map((g, i) => {
+  const bibs = g.teams.bibs.players.map(pid);
+  const nonbibs = g.teams.nonbibs.players.map(pid);
+  [...g.teams.bibs.players, ...g.teams.nonbibs.players].forEach(n => players[n].appearances++);
+  const teamSize = Math.max(g.teams.bibs.players.length, g.teams.nonbibs.players.length);
+  const d = g.date;
+  return {
+    id: 'g_' + d.toISOString().slice(0, 10),
+    date: d.toISOString().slice(0, 10),
+    dateLabel: `${DOW[d.getDay()]} ${d.getDate()} ${MON[d.getMonth()]}`,
+    status: 'completed',
+    completedAt: new Date(d.getTime() + 22 * 3600e3).toISOString(),
+    historic: true,
+    format: `${teamSize}-a-side`,
+    capacity: bibs.length + nonbibs.length,
+    scores: { bibs: g.teams.bibs.score, nonbibs: g.teams.nonbibs.score },
+    teams: { bibs, nonbibs },
+    result: { confirmed: [...bibs, ...nonbibs], reserves: [] }
+  };
+});
+
+// loyalty seed: +2 per appearance (attendance-based, matching the app's model)
+const playerDocs = Object.values(players).map(p => ({
+  id: p.id, name: p.name, loyalty: p.appearances * 2, gamesPlayed: p.appearances, dropouts: 0,
+  createdAt: '2025-12-30T00:00:00.000Z'
+}));
+
+const out = `// AUTO-GENERATED by scripts/build-seed.mjs — do not edit by hand.
+// Historic games + roster parsed from data/history.txt.
+export const SEED = ${JSON.stringify({ players: playerDocs, games: gameDocs }, null, 2)};
+`;
+writeFileSync(new URL('../public/seed-data.js', import.meta.url), out);
+
+// --- report ----------------------------------------------------------------
+console.log(`Parsed ${gameDocs.length} games, ${playerDocs.length} players.\n`);
+console.log('Results (Bibs vs Non-Bibs):');
+for (const g of gameDocs) {
+  const b = g.scores.bibs, n = g.scores.nonbibs;
+  const w = b > n ? 'Bibs' : n > b ? 'Non-Bibs' : 'Draw';
+  console.log(`  ${g.date}  ${g.format.padEnd(9)}  Bibs ${b}-${n} Non   → ${w}`);
+}
+console.log('\nAppearances (sorted):');
+for (const p of playerDocs.sort((a, b) => b.gamesPlayed - a.gamesPlayed)) {
+  console.log(`  ${String(p.gamesPlayed).padStart(2)}  ${p.name}`);
+}

@@ -104,12 +104,33 @@ npm run serve   # http://localhost:3000
 npm test        # selection / penalty / notification-diff / stats logic
 ```
 
+## History & analytics
+
+The app ships with the group's real match history (**22 games**, Dec 2025 → Jul
+2026) parsed from [`data/history.txt`](./data/history.txt). Each game records the
+two teams and the score, which powers per-player analytics: **W-D-L, win %, goal
+difference, win streaks, longest unbeaten run, current form** — shown on the
+**Table** (a form guide per player) and the **You** profile.
+
+- Source data lives in `data/history.txt`; run `node scripts/build-seed.mjs` to
+  re-parse it into `public/seed-data.js` (the seed the app loads on first run).
+- The builder canonicalises name variants (e.g. *Matt* → Matthew Eastwood,
+  *Ismaeel* → Ismael Nazar) — the mapping is at the top of `scripts/build-seed.mjs`.
+- **Names ↔ accounts:** history is keyed to a player *record*. When someone
+  signs in they pick their name and their email links to that same record — so
+  imported history and their account converge automatically. The Organiser
+  roster shows a link tag against each name so you can spot who's connected.
+
+> If you set up Firestore *before* this history existed, clear the `players` and
+> `games` collections (or the `meta/config` doc) so the app re-seeds with it.
+
 ## How it's built
 - `public/` — static app, no build step:
-  - `logic.js` — pure maths: ranking, penalties, status-change diff, stats (unit-tested).
-  - `db.js` — Firestore when configured, `localStorage` otherwise.
+  - `logic.js` — pure maths: ranking, penalties, status-change diff, stats, win/loss analytics (unit-tested).
+  - `db.js` — Firestore when configured, `localStorage` otherwise. `seed-data.js` — generated history.
   - `auth.js` — email magic-link sign-in. `messaging.js` — FCM push tokens.
   - `app.js` — the Guardian-styled mobile UI. `firebase-messaging-sw.js` — push service worker.
+- `data/` + `scripts/build-seed.mjs` — historic results and the parser that builds the seed.
 - `notify/` — the scheduled notification robot (reuses `logic.js` for identical ranking).
 - `.github/workflows/` — Pages deploy + the notifier.
 
