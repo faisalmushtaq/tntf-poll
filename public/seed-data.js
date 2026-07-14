@@ -221,8 +221,16 @@ export const SEED = {
     {
       "id": "h_riz-khan",
       "name": "Riz Khan",
-      "loyalty": 20,
-      "gamesPlayed": 10,
+      "loyalty": 18,
+      "gamesPlayed": 9,
+      "dropouts": 0,
+      "createdAt": "2025-12-30T00:00:00.000Z"
+    },
+    {
+      "id": "h_rik",
+      "name": "Rik",
+      "loyalty": 2,
+      "gamesPlayed": 1,
       "dropouts": 0,
       "createdAt": "2025-12-30T00:00:00.000Z"
     },
@@ -791,7 +799,7 @@ export const SEED = {
           "h_haris-farooq",
           "h_ismael-nazar",
           "h_haroon-hanif",
-          "h_riz-khan"
+          "h_rik"
         ],
         "nonbibs": [
           "h_oli-scott",
@@ -813,7 +821,7 @@ export const SEED = {
           "h_haris-farooq",
           "h_ismael-nazar",
           "h_haroon-hanif",
-          "h_riz-khan",
+          "h_rik",
           "h_oli-scott",
           "h_tom-exon",
           "h_shergal-rodaina",

@@ -19,7 +19,8 @@ const ALIAS = {
   'haris': 'Haris Farooq', 'harris': 'Haris Farooq', 'haris farooq': 'Haris Farooq',
   'umair': 'Umair Noor', 'umair noor': 'Umair Noor',
   'haroon': 'Haroon Hanif', 'haroon hanif': 'Haroon Hanif',
-  'riz': 'Riz Khan', 'riz khan': 'Riz Khan', 'rik': 'Riz Khan',
+  'riz': 'Riz Khan', 'riz khan': 'Riz Khan',
+  // Note: "Rik" is a DIFFERENT person to Riz Khan — intentionally not aliased.
   'haseeb': 'Haseeb', 'haseeb football': 'Haseeb',
   'aadil farooq': 'Aadil Farooq',
   'tom clapham': 'Tom Clapham', 'tom exon': 'Tom Exon'
