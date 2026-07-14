@@ -147,3 +147,4 @@ nav.tabs svg { width: 22px; height: 22px; }
 .modal { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; width: 100%; max-width: 380px; }
 .modal h3 { margin: 0 0 6px; }
 .empty { text-align: center; color: var(--muted); padding: 26px 10px; }
+.demo-banner { background: #2a2412; color: var(--warn); border: 1px solid #5c4d1f; border-radius: 12px; padding: 9px 12px; font-size: 12px; margin-bottom: 14px; text-align: center; }

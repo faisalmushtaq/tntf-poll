@@ -1,12 +1,11 @@
 {
   "name": "tntf-poll",
-  "version": "1.0.0",
-  "description": "Tuesday Night Total Football - fair, loyalty-based player selection for a weekly game",
+  "version": "2.0.0",
+  "description": "Tuesday Night Total Football - fair, loyalty-based player selection. Static app for GitHub Pages + Firebase.",
   "type": "module",
-  "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "test": "node test/logic.test.js",
+    "serve": "node -e \"import('node:http').then(async({default:h})=>{const{readFile}=await import('node:fs/promises');const{join,extname,normalize}=await import('node:path');const D=new URL('./public/',import.meta.url).pathname;const M={'.html':'text/html','.css':'text/css','.js':'text/javascript','.svg':'image/svg+xml'};h.createServer(async(q,s)=>{let p=normalize(join(D,q.url==='/'?'index.html':q.url.split('?')[0]));try{const b=await readFile(p);s.writeHead(200,{'Content-Type':M[extname(p)]||'application/octet-stream'});s.end(b)}catch{s.writeHead(404);s.end('nope')}}).listen(3000,()=>console.log('preview: http://localhost:3000'))})\""
   },
   "engines": {
     "node": ">=18"

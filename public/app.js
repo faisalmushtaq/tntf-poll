@@ -1,4 +1,7 @@
-// app.js — vanilla mobile SPA for TNTF. No build step, no framework.
+// app.js — vanilla mobile SPA. Talks to the data layer (db.js); no backend.
+import { createDB } from './db.js';
+import * as logic from './logic.js';
+
 const $app = document.getElementById('app');
 
 const LS = {
@@ -8,23 +11,34 @@ const LS = {
   set pin(v) { v ? sessionStorage.setItem('tntf.pin', v) : sessionStorage.removeItem('tntf.pin'); }
 };
 
-let state = null;
+let db = null;
+let lastRaw = null;   // latest snapshot from the data layer
+let state = null;     // derived view for rendering
 let tab = 'week';
+let adminUnlocked = false;
 
-// ---- api helpers ----------------------------------------------------------
-async function api(path, body, method = 'POST') {
-  const res = await fetch(path, {
-    method,
-    headers: { 'Content-Type': 'application/json', 'x-admin-pin': LS.pin },
-    body: body ? JSON.stringify(body) : undefined
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Something went wrong');
-  return data;
-}
-async function loadState() {
-  const q = LS.id ? `?playerId=${encodeURIComponent(LS.id)}` : '';
-  state = await (await fetch('/api/state' + q)).json();
+// ---- derive the render view from a raw snapshot ---------------------------
+function buildView() {
+  if (!lastRaw) return;
+  const playerId = LS.id;
+  const me = playerId ? lastRaw.playersById[playerId] || null : null;
+
+  let game = null;
+  const g = lastRaw.game;
+  if (g && g.status !== 'completed') {
+    const ranked = logic.rankSignups(lastRaw.signups, lastRaw.playersById, g.capacity);
+    const mine = playerId ? ranked.find(r => r.playerId === playerId) : null;
+    const hrs = logic.hoursUntilKickoff(g.kickoffAt);
+    game = {
+      id: g.id, status: g.status, dateLabel: g.dateLabel, kickoffAt: g.kickoffAt, capacity: g.capacity,
+      confirmed: ranked.filter(r => r.status === 'confirmed'),
+      waitlist: ranked.filter(r => r.status === 'waitlist'),
+      totalIn: ranked.length,
+      me: mine ? { rank: mine.rank, status: mine.status } : null,
+      withdrawPenaltyNow: logic.penaltyForHours(hrs, lastRaw.config).penalty
+    };
+  }
+  state = { config: lastRaw.config, me, roster: lastRaw.roster, game };
 }
 
 // ---- ui helpers -----------------------------------------------------------
@@ -35,10 +49,7 @@ function toast(msg, isErr = false) {
   t.textContent = msg; t.className = isErr ? 'err show' : 'show';
   clearTimeout(t._t); t._t = setTimeout(() => t.className = t.className.replace('show', ''), 2600);
 }
-function avatarColor(name) {
-  let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return `hsl(${h} 70% 62%)`;
-}
+function avatarColor(name) { let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360; return `hsl(${h} 70% 62%)`; }
 function initials(name) { return name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase(); }
 function fmtCountdown(iso) {
   const ms = new Date(iso) - Date.now();
@@ -51,7 +62,6 @@ function fmtCountdown(iso) {
 
 function playerRow(p, opts = {}) {
   const me = p.playerId === LS.id || p.id === LS.id;
-  const pid = p.playerId || p.id;
   return `<div class="player ${me ? 'me' : ''}">
     ${opts.num != null ? `<div class="num">${opts.num}</div>` : ''}
     <div class="avatar" style="background:${avatarColor(p.name)}">${initials(p.name)}</div>
@@ -66,13 +76,15 @@ function playerRow(p, opts = {}) {
 // ---- screens --------------------------------------------------------------
 function renderHeader() {
   const c = state.config;
+  const demo = db.mode === 'local'
+    ? `<div class="demo-banner">Demo mode · single device. Add your Firebase config to share with the group — see README.</div>` : '';
   return `<header class="app">
     <div class="row">
       <svg class="ball" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#eaf5ef"/><path d="M12 6l3.5 2.6-1.3 4.1h-4.4L8.5 8.6 12 6z" fill="#0b3d2e"/></svg>
       <h1>${esc(c.clubName)}</h1>
     </div>
     <div class="sub">${esc(c.gameDay)}s · ${esc(c.kickoff)} · ${c.capacity}-a-squad · picked by loyalty, not speed</div>
-  </header>`;
+  </header>${demo}`;
 }
 
 function weekScreen() {
@@ -80,25 +92,18 @@ function weekScreen() {
   if (!g) {
     return `<div class="card center">
       <h2>No game open yet ⚽</h2>
-      <p class="hint">The next poll opens after this week's game. When it's live, you'll register here — and your place is decided by loyalty, so there's no rush to be first.</p>
+      <p class="hint">The next poll opens after this week's game. When it's live you'll register here — your place is decided by loyalty, so there's no rush to be first.</p>
       ${LS.id ? '' : joinPrompt()}
     </div>${nextGamePreview()}`;
   }
 
   const pct = Math.min(100, Math.round(g.confirmed.length / g.capacity * 100));
-  const filled = g.confirmed.length;
   let mine = '';
-  if (!LS.id) {
-    mine = `<div class="card">${joinPrompt()}</div>`;
-  } else if (g.me) {
-    if (g.me.status === 'confirmed') {
-      mine = `<div class="mine-banner in">✅ You're IN — squad place #${g.me.rank}</div>`;
-    } else {
-      mine = `<div class="mine-banner wait">⏳ You're on the waitlist — #${g.me.rank - g.capacity} in line. You'll move up if a regular drops.</div>`;
-    }
-  } else {
-    mine = `<div class="mine-banner out">You haven't registered for this game yet.</div>`;
-  }
+  if (!LS.id) mine = `<div class="card">${joinPrompt()}</div>`;
+  else if (g.me) mine = g.me.status === 'confirmed'
+    ? `<div class="mine-banner in">✅ You're IN — squad place #${g.me.rank}</div>`
+    : `<div class="mine-banner wait">⏳ You're on the waitlist — #${g.me.rank - g.capacity} in line. You'll move up if a regular drops.</div>`;
+  else mine = `<div class="mine-banner out">You haven't registered for this game yet.</div>`;
 
   const actionBtn = () => {
     if (!LS.id) return '';
@@ -106,26 +111,21 @@ function weekScreen() {
     if (g.me) {
       const pen = g.withdrawPenaltyNow;
       const warn = pen > 0
-        ? `Withdrawing now costs <b>-${pen} loyalty</b> (${fmtCountdown(g.kickoffAt).replace(' to kickoff','')} out).`
+        ? `Withdrawing now costs <b>-${pen} loyalty</b> (${fmtCountdown(g.kickoffAt).replace(' to kickoff', '')} out).`
         : `Free to withdraw now — more than 48h to kickoff.`;
-      return `<p class="small mt center">${warn}</p>
-        <button class="btn-danger" onclick="withdraw()">Withdraw from this game</button>`;
+      return `<p class="small mt center">${warn}</p><button class="btn-danger" onclick="withdraw()">Withdraw from this game</button>`;
     }
     return `<button class="btn-primary" onclick="signup()">✋ I'm in for ${esc(g.dateLabel)}</button>`;
   };
 
   const rows = g.confirmed.map((p, i) => playerRow(p, {
-    num: i + 1,
-    meta: `${p.loyalty} loyalty · ${p.gamesPlayed} games`,
-    right: `<span class="pill in">IN</span>`
+    num: i + 1, meta: `${p.loyalty} loyalty · ${p.gamesPlayed} games`, right: `<span class="pill in">IN</span>`
   })).join('') || `<div class="empty">No one's in yet — be the first.</div>`;
 
   const waitRows = g.waitlist.length
     ? `<div class="divider-wait">Waitlist · promoted if someone drops</div>` +
       g.waitlist.map((p, i) => playerRow(p, {
-        num: g.capacity + i + 1,
-        meta: `${p.loyalty} loyalty · ${p.gamesPlayed} games`,
-        right: `<span class="pill wait">#${i + 1}</span>`
+        num: g.capacity + i + 1, meta: `${p.loyalty} loyalty · ${p.gamesPlayed} games`, right: `<span class="pill wait">#${i + 1}</span>`
       })).join('')
     : '';
 
@@ -133,7 +133,7 @@ function weekScreen() {
     <div class="card">
       <div class="hero">
         <div class="date">${esc(g.dateLabel)}</div>
-        <div class="count">${filled}/${g.capacity} confirmed${g.waitlist.length ? ` · ${g.waitlist.length} waiting` : ''} · ${fmtCountdown(g.kickoffAt)}</div>
+        <div class="count">${g.confirmed.length}/${g.capacity} confirmed${g.waitlist.length ? ` · ${g.waitlist.length} waiting` : ''} · ${fmtCountdown(g.kickoffAt)}</div>
         <div class="capbar"><span style="width:${pct}%"></span></div>
       </div>
       ${mine}
@@ -142,15 +142,14 @@ function weekScreen() {
     <div class="card">
       <h2>Squad</h2>
       <p class="hint">Top ${g.capacity} by loyalty score. Sign up late? A regular still ranks above a casual — no need to hover over the poll.</p>
-      ${rows}
-      ${waitRows}
+      ${rows}${waitRows}
     </div>`;
 }
 
 function nextGamePreview() {
   return `<div class="card">
     <h2>How selection works</h2>
-    <p class="hint">When more than ${state.config.capacity} want to play, the squad is the top ${state.config.capacity} by <b>loyalty score</b> — you earn loyalty every game you play, and lose it if you drop out late. It rewards regulars and removes the race to tap first.</p>
+    <p class="hint">When more than ${state.config.capacity} want to play, the squad is the top ${state.config.capacity} by <b>loyalty score</b> — you earn loyalty every game you play and lose it if you drop out late. It rewards regulars and removes the race to tap first.</p>
   </div>`;
 }
 
@@ -164,9 +163,7 @@ function joinPrompt() {
 
 function tableScreen() {
   const rows = state.roster.map((p, i) => playerRow(p, {
-    num: i + 1,
-    meta: `${p.gamesPlayed} games · ${p.dropouts} dropout${p.dropouts === 1 ? '' : 's'}`,
-    right: `<div class="loyalty">${p.loyalty}</div>`
+    num: i + 1, meta: `${p.gamesPlayed} games · ${p.dropouts} dropout${p.dropouts === 1 ? '' : 's'}`, right: `<div class="loyalty">${p.loyalty}</div>`
   })).join('');
   return `<div class="card">
     <h2>Loyalty table</h2>
@@ -194,7 +191,7 @@ function rulesScreen() {
 
 // ---- admin ----------------------------------------------------------------
 function adminScreen() {
-  if (!LS.pin) {
+  if (!adminUnlocked) {
     return `<div class="card">
       <h2>Organiser area 🔒</h2>
       <p class="hint">Open the weekly game, lock the squad, mark it played, and manage the roster.</p>
@@ -209,19 +206,16 @@ function adminScreen() {
       <h2>${esc(g.dateLabel)} — ${esc(g.status)}</h2>
       <p class="hint">${g.confirmed.length}/${g.capacity} confirmed · ${g.waitlist.length} waiting</p>
       ${g.status === 'open'
-        ? `<button class="btn-warn" onclick="admin('lock',{gameId:'${g.id}'},'Squad locked')">Lock squad (stop registration)</button>`
-        : `<button class="btn-ghost" onclick="admin('reopen',{gameId:'${g.id}'},'Reopened')">Reopen registration</button>`}
+        ? `<button class="btn-warn" onclick="admin('lockGame','${g.id}','Squad locked')">Lock squad (stop registration)</button>`
+        : `<button class="btn-ghost" onclick="admin('reopenGame','${g.id}','Reopened')">Reopen registration</button>`}
       <div class="mt"><button class="btn-primary" onclick="completeGame('${g.id}')">Mark as played → bank loyalty</button></div>
     </div>` : `
     <div class="card">
       <h2>No game open</h2>
       <p class="hint">Open this week's game — defaults to the next ${esc(state.config.gameDay)} at ${esc(state.config.kickoff)}.</p>
-      <label class="field">Label</label>
-      <input id="gLabel" value="${esc(state.config.gameDay)} game" />
-      <label class="field">Capacity (squad size)</label>
-      <input id="gCap" type="number" value="${state.config.capacity}" />
-      <label class="field">Kickoff</label>
-      <input id="gKick" type="datetime-local" />
+      <label class="field">Label</label><input id="gLabel" value="${esc(state.config.gameDay)} game" />
+      <label class="field">Capacity (squad size)</label><input id="gCap" type="number" value="${state.config.capacity}" />
+      <label class="field">Kickoff</label><input id="gKick" type="datetime-local" />
       <button class="btn-primary mt" onclick="openGame()">Open the game</button>
     </div>`;
 
@@ -237,24 +231,18 @@ function adminScreen() {
       <h2>Roster & loyalty</h2>
       <p class="hint">Nudge loyalty by hand if needed (e.g. someone played as a ringer).</p>
       ${roster}
-      <label class="field mt">Add a player</label>
-      <input id="newPlayer" placeholder="Name" />
+      <label class="field mt">Add a player</label><input id="newPlayer" placeholder="Name" />
       <button class="btn-ghost" onclick="addPlayer()">Add to roster</button>
     </div>
     <div class="card">
       <h2>Settings</h2>
-      <label class="field">Club name</label>
-      <input id="cName" value="${esc(state.config.clubName)}" />
+      <label class="field">Club name</label><input id="cName" value="${esc(state.config.clubName)}" />
       <label class="field">Game day</label>
-      <select id="cDay">${['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(d => `<option ${d === state.config.gameDay ? 'selected' : ''}>${d}</option>`).join('')}</select>
-      <label class="field">Kickoff (HH:MM)</label>
-      <input id="cKick" value="${esc(state.config.kickoff)}" />
-      <label class="field">Default squad size</label>
-      <input id="cCap" type="number" value="${state.config.capacity}" />
-      <label class="field">Loyalty per game played</label>
-      <input id="cReward" type="number" value="${state.config.scoring.playedReward}" />
-      <label class="field">New admin PIN (leave blank to keep)</label>
-      <input id="cPin" type="password" inputmode="numeric" placeholder="••••" />
+      <select id="cDay">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `<option ${d === state.config.gameDay ? 'selected' : ''}>${d}</option>`).join('')}</select>
+      <label class="field">Kickoff (HH:MM)</label><input id="cKick" value="${esc(state.config.kickoff)}" />
+      <label class="field">Default squad size</label><input id="cCap" type="number" value="${state.config.capacity}" />
+      <label class="field">Loyalty per game played</label><input id="cReward" type="number" value="${state.config.scoring.playedReward}" />
+      <label class="field">New admin PIN (leave blank to keep)</label><input id="cPin" type="password" inputmode="numeric" placeholder="••••" />
       <button class="btn-primary mt" onclick="saveConfig()">Save settings</button>
       <button class="btn-ghost mt" onclick="adminLogout()">Log out of organiser</button>
     </div>`;
@@ -262,6 +250,7 @@ function adminScreen() {
 
 // ---- render ---------------------------------------------------------------
 function render() {
+  if (!state) return;
   const screens = { week: weekScreen, table: tableScreen, rules: rulesScreen, admin: adminScreen };
   const icon = {
     week: '<path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 3l4 3-1.5 4.7h-5L8 8l4-3z" fill="currentColor"/>',
@@ -274,9 +263,7 @@ function render() {
   let nav = document.querySelector('nav.tabs');
   if (!nav) { nav = document.createElement('nav'); nav.className = 'tabs'; document.body.appendChild(nav); }
   nav.innerHTML = Object.keys(screens).map(k =>
-    `<button class="${tab === k ? 'active' : ''}" onclick="go('${k}')">
-       <svg viewBox="0 0 24 24">${icon[k]}</svg>${label[k]}
-     </button>`).join('');
+    `<button class="${tab === k ? 'active' : ''}" onclick="go('${k}')"><svg viewBox="0 0 24 24">${icon[k]}</svg>${label[k]}</button>`).join('');
 }
 
 // ---- actions --------------------------------------------------------------
@@ -285,52 +272,52 @@ window.go = t => { tab = t; render(); };
 window.join = async () => {
   const name = document.getElementById('nameInput').value.trim();
   if (!name) return toast('Enter your name', true);
-  try { const r = await api('/api/player', { name }); LS.id = r.player.id; await refresh(); toast(`Welcome, ${r.player.name}`); }
+  try { LS.id = await db.upsertPlayer(name); buildView(); render(); toast(`Welcome, ${name}`); }
   catch (e) { toast(e.message, true); }
 };
 window.signup = async () => {
-  try { state = await api('/api/signup', { playerId: LS.id, gameId: state.game.id }); render();
-    toast(state.game.me?.status === 'confirmed' ? "You're in ✅" : "Added — you're on the waitlist"); }
+  try { await db.signup(LS.id, state.game.id); buildView(); render();
+    toast(state.game?.me?.status === 'waitlist' ? "Added — you're on the waitlist" : "You're in ✅"); }
   catch (e) { toast(e.message, true); }
 };
 window.withdraw = async () => {
   const pen = state.game.withdrawPenaltyNow;
   if (!confirm(pen > 0 ? `Withdraw now for -${pen} loyalty?` : 'Withdraw from this game?')) return;
-  try { const r = await api('/api/withdraw', { playerId: LS.id, gameId: state.game.id });
-    state = r.state; render();
+  try { const r = await db.withdraw(LS.id, state.game.id);
     toast(r.penalty > 0 ? `Withdrawn · -${r.penalty} loyalty (${r.label})` : 'Withdrawn · no penalty'); }
   catch (e) { toast(e.message, true); }
 };
 
 window.adminLogin = async () => {
   const pin = document.getElementById('pinInput').value;
-  try { const r = await api('/api/admin/check', { pin }); if (!r.ok) return toast('Wrong PIN', true);
-    LS.pin = pin; render(); toast('Unlocked'); }
+  try { if (!(await db.checkPin(pin))) return toast('Wrong PIN', true);
+    adminUnlocked = true; render(); toast('Unlocked'); }
   catch (e) { toast(e.message, true); }
 };
-window.adminLogout = () => { LS.pin = ''; render(); toast('Logged out'); };
-window.admin = async (action, body, ok) => {
-  try { state = await api('/api/admin/' + action, body); render(); toast(ok || 'Done'); }
+window.adminLogout = () => { adminUnlocked = false; render(); toast('Logged out'); };
+window.admin = async (method, id, ok) => {
+  try { await db[method](id); toast(ok || 'Done'); }
   catch (e) { toast(e.message, true); }
 };
 window.openGame = async () => {
-  const label = document.getElementById('gLabel').value.trim();
+  const dateLabel = document.getElementById('gLabel').value.trim();
   const capacity = Number(document.getElementById('gCap').value);
   const kick = document.getElementById('gKick').value;
-  const body = { dateLabel: label, capacity };
+  const body = { dateLabel, capacity };
   if (kick) body.kickoffAt = new Date(kick).toISOString();
-  try { const r = await api('/api/admin/open', body); state = r.state; tab = 'week'; render(); toast('Game opened ⚽'); }
+  try { await db.openGame(body); tab = 'week'; render(); toast('Game opened ⚽'); }
   catch (e) { toast(e.message, true); }
 };
 window.completeGame = async (id) => {
-  if (!confirm('Mark as played? Confirmed squad each get their loyalty reward, then this game is archived.')) return;
-  await admin('complete', { gameId: id }, 'Loyalty banked · game archived');
+  if (!confirm('Mark as played? The confirmed squad each get their loyalty reward, then this game is archived.')) return;
+  try { await db.completeGame(id); toast('Loyalty banked · game archived'); }
+  catch (e) { toast(e.message, true); }
 };
-window.adjust = (id, delta) => admin('adjust', { id, delta }, 'Updated');
+window.adjust = async (id, delta) => { try { await db.adjustLoyalty(id, delta); } catch (e) { toast(e.message, true); } };
 window.addPlayer = async () => {
   const name = document.getElementById('newPlayer').value.trim();
   if (!name) return toast('Enter a name', true);
-  await admin('add-player', { name }, 'Player added');
+  try { await db.upsertPlayer(name); toast('Player added'); } catch (e) { toast(e.message, true); }
 };
 window.saveConfig = async () => {
   const patch = {
@@ -342,16 +329,19 @@ window.saveConfig = async () => {
   };
   const pin = document.getElementById('cPin').value.trim();
   if (pin) patch.adminPin = pin;
-  try { state = await api('/api/admin/config', patch); if (pin) LS.pin = pin; render(); toast('Settings saved'); }
+  try { await db.updateConfig(patch); render(); toast('Settings saved'); }
   catch (e) { toast(e.message, true); }
 };
 
-async function refresh() { await loadState(); render(); }
-
 // ---- boot -----------------------------------------------------------------
 (async () => {
-  try { await loadState(); render(); }
-  catch { $app.innerHTML = '<div class="loading">Could not reach the server.</div>'; }
-  // keep countdown / rankings fresh
-  setInterval(async () => { if (document.visibilityState === 'visible') { try { await loadState(); if (tab === 'week' || tab === 'table') render(); } catch {} } }, 20000);
+  try {
+    db = await createDB();
+    db.subscribe(raw => { lastRaw = raw; buildView(); render(); });
+  } catch (e) {
+    console.error(e);
+    $app.innerHTML = `<div class="loading">Couldn't start: ${esc(e.message || e)}.<br>If you just added Firebase config, check firestore.rules are published.</div>`;
+  }
+  // keep countdown / penalty text fresh
+  setInterval(() => { if (document.visibilityState === 'visible' && lastRaw) { buildView(); if (tab === 'week' || tab === 'table') render(); } }, 20000);
 })();
