@@ -343,9 +343,12 @@ function adminScreen() {
       <button class="btn-primary mt" onclick="openGame()">Open the game</button>
     </div>`;
 
+  const linkTag = p => auth?.enabled
+    ? (p.email ? `<span class="link-tag ok">✓ ${esc(p.email)}</span>` : `<span class="link-tag no">not linked</span>`)
+    : '';
   const roster = state.roster.map(p => `<div class="player">
       <div class="avatar" style="background:${avatarColor(p.name)}">${initials(p.name)}</div>
-      <div class="info"><div class="name">${esc(p.name)}</div><div class="meta">${p.loyalty} loyalty · ${p.gamesPlayed} games · ${p.dropouts} dropouts</div></div>
+      <div class="info"><div class="name">${esc(p.name)}</div><div class="meta">${p.loyalty} loyalty · ${p.gamesPlayed} games · ${p.dropouts} dropouts ${linkTag(p)}</div></div>
       <button style="width:auto;padding:8px 10px" class="btn-ghost" onclick="adjust('${p.id}',1)">＋</button>
       <button style="width:auto;padding:8px 10px;margin-left:6px" class="btn-ghost" onclick="adjust('${p.id}',-1)">－</button>
     </div>`).join('');

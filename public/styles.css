@@ -152,3 +152,6 @@ nav.tabs svg { width: 22px; height: 22px; }
 #toast.err { background: var(--danger); }
 
 .empty { text-align: center; color: var(--muted); padding: 22px 10px; }
+.link-tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 4px; }
+.link-tag.ok { background: #e4f3ea; color: var(--in); }
+.link-tag.no { background: #fbf1df; color: var(--amber); }
