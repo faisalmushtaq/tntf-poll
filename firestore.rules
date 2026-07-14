@@ -11,10 +11,15 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Config / settings + the current-game pointer.
+    // Config / settings, the current-game pointer, and the notifier's
+    // bookkeeping doc (meta/notify). The notifier uses the Admin SDK, which
+    // bypasses these rules, so meta/notify can stay closed to clients.
     match /meta/config {
       allow read: if true;
       allow write: if true;
+    }
+    match /meta/notify {
+      allow read, write: if false; // Admin SDK only
     }
 
     // Roster. Loyalty lives here; open so the app can award/deduct points.

@@ -1,5 +1,7 @@
 // app.js — vanilla mobile SPA. Talks to the data layer (db.js); no backend.
 import { createDB } from './db.js';
+import { createAuth } from './auth.js';
+import { enablePush, pushSupported, pushConfigured, isIOS, isStandalone } from './messaging.js';
 import * as logic from './logic.js';
 
 const $app = document.getElementById('app');
@@ -12,16 +14,31 @@ const LS = {
 };
 
 let db = null;
+let auth = null;
+let user = null;      // signed-in Firebase user (cloud mode) or null
 let lastRaw = null;   // latest snapshot from the data layer
 let state = null;     // derived view for rendering
+let history = null;   // completed games (loaded lazily for Stats)
 let tab = 'week';
 let adminUnlocked = false;
+
+// Resolve "me": in cloud+auth mode match the signed-in account to a roster
+// entry by uid/email; in demo mode fall back to the name saved on this device.
+function resolveMe() {
+  if (auth?.enabled) {
+    if (!user) return null;
+    const p = Object.values(lastRaw.playersById).find(x => x.uid === user.uid || (x.email && user.email && x.email.toLowerCase() === user.email.toLowerCase()));
+    if (p) { LS.id = p.id; return p; }
+    return null; // signed in but not linked to a roster spot yet
+  }
+  return LS.id ? lastRaw.playersById[LS.id] || null : null;
+}
 
 // ---- derive the render view from a raw snapshot ---------------------------
 function buildView() {
   if (!lastRaw) return;
-  const playerId = LS.id;
-  const me = playerId ? lastRaw.playersById[playerId] || null : null;
+  const me = resolveMe();
+  const playerId = me ? me.id : null;
 
   let game = null;
   const g = lastRaw.game;
@@ -38,7 +55,21 @@ function buildView() {
       withdrawPenaltyNow: logic.penaltyForHours(hrs, lastRaw.config).penalty
     };
   }
-  state = { config: lastRaw.config, me, roster: lastRaw.roster, game };
+  const alert = game ? statusAlert(game, playerId) : null;
+  state = { config: lastRaw.config, me, roster: lastRaw.roster, game, alert };
+}
+
+// Detect when my confirmed/reserve status changed since I last looked (works
+// in every mode, no server needed) and surface it as an in-app banner.
+function statusAlert(game, playerId) {
+  if (!playerId || !game.me) return null;
+  const key = 'tntf.laststatus.' + game.id + '.' + playerId;
+  const prev = localStorage.getItem(key);
+  const now = game.me.status;
+  if (prev !== now) localStorage.setItem(key, now);
+  if (!prev || prev === now) return null;
+  if (now === 'confirmed') return { kind: 'in', text: "🎉 You've been promoted — you're now IN the squad!" };
+  return { kind: 'wait', text: "⚠️ You've been bumped to the reserves — you'll move up if someone drops." };
 }
 
 // ---- ui helpers -----------------------------------------------------------
@@ -90,24 +121,25 @@ function renderHeader() {
 
 function weekScreen() {
   const g = state.game;
+  const alert = state.alert ? `<div class="mine-banner ${state.alert.kind}">${state.alert.text}</div>` : '';
   if (!g) {
-    return `<div class="card center">
+    return `${alert}<div class="card center">
       <h2>No game open yet ⚽</h2>
       <p class="hint">The next poll opens after this week's game. When it's live you'll register here — your place is decided by loyalty, so there's no rush to be first.</p>
-      ${LS.id ? '' : joinPrompt()}
+      ${state.me ? '' : identityPrompt()}
     </div>${nextGamePreview()}`;
   }
 
   const pct = Math.min(100, Math.round(g.confirmed.length / g.capacity * 100));
   let mine = '';
-  if (!LS.id) mine = `<div class="card">${joinPrompt()}</div>`;
+  if (!state.me) mine = `<div class="card">${identityPrompt()}</div>`;
   else if (g.me) mine = g.me.status === 'confirmed'
     ? `<div class="mine-banner in">✅ You're IN — squad place #${g.me.rank} of ${g.capacity}</div>`
     : `<div class="mine-banner wait">⏳ You're ${ordinal(g.me.rank - g.capacity)} reserve. You'll move up if someone in the squad drops.</div>`;
   else mine = `<div class="mine-banner out">You haven't registered for this game yet.</div>`;
 
   const actionBtn = () => {
-    if (!LS.id) return '';
+    if (!state.me) return '';
     if (g.status !== 'open') return `<button class="btn-ghost" disabled>Registration ${esc(g.status)}</button>`;
     if (g.me) {
       const pen = g.withdrawPenaltyNow;
@@ -116,35 +148,54 @@ function weekScreen() {
         : `Free to withdraw now — more than 48h to kickoff.`;
       return `<p class="small mt center">${warn}</p><button class="btn-danger" onclick="withdraw()">Withdraw from this game</button>`;
     }
-    return `<button class="btn-primary" onclick="signup()">✋ I'm in for ${esc(g.dateLabel)}</button>`;
+    return `<button class="btn-primary" onclick="signup()">I'm in for ${esc(g.dateLabel)} &nbsp;→</button>`;
   };
 
-  const rows = g.confirmed.map((p, i) => playerRow(p, {
-    num: i + 1, meta: `${p.loyalty} loyalty · ${p.gamesPlayed} games`, right: `<span class="pill in">IN</span>`
-  })).join('') || `<div class="empty">No one's in yet — be the first.</div>`;
-
-  const waitRows = g.waitlist.length
-    ? `<div class="divider-wait">Reserves · promoted if someone drops</div>` +
-      g.waitlist.map((p, i) => playerRow(p, {
-        num: g.capacity + i + 1, meta: `${ordinal(i + 1)} reserve · ${p.loyalty} loyalty`, right: `<span class="pill wait">${ordinal(i + 1)}</span>`
-      })).join('')
-    : '';
+  const kicker = g.status === 'open' ? 'REGISTRATION OPEN' : g.status === 'locked' ? 'SQUAD LOCKED' : g.status.toUpperCase();
 
   return `
+    ${alert}
     <div class="card">
       <div class="hero">
+        <div class="kicker">${kicker}</div>
         <div class="date">${esc(g.dateLabel)}</div>
-        <div class="count">${g.confirmed.length}/${g.capacity} confirmed${g.waitlist.length ? ` · ${g.waitlist.length} waiting` : ''} · ${fmtCountdown(g.kickoffAt)}</div>
+        <div class="count">${g.confirmed.length}/${g.capacity} confirmed${g.waitlist.length ? ` · ${g.waitlist.length} on the bench` : ''} · ${fmtCountdown(g.kickoffAt)}</div>
         <div class="capbar"><span style="width:${pct}%"></span></div>
       </div>
       ${mine}
       ${actionBtn()}
     </div>
     <div class="card">
-      <h2>Squad & reserves</h2>
-      <p class="hint">Everyone can see the full list — the ${g.capacity} confirmed and the reserves in line behind them. Ranked by loyalty score, so a regular who signs up late still ranks above a casual.</p>
-      ${rows}${waitRows}
+      <h2>Squad &amp; reserves</h2>
+      <p class="hint">Everyone can see the full list. Ranked by loyalty score — a regular who signs up late still ranks above a casual, so there's no rush to be first.</p>
+      <div class="lu-head">Starting ${g.capacity} · by loyalty</div>
+      ${lineup(g.confirmed, 1, 'loyalty')}
+      ${g.waitlist.length ? `<div class="lu-head sub">Reserves</div>${lineup(g.waitlist, g.capacity + 1, 'reserve')}` : ''}
     </div>`;
+}
+
+// Abbreviate to Guardian lineup style: "Darren Ellis" → "D. Ellis"; single
+// names stay as-is ("Faisal", "Suki").
+function abbrev(name) {
+  const parts = String(name).trim().split(/\s+/);
+  return parts.length < 2 ? name : `${parts[0][0]}. ${parts.slice(1).join(' ')}`;
+}
+
+// Two-column "Lineups / Substitutes" style list (Guardian match-report look).
+function lineup(list, startNum, badgeMode) {
+  if (!list.length) return '<div class="empty">No one yet — be the first.</div>';
+  const half = Math.ceil(list.length / 2);
+  const row = (p, n, idx) => {
+    const meCls = p.playerId === state.me?.id ? ' me' : '';
+    const badge = badgeMode === 'reserve'
+      ? `<span class="lu-badge amber">${ordinal(idx + 1)}</span>`
+      : `<span class="lu-badge" title="loyalty">${p.loyalty}</span>`;
+    const you = p.playerId === state.me?.id ? ' <span class="you">you</span>' : '';
+    return `<div class="lu-row${meCls}"><span class="lu-num">${n}</span><span class="lu-name">${esc(abbrev(p.name))}${you}</span>${badge}</div>`;
+  };
+  const left = list.slice(0, half).map((p, i) => row(p, startNum + i, i)).join('');
+  const right = list.slice(half).map((p, i) => row(p, startNum + half + i, half + i)).join('');
+  return `<div class="lineup"><div class="lu-col">${left}</div><div class="lu-col">${right}</div></div>`;
 }
 
 function nextGamePreview() {
@@ -154,7 +205,30 @@ function nextGamePreview() {
   </div>`;
 }
 
-function joinPrompt() {
+// Mode-aware identity prompt:
+//  • demo mode → pick your name (device-local)
+//  • cloud + auth, signed out → email magic-link sign-in
+//  • cloud + auth, signed in but unlinked → link to a roster spot
+function identityPrompt() {
+  if (auth?.enabled) {
+    if (!user) {
+      return `<h2>Sign in to register</h2>
+        <p class="hint">Enter your email — we'll send you a one-tap sign-in link. No password. This is also how you get notified when your spot changes.</p>
+        <input id="emailInput" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com" />
+        <div class="mt"><button class="btn-primary" onclick="sendLink()">Email me a sign-in link</button></div>
+        <p class="small center mt">You can still see the squad and reserves without signing in.</p>`;
+    }
+    // signed in, needs linking to a roster entry
+    const opts = state.roster.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
+    return `<h2>Link your spot</h2>
+      <p class="hint">Signed in as ${esc(user.email)}. Which player are you? Pick your name, or add yourself if you're new.</p>
+      <label class="field">I'm on the roster as</label>
+      <select id="linkSelect"><option value="">— choose your name —</option>${opts}</select>
+      <button class="btn-primary mt" onclick="linkExisting()">That's me</button>
+      <label class="field mt">Not on the roster? Add yourself</label>
+      <input id="linkNew" placeholder="Your name" />
+      <button class="btn-ghost" onclick="linkNew()">Add me & link</button>`;
+  }
   return `<h2>What's your name?</h2>
     <p class="hint">Pick your name so we can track your loyalty. One tap and you're set on this phone.</p>
     <input id="nameInput" placeholder="e.g. ${esc((state.roster[0] && state.roster[0].name) || 'Your name')}" autocomplete="name" />
@@ -188,6 +262,55 @@ function rulesScreen() {
       ${tiers.map(t => `<li><span>${esc(t.label)}</span><span class="pts ${t.penalty === 0 ? 'free' : ''}">${t.penalty === 0 ? 'no penalty' : '-' + t.penalty}</span></li>`).join('')}
     </ul>
   </div>`;
+}
+
+// ---- you: stats, notifications, account -----------------------------------
+function youScreen() {
+  if (!state.me) {
+    return `<div class="card">${identityPrompt()}</div>`;
+  }
+  const me = state.me;
+  const stats = history ? logic.playerStats(me.id, history) : null;
+
+  const statsCard = stats ? `
+    <div class="card">
+      <h2>Your record</h2>
+      <div class="statgrid">
+        <div class="stat"><div class="statnum">${stats.played}</div><div class="statlbl">games played</div></div>
+        <div class="stat"><div class="statnum">${stats.attendancePct}%</div><div class="statlbl">attendance</div></div>
+        <div class="stat"><div class="statnum">${me.loyalty}</div><div class="statlbl">loyalty</div></div>
+        <div class="stat"><div class="statnum">${stats.dropouts}</div><div class="statlbl">dropouts</div></div>
+      </div>
+      ${stats.history.length ? `<div class="section-title">History</div>${stats.history.map(h =>
+        `<div class="histrow"><span>${esc(h.dateLabel || 'Game')}</span><span class="pill ${h.played ? 'in' : h.withdrew ? 'out' : 'wait'}">${h.played ? 'played' : h.withdrew ? 'dropped out' : 'reserve'}</span></div>`).join('')}`
+        : '<p class="hint">No completed games yet — your history builds up from here.</p>'}
+    </div>` : `<div class="card"><h2>Your record</h2><p class="hint">Loading your history…</p></div>`;
+
+  // Notifications card
+  let notif = '';
+  if (auth?.enabled) {
+    const emailLine = me.email
+      ? `<div class="notif-row"><span>📧 Email alerts</span><span class="pill in">on</span></div><p class="small">Sent to ${esc(me.email)} when your spot changes.</p>`
+      : `<p class="small">Sign in with email to get email alerts.</p>`;
+    let pushLine;
+    if (!pushConfigured()) pushLine = `<p class="small">Push notifications aren't set up yet (organiser: add a messaging key — see README).</p>`;
+    else if (localStorage.getItem('tntf.pushOn')) pushLine = `<div class="notif-row"><span>🔔 Push notifications</span><span class="pill in">on</span></div>`;
+    else if (isIOS() && !isStandalone()) pushLine = `<div class="ios-hint"><b>To get push on iPhone:</b> tap the Share icon in Safari → <b>Add to Home Screen</b>, then open TNTF from your home screen and turn on push here.</div>`;
+    else pushLine = `<button class="btn-primary" onclick="enablePushNow()">🔔 Turn on push notifications</button>`;
+    notif = `<div class="card"><h2>Notifications</h2>${emailLine}${pushLine}</div>`;
+  } else {
+    notif = `<div class="card"><h2>Notifications</h2><p class="hint">Email & push alerts activate once the organiser connects Firebase (see README). For now this device shows in-app alerts when your status changes.</p></div>`;
+  }
+
+  const account = auth?.enabled
+    ? `<div class="card"><h2>Account</h2><p class="hint">Signed in as ${esc(user.email)} · linked to ${esc(me.name)}.</p><button class="btn-ghost" onclick="signOutUser()">Sign out</button></div>`
+    : `<div class="card"><h2>You</h2><p class="hint">Playing as ${esc(me.name)} on this device.</p><button class="btn-ghost" onclick="forgetMe()">Not you? Switch name</button></div>`;
+
+  return `<div class="card center hero-you">
+      <div class="avatar big" style="background:${avatarColor(me.name)}">${initials(me.name)}</div>
+      <h2 style="margin-top:8px">${esc(me.name)}</h2>
+      <p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p>
+    </div>${statsCard}${notif}${account}`;
 }
 
 // ---- admin ----------------------------------------------------------------
@@ -252,14 +375,15 @@ function adminScreen() {
 // ---- render ---------------------------------------------------------------
 function render() {
   if (!state) return;
-  const screens = { week: weekScreen, table: tableScreen, rules: rulesScreen, admin: adminScreen };
+  const screens = { week: weekScreen, table: tableScreen, you: youScreen, rules: rulesScreen, admin: adminScreen };
   const icon = {
     week: '<path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 3l4 3-1.5 4.7h-5L8 8l4-3z" fill="currentColor"/>',
     table: '<path d="M4 5h16M4 12h16M4 19h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+    you: '<circle cx="12" cy="8" r="3.4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 20c0-3.6 3.1-6.2 7-6.2s7 2.6 7 6.2" fill="none" stroke="currentColor" stroke-width="2"/>',
     rules: '<path d="M6 3h9l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 12h7M9 16h7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
-    admin: '<circle cx="12" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 20c0-3.5 3.1-6 7-6s7 2.5 7 6" fill="none" stroke="currentColor" stroke-width="2"/>'
+    admin: '<path d="M12 2l7 3v6c0 4.5-3 8.5-7 9-4-.5-7-4.5-7-9V5l7-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>'
   };
-  const label = { week: 'This week', table: 'Table', rules: 'Rules', admin: 'Organiser' };
+  const label = { week: 'This week', table: 'Table', you: 'You', rules: 'Rules', admin: 'Organiser' };
   $app.innerHTML = renderHeader() + `<main>${screens[tab]()}</main>`;
   let nav = document.querySelector('nav.tabs');
   if (!nav) { nav = document.createElement('nav'); nav.className = 'tabs'; document.body.appendChild(nav); }
@@ -267,24 +391,63 @@ function render() {
     `<button class="${tab === k ? 'active' : ''}" onclick="go('${k}')"><svg viewBox="0 0 24 24">${icon[k]}</svg>${label[k]}</button>`).join('');
 }
 
-// ---- actions --------------------------------------------------------------
-window.go = t => { tab = t; render(); };
+// Load completed-game history once, for the Stats screen.
+async function ensureHistory() {
+  if (history !== null) return;
+  history = [];
+  try { history = await db.loadHistory(); if (tab === 'you') render(); } catch (e) { console.error(e); }
+}
 
+// ---- actions --------------------------------------------------------------
+window.go = t => { tab = t; render(); if (t === 'you') ensureHistory(); };
+
+// demo-mode name pick
 window.join = async () => {
   const name = document.getElementById('nameInput').value.trim();
   if (!name) return toast('Enter your name', true);
   try { LS.id = await db.upsertPlayer(name); buildView(); render(); toast(`Welcome, ${name}`); }
   catch (e) { toast(e.message, true); }
 };
+// cloud-mode: email magic-link
+window.sendLink = async () => {
+  const email = document.getElementById('emailInput').value.trim();
+  if (!email) return toast('Enter your email', true);
+  try { await auth.sendLink(email); toast('Check your inbox for the sign-in link 📧'); }
+  catch (e) { toast(e.message, true); }
+};
+window.linkExisting = async () => {
+  const id = document.getElementById('linkSelect').value;
+  if (!id) return toast('Pick your name', true);
+  try { await db.setPlayerEmail(id, user.email, user.uid); LS.id = id; toast('Linked ✅'); }
+  catch (e) { toast(e.message, true); }
+};
+window.linkNew = async () => {
+  const name = document.getElementById('linkNew').value.trim();
+  if (!name) return toast('Enter your name', true);
+  try { const id = await db.upsertPlayer(name); await db.setPlayerEmail(id, user.email, user.uid); LS.id = id; toast(`Welcome, ${name}`); }
+  catch (e) { toast(e.message, true); }
+};
+window.signOutUser = async () => { try { await auth.signOut(); LS.id = ''; toast('Signed out'); } catch (e) { toast(e.message, true); } };
+window.forgetMe = () => { LS.id = ''; buildView(); render(); };
+
+window.enablePushNow = async () => {
+  try {
+    const token = await enablePush();
+    await db.savePushToken(state.me.id, token);
+    localStorage.setItem('tntf.pushOn', '1');
+    render(); toast('Push notifications on 🔔');
+  } catch (e) { toast(e.message, true); }
+};
+
 window.signup = async () => {
-  try { await db.signup(LS.id, state.game.id); buildView(); render();
+  try { await db.signup(state.me.id, state.game.id); buildView(); render();
     toast(state.game?.me?.status === 'waitlist' ? "Added — you're on the waitlist" : "You're in ✅"); }
   catch (e) { toast(e.message, true); }
 };
 window.withdraw = async () => {
   const pen = state.game.withdrawPenaltyNow;
   if (!confirm(pen > 0 ? `Withdraw now for -${pen} loyalty?` : 'Withdraw from this game?')) return;
-  try { const r = await db.withdraw(LS.id, state.game.id);
+  try { const r = await db.withdraw(state.me.id, state.game.id);
     toast(r.penalty > 0 ? `Withdrawn · -${r.penalty} loyalty (${r.label})` : 'Withdrawn · no penalty'); }
   catch (e) { toast(e.message, true); }
 };
@@ -334,10 +497,21 @@ window.saveConfig = async () => {
   catch (e) { toast(e.message, true); }
 };
 
+// foreground push → in-app toast
+window.addEventListener('tntf-push', e => {
+  const n = e.detail?.notification || e.detail?.data || {};
+  toast(n.title ? `${n.title}${n.body ? ' — ' + n.body : ''}` : 'Update');
+});
+
 // ---- boot -----------------------------------------------------------------
 (async () => {
   try {
     db = await createDB();
+    auth = await createAuth();
+    if (auth.enabled) {
+      await auth.complete().catch(err => console.error('sign-in link', err));
+      auth.onChange(u => { user = u; history = null; buildView(); render(); });
+    }
     db.subscribe(raw => { lastRaw = raw; buildView(); render(); });
   } catch (e) {
     console.error(e);

@@ -63,4 +63,41 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('next kickoff is in the future', next > from);
 }
 
+// --- notification diff: who changed status because of others ---------------
+{
+  const prev = { a: 'confirmed', b: 'confirmed', c: 'waitlist', d: 'waitlist' };
+  const curr = { a: 'confirmed', c: 'confirmed', d: 'waitlist', e: 'waitlist' };
+  // b withdrew (gone), c promoted, e is brand new (self sign-up)
+  const changes = logic.diffStatuses(prev, curr);
+  const byId = Object.fromEntries(changes.map(c => [c.playerId, c.kind]));
+  ok('promotion off the reserves is flagged', byId.c === 'promoted');
+  ok('brand-new sign-up is NOT notified (self-initiated)', !('e' in byId));
+  ok('players who withdrew are not flagged', !('b' in byId));
+  ok('unchanged players are not flagged', !('a' in byId) && !('d' in byId));
+}
+{
+  const changes = logic.diffStatuses({ a: 'confirmed' }, { a: 'waitlist' });
+  ok('being bumped from squad to reserve is flagged', changes[0] && changes[0].kind === 'bumped');
+}
+
+// --- player stats from frozen game results ---------------------------------
+{
+  const games = [
+    { id: 'g1', status: 'completed', dateLabel: 'Wk1', completedAt: '2026-01-06T21:00:00Z',
+      result: { confirmed: ['a', 'b'], reserves: ['c'] },
+      signups: [{ playerId: 'a', status: 'in' }, { playerId: 'b', status: 'in' }, { playerId: 'c', status: 'in' }] },
+    { id: 'g2', status: 'completed', dateLabel: 'Wk2', completedAt: '2026-01-13T21:00:00Z',
+      result: { confirmed: ['b', 'c'], reserves: [] },
+      signups: [{ playerId: 'a', status: 'withdrawn' }, { playerId: 'b', status: 'in' }, { playerId: 'c', status: 'in' }] },
+    { id: 'g3', status: 'open', signups: [] } // ignored
+  ];
+  const a = logic.playerStats('a', games);
+  ok('player A played 1 of 2 invited', a.played === 1 && a.invited === 2);
+  ok('player A has 1 dropout', a.dropouts === 1);
+  ok('player A attendance = 50%', a.attendancePct === 50);
+  ok('history is newest-first', a.history[0].dateLabel === 'Wk2');
+  const c = logic.playerStats('c', games);
+  ok('player C was reserve in wk1, played wk2', c.played === 1 && c.history.some(h => h.reserve));
+}
+
 console.log(`\n${pass} checks passed ✅`);

@@ -3,7 +3,8 @@
 //   • localStorage (single-device demo) otherwise
 // All the fairness maths lives in logic.js; this file is just storage + wiring.
 
-import { firebaseConfig, FIREBASE_ENABLED } from './firebase-config.js';
+import { FIREBASE_ENABLED } from './firebase-config.js';
+import { getFirebaseApp, FB_VERSION } from './firebase.js';
 import * as logic from './logic.js';
 
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
@@ -106,9 +107,12 @@ function createLocalDB() {
       const ranked = logic.rankSignups(g.signups, db.players, g.capacity);
       const reward = db.config.scoring.playedReward;
       for (const r of ranked) if (r.status === 'confirmed') { db.players[r.playerId].loyalty += reward; db.players[r.playerId].gamesPlayed += 1; }
-      g.status = 'completed'; g.completedAt = new Date().toISOString();
+      g.status = 'completed'; g.completedAt = new Date().toISOString(); g.result = logic.finalResult(ranked);
       if (db.currentGameId === id) db.currentGameId = null; persist();
     },
+    async setPlayerEmail(id, email, uid) { const p = db.players[id]; if (!p) throw new Error('Unknown player'); p.email = email || null; if (uid) p.uid = uid; persist(); },
+    async savePushToken(id, token) { const p = db.players[id]; if (!p) return; p.pushTokens = { ...(p.pushTokens || {}), [token]: new Date().toISOString() }; persist(); },
+    async loadHistory() { return db.games.filter(g => g.status === 'completed'); },
     async updateConfig(patch) {
       db.config = { ...db.config, ...patch };
       if (patch.scoring) db.config.scoring = { ...db.config.scoring, ...patch.scoring };
@@ -122,15 +126,13 @@ function createLocalDB() {
 // Firestore backend
 // ===========================================================================
 async function createFirestoreDB() {
-  const V = '10.12.2';
-  const { initializeApp } = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`);
-  const fs = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`);
+  const fs = await import(`https://www.gstatic.com/firebasejs/${FB_VERSION}/firebase-firestore.js`);
   const {
     getFirestore, doc, getDoc, setDoc, updateDoc, deleteField,
     collection, getDocs, onSnapshot, writeBatch, increment
   } = fs;
 
-  const app = initializeApp(firebaseConfig);
+  const app = await getFirebaseApp();
   const dbf = getFirestore(app);
   const cfgRef = doc(dbf, 'meta', 'config');
   const playersCol = collection(dbf, 'players');
@@ -228,9 +230,28 @@ async function createFirestoreDB() {
       for (const r of ranked) if (r.status === 'confirmed') {
         batch.update(doc(playersCol, r.playerId), { loyalty: increment(reward), gamesPlayed: increment(1) });
       }
-      batch.update(gameRef(id), { status: 'completed', completedAt: new Date().toISOString() });
+      batch.update(gameRef(id), { status: 'completed', completedAt: new Date().toISOString(), result: logic.finalResult(ranked) });
       batch.update(cfgRef, { currentGameId: null });
       await batch.commit();
+    },
+    async setPlayerEmail(id, email, uid) {
+      const patch = { email: email || null }; if (uid) patch.uid = uid;
+      await updateDoc(doc(playersCol, id), patch);
+    },
+    async savePushToken(id, token) {
+      // store under a sanitised field key so one player can have several devices
+      await setDoc(doc(playersCol, id), { pushTokens: { [token.slice(-24)]: token } }, { merge: true });
+    },
+    async loadHistory() {
+      const gs = await getDocs(collection(dbf, 'games'));
+      const out = [];
+      for (const d of gs.docs) {
+        const data = d.data();
+        if (data.status !== 'completed') continue;
+        const sus = await getDocs(signupsCol(d.id));
+        out.push({ id: d.id, ...data, signups: sus.docs.map(s => ({ playerId: s.id, ...s.data() })) });
+      }
+      return out;
     },
     async updateConfig(patch) {
       const flat = { ...patch };

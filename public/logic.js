@@ -67,6 +67,58 @@ export function rankSignups(signups = [], playersById = {}, capacity = 14) {
   }));
 }
 
+// Map a ranked list to { playerId: 'confirmed' | 'waitlist' } for diffing.
+export function statusMap(ranked = []) {
+  const m = {};
+  for (const r of ranked) m[r.playerId] = r.status;
+  return m;
+}
+
+// Compare two status maps and return the transitions worth notifying about.
+// We only care about players who moved between confirmed and waitlist while
+// still signed up — that's a promotion or a bump caused by someone else.
+// Brand-new sign-ups (no previous status) are self-initiated, so we skip them.
+export function diffStatuses(prev = {}, curr = {}) {
+  const changes = [];
+  for (const [playerId, to] of Object.entries(curr)) {
+    const from = prev[playerId];
+    if (!from || from === to) continue;
+    if (from === 'waitlist' && to === 'confirmed') changes.push({ playerId, from, to, kind: 'promoted' });
+    else if (from === 'confirmed' && to === 'waitlist') changes.push({ playerId, from, to, kind: 'bumped' });
+  }
+  return changes;
+}
+
+// Freeze the outcome of a game at completion time so history stays accurate
+// (it doesn't depend on today's loyalty). Returns { confirmed, reserves }.
+export function finalResult(ranked = []) {
+  return {
+    confirmed: ranked.filter(r => r.status === 'confirmed').map(r => r.playerId),
+    reserves: ranked.filter(r => r.status === 'waitlist').map(r => r.playerId)
+  };
+}
+
+// Per-player attendance stats from the archived completed games, using the
+// frozen result recorded on each game (see finalResult / completeGame).
+export function playerStats(playerId, games = []) {
+  let played = 0, invited = 0, dropouts = 0;
+  const history = [];
+  for (const g of games) {
+    if (g.status !== 'completed' || !g.result) continue;
+    const signup = (g.signups || []).find(s => s.playerId === playerId);
+    const withdrew = signup && signup.status === 'withdrawn';
+    const wasConfirmed = g.result.confirmed.includes(playerId);
+    const wasReserve = g.result.reserves.includes(playerId);
+    if (!signup && !wasConfirmed && !wasReserve) continue; // wasn't involved
+    invited += 1;
+    if (wasConfirmed) played += 1;
+    if (withdrew) dropouts += 1;
+    history.push({ gameId: g.id, dateLabel: g.dateLabel, completedAt: g.completedAt, played: wasConfirmed, reserve: wasReserve && !wasConfirmed, withdrew });
+  }
+  history.sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0));
+  return { played, invited, dropouts, attendancePct: invited ? Math.round(played / invited * 100) : 0, history };
+}
+
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export function nextKickoffISO(config = DEFAULT_CONFIG, now = new Date()) {

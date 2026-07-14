@@ -1,126 +1,125 @@
 # ⚽ Tuesday Night Total Football
 
 A mobile-first web app for picking who plays each week — it runs **entirely on
-GitHub**. The app is static (hosted free on **GitHub Pages**) and the shared data
-lives in **Firebase Firestore**. No server to run or pay for.
+GitHub**. The app is static (hosted free on **GitHub Pages**), the shared data
+lives in **Firebase Firestore**, and a scheduled **GitHub Action** sends the
+email / push notifications. No server to run or pay for.
 
-It's built to fix the problems with the WhatsApp poll:
+Styled after the Guardian's football pages: navy masthead, serif headlines,
+yellow buttons, and a two-column "Lineups / Substitutes" squad list.
 
-- **The poll appears at random times** → whoever's looking at their phone grabs
-  a spot. People on the pitch, driving, or busy miss out.
-- **First-come-first-served isn't fair** → it rewards fast tappers, not regulars.
-- **Last-minute dropouts aren't penalised** → the game gets left short.
-- **7-a-side vs 8-a-side** was never settled.
+## What it solves
 
-## How it fixes each one
-
-| Problem | Fix |
+| Problem (from the group chat) | Fix |
 |---|---|
-| Random poll timing | The organiser opens the game at a **consistent time** each week (defaults to the next game-day + kickoff). |
-| Race to tap first | When oversubscribed, the squad is the **top N by loyalty score**, not sign-up order. A regular who signs up late still ranks above a casual who got in early — so there's no need to hover over your phone. |
-| No reward for regulars | You earn **+2 loyalty** every game you actually play. Higher loyalty = higher priority. |
-| Unpunished dropouts | **Time-weighted penalty**: pulling out 2+ days ahead is free; same-day and last-minute cost loyalty (as Tom suggested). The app shows the cost *before* you confirm. |
-| Squad size | Configurable per game — default **14 (7-a-side)**, set 16 or anything else when you open the game. |
-| People who miss out | An automatic **waitlist** — if someone drops, the next player by loyalty is promoted, live. |
+| The poll appears at random times; people on the pitch or driving miss out | The organiser opens the game at a **consistent time**; there's a real window, not a race. |
+| First-come-first-served rewards fast tappers, not regulars | When oversubscribed, the squad is the **top N by loyalty score**, not sign-up order. A regular who signs up late still ranks above a casual. |
+| No reward for turning up regularly | **+2 loyalty** every game you play. |
+| Late dropouts go unpunished | **Time-weighted penalty**: free 2+ days out, scaling to −5 last-minute (Tom's point). Shown before you confirm. |
+| People never know if they're in or out | **Email + push notifications** when your status changes, plus a public list everyone can see. |
+| 7-a-side vs 8-a-side | Squad size is configurable per game (default 14). |
 
 ## Screens
 
-- **This week** — the live squad, the waitlist, and your one-tap *I'm in* /
-  *Withdraw* (with the penalty shown up front).
-- **Table** — the loyalty leaderboard, so the pecking order is transparent.
-- **Rules** — a plain-English explainer of the system and the penalty scale.
-- **Organiser** — PIN-protected: open/lock/complete the game, manage the roster,
-  nudge loyalty by hand, and change every setting.
+- **This week** — the live squad (two-column, by loyalty) and the reserves,
+  visible to everyone. One-tap *I'm in* / *Withdraw* with the penalty shown up front.
+- **Table** — the loyalty leaderboard.
+- **You** — your attendance %, games played, dropout record and game history,
+  plus your notification settings and account.
+- **Rules** — the system explained, with the penalty scale.
+- **Organiser** — PIN-protected: open/lock/complete games, manage the roster,
+  change every setting.
+
+Notifications tell you the moment your spot changes — promoted off the reserves,
+or bumped out — by **email and push** (push works on Android/desktop directly,
+and on iPhone once you add the app to your Home Screen).
 
 ---
 
-## Setup (one-time, ~10 minutes)
+## Setup
 
-You need two free things: a Firebase project (the database) and GitHub Pages
-turned on (the hosting). This repo already contains all the code.
+You'll do this once. Times are rough. Everything's free.
 
-### 1. Create the Firebase database
+### 1. Firebase project + database (~5 min)
+1. <https://console.firebase.google.com> → **Add project** (free Spark plan).
+2. **Build → Firestore Database → Create database** → *production mode* → a region near you.
+3. **Firestore → Rules** → paste [`firestore.rules`](./firestore.rules) → **Publish**.
+4. **Project settings** (gear) → **Your apps** → Web (`</>`) → register → copy the `firebaseConfig`.
 
-1. Go to <https://console.firebase.google.com> → **Add project** (the free
-   *Spark* plan is plenty).
-2. **Build → Firestore Database → Create database** → *Start in production
-   mode* → pick a region near you.
-3. **Firestore → Rules** tab → paste the contents of [`firestore.rules`](./firestore.rules)
-   → **Publish**.
-4. **Project settings** (gear icon) → **Your apps** → Web (**`</>`**) → register
-   an app → copy the `firebaseConfig` values it shows you.
+### 2. Turn on email sign-in (~1 min)
+- **Build → Authentication → Get started → Sign-in method → Email/Password →**
+  enable **Email link (passwordless sign-in)** → Save.
+- **Authentication → Settings → Authorized domains →** add your GitHub Pages
+  domain (`<username>.github.io`).
 
-### 2. Add your config to the app
+### 3. (Optional) Turn on push (~2 min)
+- **Project settings → Cloud Messaging → Web Push certificates → Generate key pair.**
+- Copy that key into `vapidKey` in `public/firebase-config.js`.
+- Skip this if you only want email notifications.
 
-Edit [`public/firebase-config.js`](./public/firebase-config.js) and paste your
-values into the `firebaseConfig` object. Commit and push:
-
+### 4. Paste config & deploy
+Edit [`public/firebase-config.js`](./public/firebase-config.js) with your values
+(and `vapidKey` if using push), then:
 ```bash
 git add public/firebase-config.js
 git commit -m "Add Firebase config"
 git push
 ```
+Then in the repo: **Settings → Pages → Source: GitHub Actions**. The app deploys
+to `https://<username>.github.io/tntf-poll/` on every push. Drop that link in the
+group.
 
-(These values are **not secret** — Firebase web config is meant to be public.
-Access is controlled by `firestore.rules`, not by hiding the keys.)
+*(Firebase web config values are **not secret** — they're meant to be public.
+Access is controlled by `firestore.rules`.)*
 
-### 3. Turn on GitHub Pages
+### 5. Turn on notifications (the GitHub Action)
+The notifier ([`notify/`](./notify)) runs every 5 minutes via
+[`.github/workflows/notify.yml`](./.github/workflows/notify.yml). Give it secrets
+in **Settings → Secrets and variables → Actions**:
 
-In the repo on GitHub: **Settings → Pages → Build and deployment → Source:
-GitHub Actions**. That's it — the included workflow
-([`.github/workflows/deploy-pages.yml`](./.github/workflows/deploy-pages.yml))
-deploys `public/` on every push to `main`.
+| Secret | What | Needed for |
+|---|---|---|
+| `FIREBASE_SERVICE_ACCOUNT` | Firebase console → Project settings → **Service accounts → Generate new private key** → paste the whole JSON | email + push |
+| `APP_URL` | your Pages URL, e.g. `https://<username>.github.io/tntf-poll/` | links in alerts |
+| `SMTP_HOST`,`SMTP_PORT`,`SMTP_USER`,`SMTP_PASS`,`MAIL_FROM` | any SMTP account (e.g. a Gmail address + an [app password](https://support.google.com/accounts/answer/185833)) | email only |
 
-Your app goes live at `https://<your-username>.github.io/tntf-poll/`. Drop that
-link in the WhatsApp group.
+Push needs only the service account (Firebase Cloud Messaging is free). Email
+needs the SMTP secrets. Set up either or both.
 
-### 4. First run
-
-- Open the app, go to **Organiser**, unlock with the default PIN **`1234`**, and
-  **change the PIN** in Settings straight away.
-- The roster is pre-seeded from the group — edit names / add players in the
-  Organiser tab.
-- After each game, open **Organiser → Mark as played** to bank everyone's
-  loyalty, then **Open the game** for next week.
+### 6. First run
+- Open the app → **Organiser** → unlock with default PIN **`1234`** → **change it** in Settings.
+- The roster is pre-seeded from the group; edit it in the Organiser tab.
+- After each game: **Organiser → Mark as played** (banks loyalty, saves the
+  result to history), then **Open the game** for next week — which fires the
+  "poll is open" notification to everyone.
 
 ---
 
 ## Try it locally first (optional)
-
-Without any Firebase config, the app runs in **demo mode** using your browser's
-`localStorage` — fully working, but single-device (not shared). Good for a
-look before you wire up Firebase.
-
+With no Firebase config, the app runs in **demo mode** on `localStorage` — fully
+working but single-device, and with in-app (not push) status alerts. Good for a
+look before wiring up Firebase.
 ```bash
-npm run serve      # static preview at http://localhost:3000
-npm test           # runs the selection/penalty logic checks
+npm run serve   # http://localhost:3000
+npm test        # selection / penalty / notification-diff / stats logic
 ```
 
-## The loyalty model (all editable in Settings)
-
-- **Play a game:** `+2` loyalty.
-- **Withdraw** — penalty scales with how close to kickoff you pull out:
-  | When you drop | Penalty |
-  |---|---|
-  | 2+ days before | free |
-  | 1–2 days before | −1 |
-  | same day | −3 |
-  | last minute / no-show | −5 |
-- **Selection:** active sign-ups ranked by loyalty (desc), ties broken by who
-  signed up first. Top `capacity` confirmed, the rest waitlist.
-
 ## How it's built
+- `public/` — static app, no build step:
+  - `logic.js` — pure maths: ranking, penalties, status-change diff, stats (unit-tested).
+  - `db.js` — Firestore when configured, `localStorage` otherwise.
+  - `auth.js` — email magic-link sign-in. `messaging.js` — FCM push tokens.
+  - `app.js` — the Guardian-styled mobile UI. `firebase-messaging-sw.js` — push service worker.
+- `notify/` — the scheduled notification robot (reuses `logic.js` for identical ranking).
+- `.github/workflows/` — Pages deploy + the notifier.
 
-- `public/` — the whole app: `index.html`, `styles.css`, and three ES modules:
-  - `logic.js` — pure selection/penalty maths (unit-tested in `test/`).
-  - `db.js` — data layer: Firestore when configured, `localStorage` otherwise.
-  - `app.js` — the mobile UI.
-- No build step, no framework, no bundler. What's in `public/` is what ships.
+## The loyalty model (editable in Settings)
+- **Play a game:** `+2`.
+- **Withdraw:** `2+ days before` free · `1–2 days` −1 · `same day` −3 · `last minute / no-show` −5.
+- **Selection:** active sign-ups by loyalty (desc), ties broken by sign-up time. Top `capacity` confirmed, rest reserves.
 
-## A note on security
-
-This is a private link shared in one group chat, so the rules let anyone with
-the link read and register, and the organiser PIN is a *soft* gate (it stops
-accidental taps, not a determined tinkerer). For proper admin lock-down, enable
-Firebase Authentication and restrict the admin paths to your account — there's a
-commented recipe at the bottom of [`firestore.rules`](./firestore.rules).
+## Security note
+This is a private link for one group chat, so Firestore lets anyone with the
+link read and register, and the organiser PIN is a *soft* gate. For a hard admin
+lock, enable Firebase Auth restrictions — see the commented recipe in
+[`firestore.rules`](./firestore.rules).

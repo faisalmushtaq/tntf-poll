@@ -22,7 +22,11 @@ export const firebaseConfig = {
   projectId: '',
   storageBucket: '',
   messagingSenderId: '',
-  appId: ''
+  appId: '',
+  // For PUSH notifications only. Firebase console → Project settings → Cloud
+  // Messaging → Web Push certificates → "Generate key pair" → paste the key.
+  // Leave blank if you only want email notifications.
+  vapidKey: ''
 };
 
 // Set to true only after you've pasted a real config above.
