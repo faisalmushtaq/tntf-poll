@@ -49,6 +49,7 @@ function toast(msg, isErr = false) {
   t.textContent = msg; t.className = isErr ? 'err show' : 'show';
   clearTimeout(t._t); t._t = setTimeout(() => t.className = t.className.replace('show', ''), 2600);
 }
+function ordinal(n) { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
 function avatarColor(name) { let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360; return `hsl(${h} 70% 62%)`; }
 function initials(name) { return name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase(); }
 function fmtCountdown(iso) {
@@ -101,8 +102,8 @@ function weekScreen() {
   let mine = '';
   if (!LS.id) mine = `<div class="card">${joinPrompt()}</div>`;
   else if (g.me) mine = g.me.status === 'confirmed'
-    ? `<div class="mine-banner in">✅ You're IN — squad place #${g.me.rank}</div>`
-    : `<div class="mine-banner wait">⏳ You're on the waitlist — #${g.me.rank - g.capacity} in line. You'll move up if a regular drops.</div>`;
+    ? `<div class="mine-banner in">✅ You're IN — squad place #${g.me.rank} of ${g.capacity}</div>`
+    : `<div class="mine-banner wait">⏳ You're ${ordinal(g.me.rank - g.capacity)} reserve. You'll move up if someone in the squad drops.</div>`;
   else mine = `<div class="mine-banner out">You haven't registered for this game yet.</div>`;
 
   const actionBtn = () => {
@@ -123,9 +124,9 @@ function weekScreen() {
   })).join('') || `<div class="empty">No one's in yet — be the first.</div>`;
 
   const waitRows = g.waitlist.length
-    ? `<div class="divider-wait">Waitlist · promoted if someone drops</div>` +
+    ? `<div class="divider-wait">Reserves · promoted if someone drops</div>` +
       g.waitlist.map((p, i) => playerRow(p, {
-        num: g.capacity + i + 1, meta: `${p.loyalty} loyalty · ${p.gamesPlayed} games`, right: `<span class="pill wait">#${i + 1}</span>`
+        num: g.capacity + i + 1, meta: `${ordinal(i + 1)} reserve · ${p.loyalty} loyalty`, right: `<span class="pill wait">${ordinal(i + 1)}</span>`
       })).join('')
     : '';
 
@@ -140,8 +141,8 @@ function weekScreen() {
       ${actionBtn()}
     </div>
     <div class="card">
-      <h2>Squad</h2>
-      <p class="hint">Top ${g.capacity} by loyalty score. Sign up late? A regular still ranks above a casual — no need to hover over the poll.</p>
+      <h2>Squad & reserves</h2>
+      <p class="hint">Everyone can see the full list — the ${g.capacity} confirmed and the reserves in line behind them. Ranked by loyalty score, so a regular who signs up late still ranks above a casual.</p>
       ${rows}${waitRows}
     </div>`;
 }
