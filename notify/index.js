@@ -100,8 +100,53 @@ async function main() {
 
   for (const ev of events) await send(players[ev.playerId], ev);
 
-  await notifyRef.set({ lastGameId: gameId, statuses: curr, updatedAt: new Date().toISOString() });
+  // Auto-close: once we're past the day-before-5pm cutoff and the squad is
+  // full, lock registration and send the organiser the squad list (once).
+  let autoLockedGameId = notify.autoLockedGameId || null;
+  const confirmed = ranked.filter(r => r.status === 'confirmed');
+  const cutoff = closeCutoff(game.kickoffAt);
+  if (game.status === 'open' && Date.now() >= cutoff.getTime() && confirmed.length >= game.capacity && autoLockedGameId !== gameId) {
+    console.log('Auto-closing: squad full and past cutoff.');
+    await db.doc(`games/${gameId}`).update({ status: 'locked', lockedAt: new Date().toISOString(), autoLocked: true });
+    autoLockedGameId = gameId;
+    await sendSquadAlert(config, game, confirmed, ranked.filter(r => r.status === 'waitlist'), players);
+  }
+
+  await notifyRef.set({ lastGameId: gameId, statuses: curr, autoLockedGameId, updatedAt: new Date().toISOString() });
   console.log('Done.');
+}
+
+// The auto-close moment: 17:00 on the day before kickoff (e.g. Monday 5pm for
+// a Tuesday game).
+function closeCutoff(kickoffAt) {
+  const c = new Date(kickoffAt);
+  c.setDate(c.getDate() - 1);
+  c.setHours(17, 0, 0, 0);
+  return c;
+}
+
+// Email + push the finalised squad to the organiser.
+async function sendSquadAlert(config, game, confirmed, reserves, players) {
+  const list = confirmed.map((r, i) => `${i + 1}. ${r.name}`).join('\n');
+  const bench = reserves.length ? `\n\nReserves:\n${reserves.map((r, i) => `${i + 1}. ${r.name}`).join('\n')}` : '';
+  const body = `The squad for ${game.dateLabel}${game.venue ? ` at ${game.venue}` : ''} is locked (${confirmed.length}/${game.capacity}):\n\n${list}${bench}`;
+  const ev = { title: `✅ Squad locked — ${game.dateLabel}`, body };
+
+  if (transport && config.organiserEmail) {
+    try {
+      await transport.sendMail({
+        from: process.env.MAIL_FROM || process.env.SMTP_USER,
+        to: config.organiserEmail,
+        subject: ev.title,
+        text: `${body}${APP_URL ? `\n\n${APP_URL}` : ''}`,
+        html: `<h3>${ev.title}</h3><pre style="font:15px/1.5 system-ui">${body}</pre>${APP_URL ? `<p><a href="${APP_URL}">Open the app →</a></p>` : ''}`
+      });
+      console.log(`  squad alert emailed to organiser ${config.organiserEmail}`);
+    } catch (e) { console.error('  organiser email failed', e.message); }
+  }
+  // Also push to the organiser if their account is on the roster.
+  const org = Object.values(players).find(p => config.organiserEmail && p.email && p.email.toLowerCase() === config.organiserEmail.toLowerCase());
+  if (org) await send(org, { title: ev.title, body: `Squad for ${game.dateLabel} is locked (${confirmed.length}/${game.capacity}).` });
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
