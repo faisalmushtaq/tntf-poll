@@ -52,11 +52,21 @@ You'll do this once. Times are rough. Everything's free.
 3. **Firestore → Rules** → paste [`firestore.rules`](./firestore.rules) → **Publish**.
 4. **Project settings** (gear) → **Your apps** → Web (`</>`) → register → copy the `firebaseConfig`.
 
-### 2. Turn on email sign-in (~1 min)
-- **Build → Authentication → Get started → Sign-in method → Email/Password →**
-  enable **Email link (passwordless sign-in)** → Save.
+### 2. Turn on Google sign-in (~1 min)
+- **Build → Authentication → Get started → Sign-in method → Google →** enable →
+  pick a support email → Save.
 - **Authentication → Settings → Authorized domains →** add your GitHub Pages
   domain (`<username>.github.io`).
+- People sign in with Google (robust OAuth — no magic links). Want more options?
+  Enable **Apple**, **GitHub**, or **Microsoft** in the same Sign-in method tab,
+  then list them in `authProviders` in `public/firebase-config.js` (e.g.
+  `['google', 'apple']`).
+- **Linking accounts to history:** a new sign-in shows up as a fresh account.
+  In the app's **Organiser → Sign-ins to link** card, pick who they are on the
+  roster to merge the sign-in into that historic record (their games and loyalty
+  stay put), or mark them a brand-new player. Once linked, that Google account is
+  their permanent login on any device — every future sign-in resolves straight to
+  their profile to register, withdraw and get notifications.
 
 ### 3. (Optional) Turn on push (~2 min)
 - **Project settings → Cloud Messaging → Web Push certificates → Generate key pair.**

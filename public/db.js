@@ -92,6 +92,27 @@ function createLocalDB() {
       db.players[id] = { id, name: clean, loyalty: 0, gamesPlayed: 0, dropouts: 0, createdAt: new Date().toISOString() };
       persist(); return id;
     },
+    // Find-or-create the roster record for a signed-in account. Matches an
+    // existing player by uid, then by email; otherwise creates a fresh record
+    // flagged account:true so the organiser can merge it into a historic one.
+    async upsertAccount({ uid, email, name, photoURL }) {
+      const byUid = uid && Object.values(db.players).find(p => p.uid === uid);
+      if (byUid) return byUid.id;
+      const byEmail = email && Object.values(db.players).find(p => p.email && p.email.toLowerCase() === email.toLowerCase());
+      if (byEmail) {
+        if (uid) byEmail.uid = uid;
+        if (photoURL && !byEmail.photoURL) byEmail.photoURL = photoURL;
+        persist(); return byEmail.id;
+      }
+      const id = uuid();
+      db.players[id] = {
+        id, name: String(name || 'Player').trim(), email: email || null, uid: uid || null,
+        photoURL: photoURL || null, account: true,
+        loyalty: 0, gamesPlayed: 0, dropouts: 0, createdAt: new Date().toISOString()
+      };
+      persist(); return id;
+    },
+    async clearAccount(id) { const p = db.players[id]; if (p) { p.account = false; persist(); } },
     async renamePlayer(id, name) { db.players[id].name = String(name).trim(); persist(); },
     async adjustLoyalty(id, delta) { db.players[id].loyalty += Number(delta) || 0; persist(); },
     async deletePlayer(id) {
@@ -240,6 +261,24 @@ async function createFirestoreDB() {
       await setDoc(doc(playersCol, id), { id, name: clean, loyalty: 0, gamesPlayed: 0, dropouts: 0, createdAt: new Date().toISOString() });
       return id;
     },
+    async upsertAccount({ uid, email, name, photoURL }) {
+      const byUid = uid && Object.values(cache.players).find(p => p.uid === uid);
+      if (byUid) return byUid.id;
+      const byEmail = email && Object.values(cache.players).find(p => p.email && p.email.toLowerCase() === email.toLowerCase());
+      if (byEmail) {
+        const patch = {}; if (uid) patch.uid = uid; if (photoURL && !byEmail.photoURL) patch.photoURL = photoURL;
+        if (Object.keys(patch).length) await updateDoc(doc(playersCol, byEmail.id), patch);
+        return byEmail.id;
+      }
+      const id = uuid();
+      await setDoc(doc(playersCol, id), {
+        id, name: String(name || 'Player').trim(), email: email || null, uid: uid || null,
+        photoURL: photoURL || null, account: true,
+        loyalty: 0, gamesPlayed: 0, dropouts: 0, createdAt: new Date().toISOString()
+      });
+      return id;
+    },
+    async clearAccount(id) { await updateDoc(doc(playersCol, id), { account: false }); },
     async renamePlayer(id, name) { await updateDoc(doc(playersCol, id), { name: String(name).trim() }); },
     async adjustLoyalty(id, delta) { await updateDoc(doc(playersCol, id), { loyalty: increment(Number(delta) || 0) }); },
     async deletePlayer(id) {
