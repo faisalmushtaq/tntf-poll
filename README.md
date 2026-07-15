@@ -21,8 +21,14 @@ yellow buttons, and a two-column "Lineups / Substitutes" squad list.
 
 ## Screens
 
+A responsive top bar carries the navigation — inline links on the web, a
+hamburger menu on mobile.
+
 - **This week** — the live squad (two-column, by loyalty) and the reserves,
   visible to everyone. One-tap *I'm in* / *Withdraw* with the penalty shown up front.
+- **Join** — one-tap onboarding for newcomers, plus a plain-English "how it works".
+- **History** — every logged result. Tap into a game for the line-ups, the
+  score and embedded highlights (see below).
 - **Table** — the loyalty leaderboard.
 - **You** — your attendance %, games played, dropout record and game history,
   plus your notification settings and account.
@@ -124,12 +130,38 @@ difference, win streaks, longest unbeaten run, current form** — shown on the
 > If you set up Firestore *before* this history existed, clear the `players` and
 > `games` collections (or the `meta/config` doc) so the app re-seeds with it.
 
+### Match highlights (drop a text file, it renders)
+
+Highlights on the **History** detail view come from one file per game in
+[`public/content/games/`](./public/content/games/). No build step, no manifest,
+no code — add a file, commit/push, and the site renders it (the app fetches a
+game's file lazily, only when you open that result).
+
+Copy [`_TEMPLATE.md`](./public/content/games/_TEMPLATE.md) to a file named after
+the game's date (`YYYY-MM-DD.md`, e.g. `2026-01-13.md`) and fill in what you have:
+
+```
+video: https://youtu.be/THE_VIDEO_ID          # two-part highlights? add two
+video: https://youtu.be/THE_SECOND_PART_ID
+clip:  https://youtu.be/A_CLIP_ID | Faisal's screamer
+note:  End-to-end stuff — **Bibs** edged it late on.
+```
+
+`video:` shows as full-width embeds (labelled *part 1 / part 2* when there are
+two), `clip:` adds short clips with an optional `| caption`, and `note:` takes
+plain text or light markdown. All fields are optional; games with no file just
+show their line-ups and score. Any common YouTube URL shape works (`watch?v=`,
+`youtu.be/`, `/embed/`, `/shorts/`); videos embed via `youtube-nocookie.com`.
+See [`_HOWTO.md`](./public/content/games/_HOWTO.md) in that folder for the full
+guide. (Files whose names start with `_` are docs, never treated as a game.)
+
 ## How it's built
 - `public/` — static app, no build step:
   - `logic.js` — pure maths: ranking, penalties, status-change diff, stats, win/loss analytics (unit-tested).
   - `db.js` — Firestore when configured, `localStorage` otherwise. `seed-data.js` — generated history.
   - `auth.js` — email magic-link sign-in. `messaging.js` — FCM push tokens.
-  - `app.js` — the Guardian-styled mobile UI. `firebase-messaging-sw.js` — push service worker.
+  - `app.js` — the responsive UI (top-bar nav, This week / Join / History / Table / You / Rules / Organiser). `firebase-messaging-sw.js` — push service worker.
+  - `content/games/` — one editable `<date>.md` per game's highlights (see above).
 - `data/` + `scripts/build-seed.mjs` — historic results and the parser that builds the seed.
 - `notify/` — the scheduled notification robot (reuses `logic.js` for identical ranking).
 - `.github/workflows/` — Pages deploy + the notifier.
