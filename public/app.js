@@ -52,6 +52,23 @@ function resolveMe() {
   return LS.id ? lastRaw.playersById[LS.id] || null : null;
 }
 
+// After an OAuth sign-in, make sure this account has a roster record. Matches
+// an existing player by uid/email (backend-deduped); otherwise creates a fresh
+// account:true record the organiser can later merge into a historic profile.
+let accountPending = false;
+async function ensureAccount(u) {
+  if (!u || !db || accountPending) return;
+  const matched = lastRaw && Object.values(lastRaw.playersById).find(p =>
+    p.uid === u.uid || (p.email && u.email && p.email.toLowerCase() === u.email.toLowerCase()));
+  if (matched) { LS.id = matched.id; return; }
+  accountPending = true;
+  try {
+    const id = await db.upsertAccount({ uid: u.uid, email: u.email, name: u.displayName || (u.email || '').split('@')[0], photoURL: u.photoURL });
+    LS.id = id; // the players snapshot will re-render with the new record
+  } catch (e) { console.error('account setup', e); toast(e.message || 'Sign-in failed', true); }
+  finally { accountPending = false; }
+}
+
 // ---- derive the render view from a raw snapshot ---------------------------
 function buildView() {
   if (!lastRaw) return;
@@ -269,33 +286,37 @@ function nextGamePreview() {
 
 // Mode-aware identity prompt:
 //  • demo mode → pick your name (device-local)
-//  • cloud + auth, signed out → email magic-link sign-in
-//  • cloud + auth, signed in but unlinked → link to a roster spot
+//  • cloud + auth, signed out → OAuth provider buttons (Google etc.)
+//  • cloud + auth, signed in → account is being set up (transient)
 function identityPrompt() {
   if (auth?.enabled) {
     if (!user) {
+      const btns = (auth.providers || []).map(p =>
+        `<button class="btn-ghost provider mt" onclick="signIn('${p.name}')">${providerIcon(p.name)}<span>${esc(p.label)}</span></button>`).join('');
       return `<h2>Sign in to register</h2>
-        <p class="hint">Enter your email — we'll send you a one-tap sign-in link. No password. This is also how you get notified when your spot changes.</p>
-        <input id="emailInput" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com" />
-        <div class="mt"><button class="btn-primary" onclick="sendLink()">Email me a sign-in link</button></div>
+        <p class="hint">Sign in once with an account you already have — no passwords, no magic links. This is also how you're notified when your spot changes.</p>
+        ${btns || '<p class="small">No sign-in providers configured yet — see README.</p>'}
         <p class="small center mt">You can still see the squad and reserves without signing in.</p>`;
     }
-    // signed in, needs linking to a roster entry
-    const opts = state.roster.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
-    return `<h2>Link your spot</h2>
-      <p class="hint">Signed in as ${esc(user.email)}. Which player are you? Pick your name, or add yourself if you're new.</p>
-      <label class="field">I'm on the roster as</label>
-      <select id="linkSelect"><option value="">— choose your name —</option>${opts}</select>
-      <button class="btn-primary mt" onclick="linkExisting()">That's me</button>
-      <label class="field mt">Not on the roster? Add yourself</label>
-      <input id="linkNew" placeholder="Your name" />
-      <button class="btn-ghost" onclick="linkNew()">Add me & link</button>`;
+    // Signed in, roster record still being created — resolves within a moment.
+    return `<h2>Finishing sign-in…</h2>
+      <p class="hint">Setting up your profile for ${esc(user.displayName || user.email || 'your account')}. One sec.</p>`;
   }
   return `<h2>What's your name?</h2>
     <p class="hint">Pick your name so we can track your loyalty. One tap and you're set on this phone.</p>
     <input id="nameInput" placeholder="e.g. ${esc((state.roster[0] && state.roster[0].name) || 'Your name')}" autocomplete="name" />
     <div class="mt"><button class="btn-primary" onclick="join()">Continue</button></div>
     <p class="small center mt">Already on the roster? Type your exact name to link up.</p>`;
+}
+
+// Small monochrome provider glyphs (inline so there are no external requests).
+function providerIcon(name) {
+  const wrap = inner => `<svg class="pv-icon" viewBox="0 0 24 24" aria-hidden="true">${inner}</svg>`;
+  if (name === 'google') return wrap('<path fill="currentColor" d="M21.35 11.1H12v3.2h5.35c-.25 1.36-1.02 2.5-2.17 3.27v2.7h3.5c2.05-1.9 3.22-4.68 3.22-8 0-.72-.07-1.42-.2-2.09z"/><path fill="currentColor" d="M12 22c2.7 0 4.96-.9 6.62-2.43l-3.5-2.7c-.97.65-2.22 1.03-3.12 1.03-2.4 0-4.43-1.62-5.16-3.8H3.2v2.38A10 10 0 0 0 12 22z"/><path fill="currentColor" d="M6.84 14.1a5.99 5.99 0 0 1 0-3.82V7.9H3.2a10 10 0 0 0 0 8.98l3.64-2.78z"/><path fill="currentColor" d="M12 6.5c1.47 0 2.79.5 3.83 1.5l2.86-2.86A9.6 9.6 0 0 0 12 2 10 10 0 0 0 3.2 7.9l3.64 2.38C7.57 8.12 9.6 6.5 12 6.5z"/>');
+  if (name === 'apple') return wrap('<path fill="currentColor" d="M16.4 12.9c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.9-3-.9c-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2-.05 1.6-.75 3-.75s1.8.75 3 .73c1.25-.02 2.03-1.13 2.8-2.24.88-1.28 1.24-2.52 1.26-2.58-.03-.01-2.42-.93-2.44-3.69zM14.2 5.9c.65-.8 1.1-1.9.97-3-.94.04-2.07.63-2.74 1.42-.6.7-1.13 1.82-.99 2.9 1.05.08 2.11-.53 2.76-1.32z"/>');
+  if (name === 'github') return wrap('<path fill="currentColor" d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.94.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.6 9.6 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/>');
+  if (name === 'microsoft') return wrap('<path fill="currentColor" d="M3 3h8.5v8.5H3zM12.5 3H21v8.5h-8.5zM3 12.5h8.5V21H3zM12.5 12.5H21V21h-8.5z"/>');
+  return '';
 }
 
 function tableScreen() {
@@ -580,7 +601,7 @@ function youScreen() {
   if (auth?.enabled) {
     const emailLine = me.email
       ? `<div class="notif-row"><span>📧 Email alerts</span><span class="pill in">on</span></div><p class="small">Sent to ${esc(me.email)} when your spot changes.</p>`
-      : `<p class="small">Sign in with email to get email alerts.</p>`;
+      : `<p class="small">Your account has no email, so email alerts are off.</p>`;
     let pushLine;
     if (!pushConfigured()) pushLine = `<p class="small">Push notifications aren't set up yet (organiser: add a messaging key — see README).</p>`;
     else if (localStorage.getItem('tntf.pushOn')) pushLine = `<div class="notif-row"><span>🔔 Push notifications</span><span class="pill in">on</span></div>`;
@@ -613,8 +634,10 @@ function youScreen() {
       ${formGuide(an.form)}
     </div>` : (history ? '' : '');
 
+  const unmerged = me.account && me.gamesPlayed === 0
+    ? `<p class="small mt">New account — the organiser will link this to your match history so your games and loyalty show up here.</p>` : '';
   const account = auth?.enabled
-    ? `<div class="card"><h2>Account</h2><p class="hint">Signed in as ${esc(user.email)} · linked to ${esc(me.name)}.</p><button class="btn-ghost" onclick="signOutUser()">Sign out</button></div>`
+    ? `<div class="card"><h2>Account</h2><p class="hint">Signed in${user?.email ? ` as ${esc(user.email)}` : ''} · you're <b>${esc(me.name)}</b>.</p>${unmerged}<button class="btn-ghost mt" onclick="signOutUser()">Sign out</button></div>`
     : `<div class="card"><h2>You</h2><p class="hint">Playing as ${esc(me.name)} on this device.</p><button class="btn-ghost" onclick="forgetMe()">Not you? Switch name</button></div>`;
 
   return `<div class="card hero-you">
@@ -627,6 +650,30 @@ function youScreen() {
 function formGuide(form) {
   if (!form || !form.length) return '<p class="small">No games yet.</p>';
   return `<div class="form-guide">${form.map(o => `<span class="fchip ${o.toLowerCase()}">${o}</span>`).join('')}</div>`;
+}
+
+// ---- organiser: link new sign-ins to historic records ----------------------
+function accountsCard() {
+  const pending = state.roster.filter(p => p.account);
+  const targets = state.roster.filter(p => !p.account)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const targetOpts = targets.map(p => `<option value="${p.id}">${esc(p.name)} · ${p.gamesPlayed} games</option>`).join('');
+  const rows = pending.map(p => `<div class="acct-row">
+      <div class="acct-info">
+        <div class="name">${esc(p.name)}</div>
+        <div class="meta">${p.email ? esc(p.email) : 'signed in'} · new sign-in</div>
+      </div>
+      <select id="acct-${p.id}"><option value="">— this person is —</option>${targetOpts}</select>
+      <div class="btn-row">
+        <button class="btn-primary" onclick="linkAccount('${p.id}')">Link to history</button>
+        <button class="btn-ghost" onclick="keepAsNew('${p.id}')">New player</button>
+      </div>
+    </div>`).join('');
+  return `<div class="card">
+    <h2>Sign-ins to link ${pending.length ? `<span class="link-tag no">${pending.length}</span>` : ''}</h2>
+    <p class="hint">When someone signs in with Google they appear here as a new account. Pick who they are on the roster to merge their sign-in into that record — their history and loyalty stay put, and that record becomes their account. Or mark them a brand-new player.</p>
+    ${rows || '<div class="empty">No new sign-ins waiting.</div>'}
+  </div>`;
 }
 
 // ---- organiser: ratings (private) ------------------------------------------
@@ -742,6 +789,7 @@ function adminScreen() {
 
   return `${gameCard}
     ${g ? lineupBuilderCard(g) : ''}
+    ${accountsCard()}
     ${ratingsCard()}
     <div class="card">
       <h2>Roster</h2>
@@ -811,24 +859,10 @@ window.join = async () => {
   try { LS.id = await db.upsertPlayer(name); buildView(); render(); toast(`Welcome, ${name}`); }
   catch (e) { toast(e.message, true); }
 };
-// cloud-mode: email magic-link
-window.sendLink = async () => {
-  const email = document.getElementById('emailInput').value.trim();
-  if (!email) return toast('Enter your email', true);
-  try { await auth.sendLink(email); toast('Check your inbox for the sign-in link 📧'); }
-  catch (e) { toast(e.message, true); }
-};
-window.linkExisting = async () => {
-  const id = document.getElementById('linkSelect').value;
-  if (!id) return toast('Pick your name', true);
-  try { await db.setPlayerEmail(id, user.email, user.uid); LS.id = id; toast('Linked ✅'); }
-  catch (e) { toast(e.message, true); }
-};
-window.linkNew = async () => {
-  const name = document.getElementById('linkNew').value.trim();
-  if (!name) return toast('Enter your name', true);
-  try { const id = await db.upsertPlayer(name); await db.setPlayerEmail(id, user.email, user.uid); LS.id = id; toast(`Welcome, ${name}`); }
-  catch (e) { toast(e.message, true); }
+// cloud-mode: OAuth sign-in (Google etc.)
+window.signIn = async (provider) => {
+  try { await auth.signIn(provider); /* onChange handles the rest */ }
+  catch (e) { toast(e.message || 'Sign-in failed', true); }
 };
 window.signOutUser = async () => { try { await auth.signOut(); LS.id = ''; toast('Signed out'); } catch (e) { toast(e.message, true); } };
 window.forgetMe = () => { LS.id = ''; buildView(); render(); };
@@ -900,6 +934,24 @@ window.mergePlayers = async () => {
   const kn = state.roster.find(p => p.id === keep)?.name, dn = state.roster.find(p => p.id === drop)?.name;
   if (!confirm(`Merge "${dn}" into "${kn}"? All of ${dn}'s history and loyalty move onto ${kn}, and ${dn} is removed.`)) return;
   try { await db.mergePlayers(keep, drop); history = null; ensureHistory(); toast('Profiles merged'); } catch (e) { toast(e.message, true); }
+};
+// Link a new Google sign-in to a historic record: keep the historic profile,
+// merge the fresh account into it (transfers the account's uid/email across).
+window.linkAccount = async (accountId) => {
+  const target = document.getElementById(`acct-${accountId}`)?.value;
+  if (!target) return toast('Pick who they are', true);
+  if (target === accountId) return toast('Pick a different record', true);
+  const an = state.roster.find(p => p.id === accountId)?.name;
+  const tn = state.roster.find(p => p.id === target)?.name;
+  if (!confirm(`Link ${an}'s sign-in to ${tn}? ${tn}'s history and loyalty stay, and that record becomes their account. The "${an}" entry is removed.`)) return;
+  try { await db.mergePlayers(target, accountId); history = null; ensureHistory(); toast(`Linked to ${tn} ✅`); }
+  catch (e) { toast(e.message, true); }
+};
+window.keepAsNew = async (id) => {
+  const nm = state.roster.find(p => p.id === id)?.name;
+  if (!confirm(`Keep ${nm} as a brand-new player (no past history to link)?`)) return;
+  try { await db.clearAccount(id); toast('Marked as a new player'); }
+  catch (e) { toast(e.message, true); }
 };
 window.addPlayer = async () => {
   const name = document.getElementById('newPlayer').value.trim();
@@ -973,8 +1025,8 @@ window.addEventListener('tntf-push', e => {
     db = await createDB();
     auth = await createAuth();
     if (auth.enabled) {
-      await auth.complete().catch(err => console.error('sign-in link', err));
-      auth.onChange(u => { user = u; history = null; buildView(); render(); ensureHistory(); });
+      await auth.complete().catch(err => console.error('sign-in redirect', err));
+      auth.onChange(u => { user = u; history = null; if (u) ensureAccount(u); buildView(); render(); ensureHistory(); });
     }
     db.subscribe(raw => { lastRaw = raw; buildView(); render(); });
     ensureHistory(); // load past results for form/analytics on Table & You

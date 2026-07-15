@@ -96,6 +96,17 @@ button:active { transform: scale(.99); }
 button:disabled { opacity: .4; pointer-events: none; }
 .btn-row { display: flex; gap: 10px; } .btn-row > * { flex: 1; }
 
+/* ---- Provider sign-in buttons ---- */
+button.provider { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.pv-icon { width: 19px; height: 19px; flex: none; }
+
+/* ---- Organiser: sign-ins to link ---- */
+.acct-row { padding: 14px 0; border-bottom: 1px solid var(--line-2); }
+.acct-row:last-child { border-bottom: none; }
+.acct-row .acct-info .name { font-weight: 500; color: var(--ink); font-size: 16px; }
+.acct-row .acct-info .meta { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.acct-row select { margin-bottom: 10px; }
+
 /* ---- Inputs (underline) ---- */
 input, select { font: inherit; font-family: var(--serif); width: 100%; padding: 11px 2px; border: none; border-bottom: 1px solid var(--field-line); border-radius: 0; background: transparent; color: var(--ink); margin-bottom: 12px; font-size: 16px; }
 input::placeholder { color: var(--muted); }
