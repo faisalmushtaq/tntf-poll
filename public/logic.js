@@ -4,9 +4,11 @@
 export const DEFAULT_CONFIG = {
   clubName: 'Tuesday Night Total Football',
   gameDay: 'Tuesday',
-  kickoff: '20:00',        // 24h local time, used to time-weight penalties
+  kickoff: '20:00',        // 24h local time; default next Tuesday 8pm
+  venue: 'Pitch 10',       // default venue; editable per game / in settings
   capacity: 14,            // 7-a-side default
   adminPin: '1234',        // change from Settings
+  organiserEmail: '',      // where the auto-close squad alert is sent
   scoring: {
     playedReward: 2,       // loyalty gained for turning up
     // Time-weighted dropout penalty. The first tier whose `hoursBefore`

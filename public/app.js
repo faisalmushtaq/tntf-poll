@@ -48,6 +48,7 @@ function buildView() {
     const hrs = logic.hoursUntilKickoff(g.kickoffAt);
     game = {
       id: g.id, status: g.status, dateLabel: g.dateLabel, kickoffAt: g.kickoffAt, capacity: g.capacity,
+      venue: g.venue || lastRaw.config.venue,
       confirmed: ranked.filter(r => r.status === 'confirmed'),
       waitlist: ranked.filter(r => r.status === 'waitlist'),
       totalIn: ranked.length,
@@ -115,7 +116,6 @@ function renderHeader() {
       <svg class="ball" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#eaf5ef"/><path d="M12 6l3.5 2.6-1.3 4.1h-4.4L8.5 8.6 12 6z" fill="#0b3d2e"/></svg>
       <h1>${esc(c.clubName)}</h1>
     </div>
-    <div class="sub">${esc(c.gameDay)}s · ${esc(c.kickoff)} · ${c.capacity}-a-squad · picked by loyalty, not speed</div>
   </header>${demo}`;
 }
 
@@ -152,13 +152,17 @@ function weekScreen() {
   };
 
   const kicker = g.status === 'open' ? 'REGISTRATION OPEN' : g.status === 'locked' ? 'SQUAD LOCKED' : g.status.toUpperCase();
+  const k = new Date(g.kickoffAt);
+  const dateLine = k.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  const timeLine = k.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
   return `
     ${alert}
     <div class="card">
       <div class="hero">
         <div class="kicker">${kicker}</div>
-        <div class="date">${esc(g.dateLabel)}</div>
+        <div class="date">${esc(dateLine)}</div>
+        <div class="fixture">⏰ ${timeLine}${g.venue ? ` · 📍 ${esc(g.venue)}` : ''}</div>
         <div class="count">${g.confirmed.length}/${g.capacity} confirmed${g.waitlist.length ? ` · ${g.waitlist.length} on the bench` : ''} · ${fmtCountdown(g.kickoffAt)}</div>
         <div class="capbar"><span style="width:${pct}%"></span></div>
       </div>
@@ -239,33 +243,62 @@ function identityPrompt() {
 function tableScreen() {
   const rows = state.roster.map((p, i) => {
     const an = history ? logic.playerAnalytics(p.id, history) : null;
-    const meta = an && an.played
-      ? `${an.wins}W-${an.draws}D-${an.losses}L · ${an.winPct}% ${formGuide(an.form.slice(0, 5))}`
-      : `${p.gamesPlayed} games · ${p.dropouts} dropout${p.dropouts === 1 ? '' : 's'}`;
-    return playerRow(p, { num: i + 1, meta, right: `<div class="loyalty">${p.loyalty}</div>` });
+    const me = p.id === state.me?.id;
+    const pct = an && an.played ? `${an.winPct}%` : '—';
+    const sub = an && an.played ? `${an.played} played · ${an.wins}-${an.draws}-${an.losses}` : `${p.gamesPlayed} games`;
+    const form = an && an.played ? formGuide(an.form.slice(0, 6)) : '<span class="tdash">—</span>';
+    return `<div class="trow ${me ? 'me' : ''}">
+      <div class="tnum">${i + 1}</div>
+      <div class="tavatar" style="background:${avatarColor(p.name)}">${initials(p.name)}</div>
+      <div class="tname"><div class="name">${esc(p.name)}${me ? ' <span class="small">(you)</span>' : ''}</div><div class="tsub">${sub}</div></div>
+      <div class="tpct">${pct}</div>
+      <div class="tform">${form}</div>
+    </div>`;
   }).join('');
   return `<div class="card">
-    <h2>Loyalty table</h2>
-    <p class="hint">Ranked by loyalty (priority when oversubscribed). Each row shows record and recent form. Tap <b>You</b> for your full profile.</p>
+    <h2>Player stats</h2>
+    <p class="hint">Historic win rate and recent form. Listed by games played, which sets selection priority. Tap <b>You</b> for your full profile.</p>
+    <div class="thead"><span class="h-player">Player</span><span class="h-pct">Win%</span><span class="h-form">Form</span></div>
     ${rows || '<div class="empty">No players yet.</div>'}
   </div>`;
 }
 
 function rulesScreen() {
-  const tiers = state.config.scoring.dropoutTiers;
+  const s = state.config.scoring;
+  const tiers = s.dropoutTiers;
+  const reward = s.playedReward;
   return `<div class="card">
     <h2>The system</h2>
     <p class="hint">Built from the group's suggestions — rewards regulars, kills the tap-race, and only penalises dropouts fairly.</p>
     <div class="section-title" style="margin-top:6px">1 · Consistent timing</div>
-    <p class="small">The poll opens at a set time each week, so nobody misses out for being on the pitch or driving home.</p>
+    <p class="small">The poll opens at a set time each week, so nobody misses out for being on the pitch or driving home. It auto-closes once we've got enough by ${esc(prevDay(state.config.gameDay))} 5pm, and the squad is set.</p>
     <div class="section-title">2 · Loyalty, not speed</div>
-    <p class="small">When more than ${state.config.capacity} sign up, the squad is the top ${state.config.capacity} by loyalty (games played, minus dropout penalties). Signing up first doesn't jump the queue.</p>
+    <p class="small">When more than ${state.config.capacity} sign up, the squad is the top ${state.config.capacity} by loyalty. Signing up first doesn't jump the queue — a regular who signs up late still ranks above a casual.</p>
     <div class="section-title">3 · Time-weighted dropout penalty</div>
     <p class="small">Pulling out early is free — pulling out last-minute costs you. As Tom put it: a day or two's notice is fine, last minute isn't.</p>
     <ul class="penalty-scale">
       ${tiers.map(t => `<li><span>${esc(t.label)}</span><span class="pts ${t.penalty === 0 ? 'free' : ''}">${t.penalty === 0 ? 'no penalty' : '-' + t.penalty}</span></li>`).join('')}
     </ul>
+  </div>
+  <div class="card">
+    <h2>How loyalty is earned</h2>
+    <p class="hint">Your loyalty score decides your priority when a game is oversubscribed. Here's exactly how it moves:</p>
+    <ul class="penalty-scale">
+      <li><span>Play a game (in the confirmed squad)</span><span class="pts free">+${reward}</span></li>
+      <li><span>Drop out 2+ days before kickoff</span><span class="pts free">0</span></li>
+      <li><span>Drop out the day before</span><span class="pts">-1</span></li>
+      <li><span>Drop out same day</span><span class="pts">-3</span></li>
+      <li><span>Last minute / no-show</span><span class="pts">-5</span></li>
+    </ul>
+    <p class="small mt">So turning up week after week steadily builds your priority, while late dropouts chip it away. Miss a week without signing up? No penalty — you just don't earn the +${reward}. The organiser can also adjust scores by hand (e.g. if you played as a ringer).</p>
   </div>`;
+}
+
+// Day before the game day, for the "closes X 5pm" copy.
+function prevDay(day) {
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const i = days.indexOf(day);
+  return i < 0 ? 'the day before' : days[(i + 6) % 7];
 }
 
 // ---- you: stats, notifications, account -----------------------------------
@@ -368,10 +401,11 @@ function adminScreen() {
     </div>` : `
     <div class="card">
       <h2>No game open</h2>
-      <p class="hint">Open this week's game — defaults to the next ${esc(state.config.gameDay)} at ${esc(state.config.kickoff)}.</p>
+      <p class="hint">Open this week's game — defaults to the next ${esc(state.config.gameDay)} at ${esc(state.config.kickoff)} at ${esc(state.config.venue || 'the usual venue')}. Change the kickoff/venue only if it differs this week.</p>
       <label class="field">Label</label><input id="gLabel" value="${esc(state.config.gameDay)} game" />
       <label class="field">Capacity (squad size)</label><input id="gCap" type="number" value="${state.config.capacity}" />
-      <label class="field">Kickoff</label><input id="gKick" type="datetime-local" />
+      <label class="field">Venue</label><input id="gVenue" value="${esc(state.config.venue || '')}" />
+      <label class="field">Kickoff (blank = next ${esc(state.config.gameDay)} ${esc(state.config.kickoff)})</label><input id="gKick" type="datetime-local" />
       <button class="btn-primary mt" onclick="openGame()">Open the game</button>
     </div>`;
 
@@ -381,26 +415,41 @@ function adminScreen() {
   const roster = state.roster.map(p => `<div class="player">
       <div class="avatar" style="background:${avatarColor(p.name)}">${initials(p.name)}</div>
       <div class="info"><div class="name">${esc(p.name)}</div><div class="meta">${p.loyalty} loyalty · ${p.gamesPlayed} games · ${p.dropouts} dropouts ${linkTag(p)}</div></div>
-      <button style="width:auto;padding:8px 10px" class="btn-ghost" onclick="adjust('${p.id}',1)">＋</button>
-      <button style="width:auto;padding:8px 10px;margin-left:6px" class="btn-ghost" onclick="adjust('${p.id}',-1)">－</button>
+      <button class="icon-btn" title="Edit name" onclick="editPlayer('${p.id}')">✎</button>
+      <button class="icon-btn" title="+1 loyalty" onclick="adjust('${p.id}',1)">＋</button>
+      <button class="icon-btn" title="-1 loyalty" onclick="adjust('${p.id}',-1)">－</button>
+      <button class="icon-btn danger" title="Delete" onclick="removePlayer('${p.id}','${esc(p.name).replace(/'/g, "\\'")}')">🗑</button>
     </div>`).join('');
+
+  const mergeOptions = state.roster.map(p => `<option value="${p.id}">${esc(p.name)} (${p.gamesPlayed})</option>`).join('');
 
   return `${gameCard}
     <div class="card">
-      <h2>Roster & loyalty</h2>
-      <p class="hint">Nudge loyalty by hand if needed (e.g. someone played as a ringer).</p>
+      <h2>Roster</h2>
+      <p class="hint">Edit a name (✎), nudge loyalty (＋/－), or remove a player (🗑). Deleting also removes them from past game records.</p>
       ${roster}
       <label class="field mt">Add a player</label><input id="newPlayer" placeholder="Name" />
       <button class="btn-ghost" onclick="addPlayer()">Add to roster</button>
     </div>
     <div class="card">
+      <h2>Merge duplicates</h2>
+      <p class="hint">Two entries for the same person (e.g. a name-only history record + their sign-in)? Merge them: all history and loyalty move onto the one you keep, the other is removed.</p>
+      <label class="field">Keep this player</label>
+      <select id="mergeKeep"><option value="">— keep —</option>${mergeOptions}</select>
+      <label class="field">Merge & remove this one</label>
+      <select id="mergeDrop"><option value="">— remove —</option>${mergeOptions}</select>
+      <button class="btn-warn mt" onclick="mergePlayers()">Merge profiles</button>
+    </div>
+    <div class="card">
       <h2>Settings</h2>
       <label class="field">Club name</label><input id="cName" value="${esc(state.config.clubName)}" />
+      <label class="field">Default venue</label><input id="cVenue" value="${esc(state.config.venue || '')}" />
       <label class="field">Game day</label>
       <select id="cDay">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `<option ${d === state.config.gameDay ? 'selected' : ''}>${d}</option>`).join('')}</select>
       <label class="field">Kickoff (HH:MM)</label><input id="cKick" value="${esc(state.config.kickoff)}" />
       <label class="field">Default squad size</label><input id="cCap" type="number" value="${state.config.capacity}" />
       <label class="field">Loyalty per game played</label><input id="cReward" type="number" value="${state.config.scoring.playedReward}" />
+      <label class="field">Your email (for the auto-close squad alert)</label><input id="cOrg" type="email" value="${esc(state.config.organiserEmail || '')}" placeholder="you@email.com" />
       <label class="field">New admin PIN (leave blank to keep)</label><input id="cPin" type="password" inputmode="numeric" placeholder="••••" />
       <button class="btn-primary mt" onclick="saveConfig()">Save settings</button>
       <button class="btn-ghost mt" onclick="adminLogout()">Log out of organiser</button>
@@ -501,8 +550,9 @@ window.admin = async (method, id, ok) => {
 window.openGame = async () => {
   const dateLabel = document.getElementById('gLabel').value.trim();
   const capacity = Number(document.getElementById('gCap').value);
+  const venue = document.getElementById('gVenue').value.trim();
   const kick = document.getElementById('gKick').value;
-  const body = { dateLabel, capacity };
+  const body = { dateLabel, capacity, venue };
   if (kick) body.kickoffAt = new Date(kick).toISOString();
   try { await db.openGame(body); tab = 'week'; render(); toast('Game opened ⚽'); }
   catch (e) { toast(e.message, true); }
@@ -513,6 +563,25 @@ window.completeGame = async (id) => {
   catch (e) { toast(e.message, true); }
 };
 window.adjust = async (id, delta) => { try { await db.adjustLoyalty(id, delta); } catch (e) { toast(e.message, true); } };
+window.editPlayer = async (id) => {
+  const cur = state.roster.find(p => p.id === id);
+  const name = prompt('Edit name', cur ? cur.name : '');
+  if (name == null || !name.trim()) return;
+  try { await db.renamePlayer(id, name.trim()); toast('Name updated'); } catch (e) { toast(e.message, true); }
+};
+window.removePlayer = async (id, name) => {
+  if (!confirm(`Remove ${name} from the roster and all game records? This can't be undone.`)) return;
+  try { await db.deletePlayer(id); history = null; ensureHistory(); toast('Player removed'); } catch (e) { toast(e.message, true); }
+};
+window.mergePlayers = async () => {
+  const keep = document.getElementById('mergeKeep').value;
+  const drop = document.getElementById('mergeDrop').value;
+  if (!keep || !drop) return toast('Pick both players', true);
+  if (keep === drop) return toast('Pick two different players', true);
+  const kn = state.roster.find(p => p.id === keep)?.name, dn = state.roster.find(p => p.id === drop)?.name;
+  if (!confirm(`Merge "${dn}" into "${kn}"? All of ${dn}'s history and loyalty move onto ${kn}, and ${dn} is removed.`)) return;
+  try { await db.mergePlayers(keep, drop); history = null; ensureHistory(); toast('Profiles merged'); } catch (e) { toast(e.message, true); }
+};
 window.addPlayer = async () => {
   const name = document.getElementById('newPlayer').value.trim();
   if (!name) return toast('Enter a name', true);
@@ -521,9 +590,11 @@ window.addPlayer = async () => {
 window.saveConfig = async () => {
   const patch = {
     clubName: document.getElementById('cName').value.trim(),
+    venue: document.getElementById('cVenue').value.trim(),
     gameDay: document.getElementById('cDay').value,
     kickoff: document.getElementById('cKick').value.trim(),
     capacity: Number(document.getElementById('cCap').value),
+    organiserEmail: document.getElementById('cOrg').value.trim(),
     scoring: { playedReward: Number(document.getElementById('cReward').value) }
   };
   const pin = document.getElementById('cPin').value.trim();
