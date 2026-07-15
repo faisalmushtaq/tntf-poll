@@ -163,21 +163,23 @@ nav.tabs svg { width: 22px; height: 22px; }
 .fchip.d { background: #8a8a8a; }
 .fchip.l { background: var(--danger); }
 
-/* Stats table with columns */
-.thead { display: grid; grid-template-columns: 22px 30px 1fr 42px auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 2px solid var(--line); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); font-weight: 700; }
-.thead .h-player { grid-column: 1 / 4; }
-.thead .h-pct { text-align: right; }
-.trow { display: grid; grid-template-columns: 22px 30px 1fr 42px auto; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line-2); }
-.trow.me { background: #fffbe0; margin: 0 -8px; padding: 9px 8px; }
-.tnum { text-align: right; font-weight: 800; color: var(--navy); font-variant-numeric: tabular-nums; font-size: 14px; }
-.tavatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 11px; color: #fff; }
-.tname { min-width: 0; }
-.tname .name { font-weight: 600; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tsub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tpct { text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--navy); font-size: 15px; }
-.tform { display: flex; }
-.tform .form-guide { gap: 2px; }
-.tform .fchip { width: 15px; height: 15px; font-size: 9px; }
+/* League table — horizontally scrollable, with Pos + Player pinned left */
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -16px; }
+.stats-table { border-collapse: collapse; width: 100%; font-size: 13px; white-space: nowrap; }
+.stats-table th { font-size: 10px; text-transform: uppercase; letter-spacing: .3px; color: var(--muted); font-weight: 700; text-align: right; padding: 8px 8px; border-bottom: 2px solid var(--line); }
+.stats-table th:first-child { padding-left: 16px; }
+.stats-table th:last-child, .stats-table td:last-child { padding-right: 16px; }
+.stats-table td { padding: 10px 8px; border-bottom: 1px solid var(--line-2); text-align: right; vertical-align: middle; }
+.stats-table tbody tr { background: #fff; }
+.stats-table tbody tr.me { background: #fffbe0; }
+.stats-table .c-pos { position: sticky; left: 0; z-index: 2; width: 34px; padding-left: 16px; text-align: right; font-weight: 800; color: var(--navy); font-variant-numeric: tabular-nums; background: inherit; }
+.stats-table .c-player { position: sticky; left: 42px; z-index: 2; text-align: left; min-width: 96px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; background: inherit; box-shadow: 6px 0 6px -6px rgba(0,0,0,.12); }
+.stats-table thead .c-pos, .stats-table thead .c-player { background: #fff; z-index: 3; }
+.tp-name { font-weight: 600; }
+.stats-table .c-num { font-variant-numeric: tabular-nums; }
+.stats-table .c-pts { font-weight: 800; color: var(--navy); font-variant-numeric: tabular-nums; font-size: 15px; }
+.stats-table .c-form .form-guide { justify-content: flex-end; gap: 2px; display: inline-flex; }
+.stats-table .c-form .fchip { width: 15px; height: 15px; font-size: 9px; }
 .tdash { color: var(--muted); }
 
 .icon-btn { width: auto; background: #fff; border: 1px solid var(--line); color: var(--navy); border-radius: 8px; padding: 7px 9px; font-size: 14px; margin-left: 5px; flex: none; }
