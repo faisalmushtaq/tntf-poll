@@ -21,6 +21,8 @@ let state = null;     // derived view for rendering
 let history = null;   // completed games (loaded lazily for Stats)
 let tab = 'week';
 let adminUnlocked = false;
+let lineupDraft = null;        // organiser lineupDraft builder state { bibs:[], nonbibs:[] }
+let lineupGameId = null;  // which game `lineupDraft` was built for
 
 // Resolve "me": in cloud+auth mode match the signed-in account to a roster
 // entry by uid/email; in demo mode fall back to the name saved on this device.
@@ -49,6 +51,7 @@ function buildView() {
     game = {
       id: g.id, status: g.status, dateLabel: g.dateLabel, kickoffAt: g.kickoffAt, capacity: g.capacity,
       venue: g.venue || lastRaw.config.venue,
+      teams: g.teams || null, teamsFinalised: !!g.teamsFinalised,
       confirmed: ranked.filter(r => r.status === 'confirmed'),
       waitlist: ranked.filter(r => r.status === 'waitlist'),
       totalIn: ranked.length,
@@ -57,7 +60,7 @@ function buildView() {
     };
   }
   const alert = game ? statusAlert(game, playerId) : null;
-  state = { config: lastRaw.config, me, roster: lastRaw.roster, game, alert };
+  state = { config: lastRaw.config, me, roster: lastRaw.roster, playersById: lastRaw.playersById, game, alert };
 }
 
 // Detect when my confirmed/reserve status changed since I last looked (works
@@ -169,16 +172,35 @@ function weekScreen() {
       ${mine}
       ${actionBtn()}
     </div>
+    ${teamsCard(g)}
     <div class="card">
       <h2>Squad &amp; reserves</h2>
       <p class="hint">Everyone can see the full list. Ranked by loyalty score — a regular who signs up late still ranks above a casual, so there's no rush to be first.</p>
       <div class="lu-head">Starting ${g.capacity} · by loyalty</div>
-      ${lineup(g.confirmed, 1, 'loyalty')}
-      ${g.waitlist.length ? `<div class="lu-head sub">Reserves</div>${lineup(g.waitlist, g.capacity + 1, 'reserve')}` : ''}
+      ${renderLineup(g.confirmed, 1, 'loyalty')}
+      ${g.waitlist.length ? `<div class="lu-head sub">Reserves</div>${renderLineup(g.waitlist, g.capacity + 1, 'reserve')}` : ''}
     </div>`;
 }
 
-// Abbreviate to Guardian lineup style: "Darren Ellis" → "D. Ellis"; single
+// Published teams (bibs vs non-bibs) shown once the organiser finalises them.
+function teamsCard(g) {
+  if (!g.teamsFinalised || !g.teams) return '';
+  const col = (ids, label, cls) => `<div class="team-col">
+      <div class="team-head ${cls}">${label} <span>${ids.length}</span></div>
+      ${ids.map((id, i) => {
+        const p = state.playersById[id];
+        const me = id === state.me?.id;
+        return `<div class="lu-row${me ? ' me' : ''}"><span class="lu-num">${i + 1}</span><span class="lu-name">${esc(p ? abbrev(p.name) : '—')}${me ? ' <span class="you">you</span>' : ''}</span></div>`;
+      }).join('')}
+    </div>`;
+  return `<div class="card">
+    <h2>Teams — ${esc(g.dateLabel)}</h2>
+    <p class="hint">The teams for this week. These can still change before kickoff.</p>
+    <div class="teams-grid">${col(g.teams.bibs || [], 'Bibs', 'bibs')}${col(g.teams.nonbibs || [], 'Non-bibs', 'nonbibs')}</div>
+  </div>`;
+}
+
+// Abbreviate to Guardian lineupDraft style: "Darren Ellis" → "D. Ellis"; single
 // names stay as-is ("Faisal", "Suki").
 function abbrev(name) {
   const parts = String(name).trim().split(/\s+/);
@@ -186,7 +208,7 @@ function abbrev(name) {
 }
 
 // Two-column "Lineups / Substitutes" style list (Guardian match-report look).
-function lineup(list, startNum, badgeMode) {
+function renderLineup(list, startNum, badgeMode) {
   if (!list.length) return '<div class="empty">No one yet — be the first.</div>';
   const half = Math.ceil(list.length / 2);
   const row = (p, n, idx) => {
@@ -199,7 +221,7 @@ function lineup(list, startNum, badgeMode) {
   };
   const left = list.slice(0, half).map((p, i) => row(p, startNum + i, i)).join('');
   const right = list.slice(half).map((p, i) => row(p, startNum + half + i, half + i)).join('');
-  return `<div class="lineup"><div class="lu-col">${left}</div><div class="lu-col">${right}</div></div>`;
+  return `<div class="lineupDraft"><div class="lu-col">${left}</div><div class="lu-col">${right}</div></div>`;
 }
 
 function nextGamePreview() {
@@ -378,6 +400,73 @@ function formGuide(form) {
   return `<div class="form-guide">${form.map(o => `<span class="fchip ${o.toLowerCase()}">${o}</span>`).join('')}</div>`;
 }
 
+// ---- organiser: ratings (private) ------------------------------------------
+function ratingsCard() {
+  const rows = state.roster.map(p => {
+    const a = p.attrs || {};
+    const cell = k => `<input class="attr-in" id="attr-${p.id}-${k}" type="number" min="0" max="20" value="${Number.isFinite(a[k]) ? a[k] : ''}" placeholder="10" />`;
+    return `<div class="rate-row">
+      <div class="rate-name">${esc(p.name)}</div>
+      ${logic.ATTRS.map(cell).join('')}
+      <div class="rate-ov">${logic.attrOverall(p)}</div>
+    </div>`;
+  }).join('');
+  return `<div class="card">
+    <h2>Player ratings 🔒</h2>
+    <p class="hint">Only you (the organiser) see these. Rate each player /20 for Fitness, Skill, Strength, Speed — used to auto-balance the teams. Blank counts as 10.</p>
+    <div class="rate-head"><div class="rate-name">Player</div><div>FIT</div><div>SKL</div><div>STR</div><div>SPD</div><div class="rate-ov">OVR</div></div>
+    ${rows}
+    <button class="btn-primary mt" onclick="saveRatings()">Save ratings</button>
+  </div>`;
+}
+
+// ---- organiser: lineupDraft builder ---------------------------------------------
+function initLineup(g) {
+  const confirmedIds = g.confirmed.map(r => r.playerId);
+  if (lineupDraft && lineupGameId === g.id) {
+    // keep only still-confirmed players; drop anyone who withdrew
+    lineupDraft.bibs = lineupDraft.bibs.filter(id => confirmedIds.includes(id));
+    lineupDraft.nonbibs = lineupDraft.nonbibs.filter(id => confirmedIds.includes(id));
+    const placed = new Set([...lineupDraft.bibs, ...lineupDraft.nonbibs]);
+    for (const id of confirmedIds) if (!placed.has(id)) (lineupDraft.bibs.length <= lineupDraft.nonbibs.length ? lineupDraft.bibs : lineupDraft.nonbibs).push(id);
+    return;
+  }
+  lineupGameId = g.id;
+  if (g.teams && (g.teams.bibs?.length || g.teams.nonbibs?.length)) {
+    lineupDraft = { bibs: [...(g.teams.bibs || [])], nonbibs: [...(g.teams.nonbibs || [])] };
+    initLineup(g); // reconcile with current confirmed
+  } else {
+    const b = logic.balanceTeams(confirmedIds, state.playersById);
+    lineupDraft = { bibs: b.bibs, nonbibs: b.nonbibs };
+  }
+}
+
+function lineupBuilderCard(g) {
+  initLineup(g);
+  const total = ids => ids.reduce((s, id) => s + logic.attrOverall(state.playersById[id]), 0);
+  const chip = (id, side) => {
+    const p = state.playersById[id];
+    return `<div class="pchip" draggable="true" ondragstart="lineupDragStart(event,'${id}')" onclick="flipSide('${id}')" title="Tap to switch sides">
+      <span class="pchip-name">${esc(p ? p.name : '—')}</span><span class="pchip-ov">${logic.attrOverall(p)}</span></div>`;
+  };
+  const column = (side, label, cls) => `<div class="build-col ${cls}" ondragover="event.preventDefault()" ondrop="lineupDrop(event,'${side}')">
+      <div class="team-head ${cls}">${label} <span>${lineupDraft[side].length} · ${total(lineupDraft[side])}</span></div>
+      ${lineupDraft[side].map(id => chip(id, side)).join('') || '<div class="build-empty">drop players here</div>'}
+    </div>`;
+  const diff = Math.abs(total(lineupDraft.bibs) - total(lineupDraft.nonbibs));
+  const finalisedTag = g.teamsFinalised ? '<span class="link-tag ok">published</span>' : '<span class="link-tag no">draft</span>';
+  return `<div class="card">
+    <h2>Team builder ${finalisedTag}</h2>
+    <p class="hint">Auto-balance by rating, then tap a player (or drag on a computer) to switch sides. Rating gap: <b>${diff}</b>. Publish to show the teams on This Week — you can keep tweaking after.</p>
+    <button class="btn-ghost" onclick="autoBalance()">⚖️ Auto-balance</button>
+    <div class="teams-grid build mt">${column('bibs', 'Bibs', 'bibs')}${column('nonbibs', 'Non-bibs', 'nonbibs')}</div>
+    <div class="btn-row mt">
+      <button class="btn-ghost" onclick="saveLineup(false)">Save draft</button>
+      <button class="btn-primary" onclick="saveLineup(true)">Publish to This Week</button>
+    </div>
+  </div>`;
+}
+
 // ---- admin ----------------------------------------------------------------
 function adminScreen() {
   if (!adminUnlocked) {
@@ -424,6 +513,8 @@ function adminScreen() {
   const mergeOptions = state.roster.map(p => `<option value="${p.id}">${esc(p.name)} (${p.gamesPlayed})</option>`).join('');
 
   return `${gameCard}
+    ${g ? lineupBuilderCard(g) : ''}
+    ${ratingsCard()}
     <div class="card">
       <h2>Roster</h2>
       <p class="hint">Edit a name (✎), nudge loyalty (＋/－), or remove a player (🗑). Deleting also removes them from past game records.</p>
@@ -586,6 +677,45 @@ window.addPlayer = async () => {
   const name = document.getElementById('newPlayer').value.trim();
   if (!name) return toast('Enter a name', true);
   try { await db.upsertPlayer(name); toast('Player added'); } catch (e) { toast(e.message, true); }
+};
+window.saveRatings = async () => {
+  let saved = 0;
+  try {
+    for (const p of state.roster) {
+      const attrs = {}; let any = false;
+      for (const k of logic.ATTRS) {
+        const el = document.getElementById(`attr-${p.id}-${k}`);
+        const raw = el ? el.value.trim() : '';
+        if (raw !== '') { any = true; attrs[k] = Math.max(0, Math.min(20, Number(raw) || 0)); }
+        else attrs[k] = (p.attrs && Number.isFinite(p.attrs[k])) ? p.attrs[k] : 10;
+      }
+      if (any && JSON.stringify(attrs) !== JSON.stringify(p.attrs || {})) { await db.setPlayerAttrs(p.id, attrs); saved++; }
+    }
+    toast(saved ? `Saved ratings for ${saved} player${saved === 1 ? '' : 's'}` : 'No changes');
+  } catch (e) { toast(e.message, true); }
+};
+window.autoBalance = () => {
+  const g = state.game; if (!g) return;
+  const b = logic.balanceTeams(g.confirmed.map(r => r.playerId), state.playersById);
+  lineupDraft = { bibs: b.bibs, nonbibs: b.nonbibs }; lineupGameId = g.id; render();
+};
+window.flipSide = (id) => {
+  if (!lineupDraft) return;
+  if (lineupDraft.bibs.includes(id)) { lineupDraft.bibs = lineupDraft.bibs.filter(x => x !== id); lineupDraft.nonbibs.push(id); }
+  else { lineupDraft.nonbibs = lineupDraft.nonbibs.filter(x => x !== id); lineupDraft.bibs.push(id); }
+  render();
+};
+window.lineupDragStart = (ev, id) => { ev.dataTransfer.setData('text/plain', id); ev.dataTransfer.effectAllowed = 'move'; };
+window.lineupDrop = (ev, side) => {
+  ev.preventDefault();
+  const id = ev.dataTransfer.getData('text/plain'); if (!id || !lineupDraft) return;
+  lineupDraft.bibs = lineupDraft.bibs.filter(x => x !== id); lineupDraft.nonbibs = lineupDraft.nonbibs.filter(x => x !== id);
+  lineupDraft[side].push(id); render();
+};
+window.saveLineup = async (finalised) => {
+  const g = state.game; if (!g || !lineupDraft) return;
+  try { await db.saveLineup(g.id, lineupDraft, finalised); toast(finalised ? 'Teams published to This Week ✅' : 'Draft saved'); }
+  catch (e) { toast(e.message, true); }
 };
 window.saveConfig = async () => {
   const patch = {

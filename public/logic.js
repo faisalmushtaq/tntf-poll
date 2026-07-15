@@ -121,6 +121,31 @@ export function playerStats(playerId, games = []) {
   return { played, invited, dropouts, attendancePct: invited ? Math.round(played / invited * 100) : 0, history };
 }
 
+// Organiser-only player attributes, each rated /20. Missing → treated as 10.
+export const ATTRS = ['fitness', 'skill', 'strength', 'speed'];
+export function attrOverall(player) {
+  const a = (player && player.attrs) || {};
+  return ATTRS.reduce((s, k) => s + (Number.isFinite(a[k]) ? a[k] : 10), 0);
+}
+
+// Split a set of players into two balanced sides (bibs / nonbibs) by overall
+// rating. Greedy: strongest first, each goes to the smaller side, or — when
+// sides are level — to the one with the lower running total. Keeps sizes
+// within one of each other and totals close.
+export function balanceTeams(playerIds = [], playersById = {}) {
+  const players = playerIds
+    .map(id => ({ id, o: attrOverall(playersById[id]) }))
+    .sort((a, b) => b.o - a.o || String(a.id).localeCompare(String(b.id)));
+  const bibs = [], nonbibs = []; let bt = 0, nt = 0;
+  for (const p of players) {
+    if (bibs.length < nonbibs.length) { bibs.push(p.id); bt += p.o; }
+    else if (nonbibs.length < bibs.length) { nonbibs.push(p.id); nt += p.o; }
+    else if (bt <= nt) { bibs.push(p.id); bt += p.o; }
+    else { nonbibs.push(p.id); nt += p.o; }
+  }
+  return { bibs, nonbibs, bibsTotal: bt, nonbibsTotal: nt };
+}
+
 // Win/loss analytics from games that recorded two teams + a score.
 // Each such game has teams:{bibs:[ids],nonbibs:[ids]} and scores:{bibs,nonbibs}.
 export function playerAnalytics(playerId, games = []) {
