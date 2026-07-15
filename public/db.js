@@ -99,6 +99,15 @@ function createLocalDB() {
       for (const g of db.games) stripPlayer(g, id);
       persist();
     },
+    async setPlayerAttrs(id, attrs) {
+      const p = db.players[id]; if (!p) throw new Error('Unknown player');
+      p.attrs = { ...(p.attrs || {}), ...attrs }; persist();
+    },
+    async saveLineup(gameId, teams, finalised) {
+      const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
+      g.teams = { bibs: teams.bibs || [], nonbibs: teams.nonbibs || [] };
+      g.teamsFinalised = !!finalised; persist();
+    },
     async mergePlayers(keepId, dropId) {
       if (keepId === dropId) return;
       const keep = db.players[keepId], drop = db.players[dropId];
@@ -242,6 +251,10 @@ async function createFirestoreDB() {
       }
       batch.delete(doc(playersCol, id));
       await batch.commit();
+    },
+    async setPlayerAttrs(id, attrs) { await setDoc(doc(playersCol, id), { attrs }, { merge: true }); },
+    async saveLineup(gameId, teams, finalised) {
+      await updateDoc(gameRef(gameId), { teams: { bibs: teams.bibs || [], nonbibs: teams.nonbibs || [] }, teamsFinalised: !!finalised });
     },
     async mergePlayers(keepId, dropId) {
       if (keepId === dropId) return;

@@ -121,4 +121,20 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('opponent mirror: Z 1W/2L/1D', z.wins === 1 && z.losses === 2 && z.draws === 1);
 }
 
+// --- team balancer ----------------------------------------------------------
+{
+  const P = {
+    a: { id: 'a', attrs: { fitness: 20, skill: 20, strength: 20, speed: 20 } }, // 80
+    b: { id: 'b', attrs: { fitness: 15, skill: 15, strength: 15, speed: 15 } }, // 60
+    c: { id: 'c', attrs: { fitness: 10, skill: 10, strength: 10, speed: 10 } }, // 40
+    d: { id: 'd', attrs: { fitness: 5, skill: 5, strength: 5, speed: 5 } }      // 20
+  };
+  const { bibs, nonbibs, bibsTotal, nonbibsTotal } = logic.balanceTeams(['a', 'b', 'c', 'd'], P);
+  ok('balancer splits into equal sizes', bibs.length === 2 && nonbibs.length === 2);
+  ok('balancer keeps totals equal here (80+20 vs 60+40)', bibsTotal === nonbibsTotal);
+  ok('everyone placed exactly once', new Set([...bibs, ...nonbibs]).size === 4);
+  ok('attrOverall defaults missing attrs to 10 (=40)', logic.attrOverall({}) === 40);
+  ok('attrOverall sums provided attrs', logic.attrOverall(P.a) === 80);
+}
+
 console.log(`\n${pass} checks passed ✅`);
