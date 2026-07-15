@@ -116,7 +116,7 @@ function renderHeader() {
     ? `<div class="demo-banner">Demo mode · single device. Add your Firebase config to share with the group — see README.</div>` : '';
   return `<header class="app">
     <div class="row">
-      <svg class="ball" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="#eaf5ef"/><path d="M12 6l3.5 2.6-1.3 4.1h-4.4L8.5 8.6 12 6z" fill="#0b3d2e"/></svg>
+      <svg class="ball" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#10b981"/><path d="M12 6.4l3.35 2.43-1.28 3.94H9.93L8.65 8.83 12 6.4z" fill="#fff"/></svg>
       <h1>${esc(c.clubName)}</h1>
     </div>
   </header>${demo}`;
