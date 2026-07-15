@@ -20,9 +20,25 @@ let lastRaw = null;   // latest snapshot from the data layer
 let state = null;     // derived view for rendering
 let history = null;   // completed games (loaded lazily for Stats)
 let tab = 'week';
+let detailId = null;  // which historic game the detail view is showing
+let menuOpen = false; // mobile top-nav dropdown open?
+let mediaCache = {};  // dateKey -> {videos, clips, note} | null (fetched, none) | undefined (unchecked)
+let mediaPending = {}; // dateKey -> true while its file is loading
 let adminUnlocked = false;
 let lineupDraft = null;        // organiser lineupDraft builder state { bibs:[], nonbibs:[] }
 let lineupGameId = null;  // which game `lineupDraft` was built for
+
+// Top-nav definition: [tab key, label]. Order is left→right on web,
+// top→bottom in the mobile menu.
+const NAV = [
+  ['week', 'This week'],
+  ['join', 'Join'],
+  ['history', 'History'],
+  ['table', 'Table'],
+  ['you', 'You'],
+  ['rules', 'Rules'],
+  ['admin', 'Organiser']
+];
 
 // Resolve "me": in cloud+auth mode match the signed-in account to a roster
 // entry by uid/email; in demo mode fall back to the name saved on this device.
@@ -85,7 +101,7 @@ function toast(msg, isErr = false) {
   clearTimeout(t._t); t._t = setTimeout(() => t.className = t.className.replace('show', ''), 2600);
 }
 function ordinal(n) { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
-function avatarColor(name) { let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360; return `hsl(${h} 70% 62%)`; }
+function avatarColor(name) { let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360; return `hsl(${h} 20% 56%)`; }
 function initials(name) { return name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase(); }
 function fmtCountdown(iso) {
   const ms = new Date(iso) - Date.now();
@@ -109,18 +125,38 @@ function playerRow(p, opts = {}) {
   </div>`;
 }
 
-// ---- screens --------------------------------------------------------------
-function renderHeader() {
+// ---- top bar --------------------------------------------------------------
+// Persistent full-width masthead + responsive nav. Inline links on the web,
+// a hamburger dropdown on mobile. Rendered outside #app so it can span the
+// full window width and stay sticky.
+const BALL_SVG = `<svg class="ball" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M12 6.6l3.1 2.25-1.18 3.65H10.08L8.9 8.85 12 6.6z" fill="currentColor"/><path d="M12 6.6V3.9M15.1 8.85l2.5-.8M13.9 12.5l1.6 2.1M10.1 12.5l-1.6 2.1M8.9 8.85l-2.5-.8" stroke="currentColor" stroke-width="1" stroke-linecap="round" fill="none"/></svg>`;
+
+function renderTopbar() {
   const c = state.config;
-  const demo = db.mode === 'local'
-    ? `<div class="demo-banner">Demo mode · single device. Add your Firebase config to share with the group — see README.</div>` : '';
-  return `<header class="app">
-    <div class="row">
-      <svg class="ball" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#10b981"/><path d="M12 6.4l3.35 2.43-1.28 3.94H9.93L8.65 8.83 12 6.4z" fill="#fff"/></svg>
-      <h1>${esc(c.clubName)}</h1>
-    </div>
-  </header>${demo}`;
+  let bar = document.getElementById('topbar');
+  if (!bar) {
+    bar = document.createElement('header');
+    bar.id = 'topbar';
+    document.body.insertBefore(bar, $app);
+  }
+  bar.className = menuOpen ? 'open' : '';
+  const links = NAV.map(([k, label]) => {
+    const active = tab === k || (tab === 'game' && k === 'history');
+    return `<a class="navlink${active ? ' active' : ''}" role="button" tabindex="0" onclick="go('${k}')">${label}</a>`;
+  }).join('');
+  bar.innerHTML = `<div class="bar">
+    <a class="brand" role="button" tabindex="0" onclick="go('week')">${BALL_SVG}<h1>${esc(c.clubName)}</h1></a>
+    <button class="menu-btn" aria-label="Menu" aria-expanded="${menuOpen}" onclick="toggleMenu()">${menuOpen ? '✕' : '☰'}</button>
+    <nav class="topnav">${links}</nav>
+  </div>`;
 }
+
+function demoBanner() {
+  return db.mode === 'local'
+    ? `<div class="demo-banner">Demo mode · single device. Add your Firebase config to share with the group — see README.</div>` : '';
+}
+
+// ---- screens --------------------------------------------------------------
 
 function weekScreen() {
   const g = state.game;
@@ -154,7 +190,7 @@ function weekScreen() {
     return `<button class="btn-primary" onclick="signup()">I'm in for ${esc(g.dateLabel)} &nbsp;→</button>`;
   };
 
-  const kicker = g.status === 'open' ? 'REGISTRATION OPEN' : g.status === 'locked' ? 'SQUAD LOCKED' : g.status.toUpperCase();
+  const kicker = g.status === 'open' ? 'Registration open' : g.status === 'locked' ? 'Squad locked' : g.status;
   const k = new Date(g.kickoffAt);
   const dateLine = k.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   const timeLine = k.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -338,6 +374,185 @@ function prevDay(day) {
   return i < 0 ? 'the day before' : days[(i + 6) % 7];
 }
 
+// ---- join -----------------------------------------------------------------
+function joinScreen() {
+  if (state.me) {
+    return `<div class="card">
+      <h2>You're all set</h2>
+      <p class="hint">You're registered as <b>${esc(state.me.name)}</b> — ${state.me.loyalty} loyalty, ${state.me.gamesPlayed} games. Head to This week to sign up for the next game.</p>
+      <div class="btn-row">
+        <button class="btn-primary" onclick="go('week')">Go to This week</button>
+        <button class="btn-ghost" onclick="go('you')">Your profile</button>
+      </div>
+    </div>`;
+  }
+  return `<div class="card">
+      <h2>Join the club</h2>
+      <p class="hint">Tuesday Night Total Football — 7-a-side, every week. Register once, then sign up each week. When a game's oversubscribed the squad is picked by loyalty (turning up regularly), not who taps first.</p>
+      ${identityPrompt()}
+    </div>
+    <div class="card">
+      <h2>How it works</h2>
+      <ol class="how-list">
+        <li>Register with your name${auth?.enabled ? ' and email' : ''} — takes a second.</li>
+        <li>When the poll's open, tap <b>I'm in</b> on This week.</li>
+        <li>The squad is the top ${state.config.capacity} by loyalty, so there's no rush to be first.</li>
+        <li>Play to earn loyalty; last-minute drop-outs cost you. See <a role="button" tabindex="0" class="inline-link" onclick="go('rules')">Rules</a>.</li>
+      </ol>
+    </div>`;
+}
+
+// ---- history: results list + match detail ---------------------------------
+// Sort key for a game (ISO date, newest first).
+function gameDateKey(g) {
+  return g.date || (g.completedAt || g.kickoffAt || '').slice(0, 10) || '';
+}
+
+function historyScreen() {
+  if (history === null) { ensureHistory(); }
+  if (!history || !history.length) {
+    return `<div class="card">
+      <h2>Match history</h2>
+      <p class="hint">${history === null ? 'Loading past results…' : 'No completed games logged yet — results appear here after each game is marked as played.'}</p>
+    </div>`;
+  }
+  const games = [...history].sort((a, b) => gameDateKey(b).localeCompare(gameDateKey(a)));
+  return `<div class="card">
+    <h2>Match history</h2>
+    <p class="hint">Every game we've logged — tap a result for the line-ups, the score and highlights.</p>
+    <div class="hist-list">${games.map(historyRow).join('')}</div>
+  </div>`;
+}
+
+function historyRow(g) {
+  const b = g.scores?.bibs, n = g.scores?.nonbibs;
+  const hasScore = Number.isFinite(b) && Number.isFinite(n);
+  const res = !hasScore ? '' : b > n ? 'Bibs win' : n > b ? 'Non-bibs win' : 'Draw';
+  const size = Math.max(g.teams?.bibs?.length || 0, g.teams?.nonbibs?.length || 0);
+  const m = mediaCache[gameDateKey(g)];
+  const hasVid = m && (m.videos?.length || m.clips?.length);
+  return `<a class="hist-row" role="button" tabindex="0" onclick="viewGame('${g.id}')">
+    <div class="hist-main">
+      <div class="hist-date">${esc(g.dateLabel || gameDateKey(g))}</div>
+      <div class="hist-sub">${size ? `${size}-a-side` : ''}${hasVid ? ' · ▶ highlights' : ''}</div>
+    </div>
+    <div class="hist-score">${hasScore ? `${b}<span>–</span>${n}` : '<span class="tdash">—</span>'}</div>
+    <div class="hist-res">${res}</div>
+  </a>`;
+}
+
+function gameDetailScreen() {
+  if (history === null) { ensureHistory(); return `<div class="card"><p class="hint">Loading…</p></div>`; }
+  const g = history.find(x => x.id === detailId);
+  if (!g) {
+    return `<div class="card">
+      <button class="back-link" onclick="go('history')">← All results</button>
+      <h2>Result not found</h2>
+      <p class="hint">That game isn't in the history.</p>
+    </div>`;
+  }
+  const b = g.scores?.bibs, n = g.scores?.nonbibs;
+  const hasScore = Number.isFinite(b) && Number.isFinite(n);
+  const res = !hasScore ? '' : b > n ? 'Bibs win' : n > b ? 'Non-bibs win' : 'Draw';
+  const size = Math.max(g.teams?.bibs?.length || 0, g.teams?.nonbibs?.length || 0);
+
+  const teamCol = (ids, label, cls) => `<div class="team-col">
+      <div class="team-head ${cls}">${label}${hasScore ? ` <span class="tscore">${cls === 'bibs' ? b : n}</span>` : ''}</div>
+      ${(ids || []).map((id, i) => {
+        const p = state.playersById[id];
+        const me = id === state.me?.id;
+        return `<div class="lu-row${me ? ' me' : ''}"><span class="lu-num">${i + 1}</span><span class="lu-name">${esc(p ? p.name : '—')}${me ? ' <span class="you">you</span>' : ''}</span></div>`;
+      }).join('') || '<div class="empty">No line-up recorded.</div>'}
+    </div>`;
+
+  const scoreline = hasScore
+    ? `<div class="scoreline"><span class="sl-side">Bibs</span><span class="sl-num">${b}</span><span class="sl-dash">–</span><span class="sl-num">${n}</span><span class="sl-side">Non-bibs</span></div>
+       <p class="hint center" style="margin-top:6px">${res}${size ? ` · ${size}-a-side` : ''}</p>`
+    : `<p class="hint center">Score not recorded${size ? ` · ${size}-a-side` : ''}.</p>`;
+
+  return `<div class="card">
+      <button class="back-link" onclick="go('history')">← All results</button>
+      <h2>${esc(g.dateLabel || gameDateKey(g))}</h2>
+      ${scoreline}
+      <div class="teams-grid detail mt">${teamCol(g.teams?.bibs, 'Bibs', 'bibs')}${teamCol(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
+    </div>
+    ${mediaCard(g)}`;
+}
+
+// Highlights card for a game, driven by content/games/<date>.md.
+function mediaCard(g) {
+  const key = gameDateKey(g);
+  const m = mediaCache[key];
+  if (m === undefined) { loadGameMedia(key); return `<div class="card"><h2>Highlights</h2><p class="hint">Loading…</p></div>`; }
+  if (!m || (!m.videos?.length && !m.clips?.length && !m.note)) {
+    return `<div class="card"><h2>Highlights</h2><p class="hint">No highlights uploaded for this game yet.</p></div>`;
+  }
+  let out = '';
+  if (m.videos?.length) {
+    out += m.videos.map((url, i) => ytEmbed(url, m.videos.length > 1 ? `Highlights · part ${i + 1}` : 'Highlights')).join('');
+  }
+  if (m.clips?.length) {
+    out += `<div class="section-title">Clips</div>` + m.clips.map(c => ytEmbed(c.url, c.label || 'Clip')).join('');
+  }
+  const note = m.note ? `<div class="md-note">${mdBlock(m.note)}</div>` : '';
+  return `<div class="card"><h2>Highlights</h2>${note}${out || '<p class="hint">No video links yet.</p>'}</div>`;
+}
+
+// Pull the 11-char YouTube id out of the common URL shapes.
+function ytId(url) {
+  const m = String(url).match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/|\/live\/)([\w-]{11})/);
+  return m ? m[1] : null;
+}
+function ytEmbed(url, label) {
+  const id = ytId(url);
+  if (!id) return '';
+  return `<figure class="video">
+    <div class="video-frame"><iframe src="https://www.youtube-nocookie.com/embed/${id}" title="${esc(label || 'Highlights')}" loading="lazy" frameborder="0" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div>
+    ${label ? `<figcaption>${esc(label)}</figcaption>` : ''}
+  </figure>`;
+}
+
+// Lazily fetch + parse one game's media file. No build step and no manifest —
+// drop a content/games/<date>.md file, push, and it renders. One request per
+// result the moment it's opened; a 404 just means "no highlights yet".
+async function loadGameMedia(key) {
+  if (!key || key in mediaCache || mediaPending[key]) return;
+  mediaPending[key] = true;
+  try {
+    const r = await fetch(`./content/games/${key}.md`, { cache: 'no-cache' });
+    mediaCache[key] = r.ok ? parseGameMedia(await r.text()) : null;
+  } catch { mediaCache[key] = null; }
+  delete mediaPending[key];
+  if (tab === 'game' || tab === 'history') render();
+}
+// Parse a single game's media file: video:/clip:/note: lines, everything else
+// treated as note (markdown). Lines starting with # or <!-- are ignored.
+function parseGameMedia(text) {
+  const out = { videos: [], clips: [], note: '' };
+  for (const raw of text.split('\n')) {
+    const t = raw.trim();
+    if (/^(#|<!--)/.test(t)) continue;
+    if (!t) { if (out.note) out.note += '\n'; continue; }
+    let mm;
+    if ((mm = t.match(/^video:\s*(\S+)/i))) out.videos.push(mm[1]);
+    else if ((mm = t.match(/^clip:\s*(.+)/i))) { const parts = mm[1].split('|'); out.clips.push({ url: parts[0].trim(), label: parts.slice(1).join('|').trim() }); }
+    else if ((mm = t.match(/^note:\s*(.*)/i))) out.note += (out.note ? '\n' : '') + mm[1];
+    else out.note += (out.note ? '\n' : '') + t;
+  }
+  return out;
+}
+// Tiny, safe markdown → HTML for match notes (links, bold, italic, paragraphs).
+function mdInline(s) {
+  return esc(s)
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>');
+}
+function mdBlock(text) {
+  return String(text).trim().split(/\n{2,}/).filter(Boolean)
+    .map(p => `<p>${mdInline(p.trim()).replace(/\n/g, '<br>')}</p>`).join('');
+}
+
 // ---- you: stats, notifications, account -----------------------------------
 function youScreen() {
   if (!state.me) {
@@ -402,9 +617,8 @@ function youScreen() {
     ? `<div class="card"><h2>Account</h2><p class="hint">Signed in as ${esc(user.email)} · linked to ${esc(me.name)}.</p><button class="btn-ghost" onclick="signOutUser()">Sign out</button></div>`
     : `<div class="card"><h2>You</h2><p class="hint">Playing as ${esc(me.name)} on this device.</p><button class="btn-ghost" onclick="forgetMe()">Not you? Switch name</button></div>`;
 
-  return `<div class="card center hero-you">
-      <div class="avatar big" style="background:${avatarColor(me.name)}">${initials(me.name)}</div>
-      <h2 style="margin-top:8px">${esc(me.name)}</h2>
+  return `<div class="card hero-you">
+      <div class="you-name">${esc(me.name)}</div>
       <p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p>
     </div>${analyticsCard}${statsCard}${notif}${account}`;
 }
@@ -429,7 +643,7 @@ function ratingsCard() {
   return `<div class="card">
     <h2>Player ratings 🔒</h2>
     <p class="hint">Only you (the organiser) see these. Rate each player /20 for Fitness, Skill, Strength, Speed — used to auto-balance the teams. Blank counts as 10.</p>
-    <div class="rate-head"><div class="rate-name">Player</div><div>FIT</div><div>SKL</div><div>STR</div><div>SPD</div><div class="rate-ov">OVR</div></div>
+    <div class="rate-head"><div class="rate-name">Player</div><div>Fit</div><div>Skl</div><div>Str</div><div>Spd</div><div class="rate-ov">Ovr</div></div>
     ${rows}
     <button class="btn-primary mt" onclick="saveRatings()">Save ratings</button>
   </div>`;
@@ -517,7 +731,6 @@ function adminScreen() {
     ? (p.email ? `<span class="link-tag ok">✓ ${esc(p.email)}</span>` : `<span class="link-tag no">not linked</span>`)
     : '';
   const roster = state.roster.map(p => `<div class="player">
-      <div class="avatar" style="background:${avatarColor(p.name)}">${initials(p.name)}</div>
       <div class="info"><div class="name">${esc(p.name)}</div><div class="meta">${p.loyalty} loyalty · ${p.gamesPlayed} games · ${p.dropouts} dropouts ${linkTag(p)}</div></div>
       <button class="icon-btn" title="Edit name" onclick="editPlayer('${p.id}')">✎</button>
       <button class="icon-btn" title="+1 loyalty" onclick="adjust('${p.id}',1)">＋</button>
@@ -563,22 +776,15 @@ function adminScreen() {
 }
 
 // ---- render ---------------------------------------------------------------
+const SCREENS = {
+  week: weekScreen, join: joinScreen, history: historyScreen, game: gameDetailScreen,
+  table: tableScreen, you: youScreen, rules: rulesScreen, admin: adminScreen
+};
 function render() {
   if (!state) return;
-  const screens = { week: weekScreen, table: tableScreen, you: youScreen, rules: rulesScreen, admin: adminScreen };
-  const icon = {
-    week: '<path d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 3l4 3-1.5 4.7h-5L8 8l4-3z" fill="currentColor"/>',
-    table: '<path d="M4 5h16M4 12h16M4 19h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
-    you: '<circle cx="12" cy="8" r="3.4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 20c0-3.6 3.1-6.2 7-6.2s7 2.6 7 6.2" fill="none" stroke="currentColor" stroke-width="2"/>',
-    rules: '<path d="M6 3h9l4 4v14H6z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 12h7M9 16h7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
-    admin: '<path d="M12 2l7 3v6c0 4.5-3 8.5-7 9-4-.5-7-4.5-7-9V5l7-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>'
-  };
-  const label = { week: 'This week', table: 'Table', you: 'You', rules: 'Rules', admin: 'Organiser' };
-  $app.innerHTML = renderHeader() + `<main>${screens[tab]()}</main>`;
-  let nav = document.querySelector('nav.tabs');
-  if (!nav) { nav = document.createElement('nav'); nav.className = 'tabs'; document.body.appendChild(nav); }
-  nav.innerHTML = Object.keys(screens).map(k =>
-    `<button class="${tab === k ? 'active' : ''}" onclick="go('${k}')"><svg viewBox="0 0 24 24">${icon[k]}</svg>${label[k]}</button>`).join('');
+  renderTopbar();
+  const screen = SCREENS[tab] || weekScreen;
+  $app.innerHTML = demoBanner() + `<main>${screen()}</main>`;
 }
 
 // Load completed-game history once — used by Table (form) and You (analytics).
@@ -589,7 +795,14 @@ async function ensureHistory() {
 }
 
 // ---- actions --------------------------------------------------------------
-window.go = t => { tab = t; render(); };
+window.go = t => { tab = t; menuOpen = false; if (t !== 'game') detailId = null; render(); window.scrollTo(0, 0); };
+window.toggleMenu = () => { menuOpen = !menuOpen; render(); };
+window.viewGame = id => {
+  detailId = id; tab = 'game'; menuOpen = false;
+  const g = history && history.find(x => x.id === id);
+  if (g) loadGameMedia(gameDateKey(g));
+  render(); window.scrollTo(0, 0);
+};
 
 // demo-mode name pick
 window.join = async () => {
