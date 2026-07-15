@@ -266,22 +266,37 @@ function tableScreen() {
   const rows = state.roster.map((p, i) => {
     const an = history ? logic.playerAnalytics(p.id, history) : null;
     const me = p.id === state.me?.id;
-    const pct = an && an.played ? `${an.winPct}%` : '—';
-    const sub = an && an.played ? `${an.played} played · ${an.wins}-${an.draws}-${an.losses}` : `${p.gamesPlayed} games`;
+    const played = an && an.played ? an.played : p.gamesPlayed;
+    const goals = an && an.played ? an.gf : '—';
+    const win = an && an.played ? an.winPct + '%' : '—';
     const form = an && an.played ? formGuide(an.form.slice(0, 6)) : '<span class="tdash">—</span>';
-    return `<div class="trow ${me ? 'me' : ''}">
-      <div class="tnum">${i + 1}</div>
-      <div class="tavatar" style="background:${avatarColor(p.name)}">${initials(p.name)}</div>
-      <div class="tname"><div class="name">${esc(p.name)}${me ? ' <span class="small">(you)</span>' : ''}</div><div class="tsub">${sub}</div></div>
-      <div class="tpct">${pct}</div>
-      <div class="tform">${form}</div>
-    </div>`;
+    return `<tr class="${me ? 'me' : ''}">
+      <td class="c-pos">${i + 1}</td>
+      <td class="c-player"><span class="tp-name">${esc(p.name)}</span>${me ? ' <span class="small">(you)</span>' : ''}</td>
+      <td class="c-num">${played}</td>
+      <td class="c-num">${goals}</td>
+      <td class="c-num">${win}</td>
+      <td class="c-form">${form}</td>
+      <td class="c-pts">${p.loyalty}</td>
+    </tr>`;
   }).join('');
   return `<div class="card">
-    <h2>Player stats</h2>
-    <p class="hint">Historic win rate and recent form. Listed by games played, which sets selection priority. Tap <b>You</b> for your full profile.</p>
-    <div class="thead"><span class="h-player">Player</span><span class="h-pct">Win%</span><span class="h-form">Form</span></div>
-    ${rows || '<div class="empty">No players yet.</div>'}
+    <h2>League table</h2>
+    <p class="hint">Ranked by loyalty points — turn up each week to climb. Swipe the table sideways to see every column. Tap <b>You</b> for your full profile.</p>
+    <div class="table-scroll">
+      <table class="stats-table">
+        <thead><tr>
+          <th class="c-pos">#</th>
+          <th class="c-player">Player</th>
+          <th class="c-num" title="Games played">GP</th>
+          <th class="c-num" title="Team goals scored">Goals</th>
+          <th class="c-num">Win%</th>
+          <th class="c-form">Form</th>
+          <th class="c-pts">Pts</th>
+        </tr></thead>
+        <tbody>${rows || '<tr><td colspan="7" class="empty">No players yet.</td></tr>'}</tbody>
+      </table>
+    </div>
   </div>`;
 }
 
