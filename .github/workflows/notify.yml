@@ -1,0 +1,46 @@
+name: Send notifications
+
+# The "notification robot": every 5 minutes it checks the current game and
+# emails / pushes anyone whose confirmed-or-reserve status changed. Keeps the
+# whole thing on GitHub — no paid Firebase plan needed.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   FIREBASE_SERVICE_ACCOUNT  – the JSON key for a Firebase service account
+#                               (Firebase console → Project settings →
+#                                Service accounts → Generate new private key)
+#   APP_URL                   – your GitHub Pages URL (for the links in alerts)
+# For EMAIL (optional, omit for push-only):
+#   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, MAIL_FROM
+#   (e.g. a Gmail address + an app password, or any transactional provider)
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # every 5 minutes (GitHub's minimum)
+  workflow_dispatch:         # lets you run it on demand from the Actions tab
+
+concurrency:
+  group: notify
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install deps
+        working-directory: notify
+        run: npm install --no-audit --no-fund
+      - name: Run notifier
+        working-directory: notify
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          APP_URL: ${{ secrets.APP_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+        run: node index.js

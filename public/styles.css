@@ -1,0 +1,163 @@
+/* Guardian-inspired light theme.
+   Navy brand bar, yellow pill buttons, serif headlines, blue section rules,
+   and a two-column "Lineups / Substitutes" layout for the squad. */
+:root {
+  --navy: #052962;
+  --navy-2: #0a3a7a;
+  --yellow: #ffe500;
+  --yellow-press: #f2ce00;
+  --link: #0084c6;
+  --ink: #121212;
+  --muted: #6b6b6b;
+  --line: #dcdcdc;
+  --line-2: #ececec;
+  --row: #f6f6f6;
+  --bg: #eef0f1;
+  --card: #ffffff;
+  --in: #0b7a3b;
+  --amber: #b06000;
+  --danger: #c70000;
+  --serif: 'Guardian Egyptian Web', Georgia, 'Times New Roman', serif;
+  --sans: 'Guardian Text Sans Web', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100dvh;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+#app { max-width: 620px; margin: 0 auto; background: var(--card); min-height: 100dvh; padding-bottom: calc(88px + env(safe-area-inset-bottom)); box-shadow: 0 0 0 1px var(--line); }
+.loading { text-align: center; padding: 40vh 0; color: var(--muted); }
+main { padding: 0 16px; }
+
+/* ---- Header: Guardian navy masthead ---- */
+header.app {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--navy);
+  color: #fff;
+  padding: calc(env(safe-area-inset-top) + 12px) 16px 12px;
+  border-bottom: 3px solid var(--yellow);
+}
+header.app .row { display: flex; align-items: center; gap: 10px; }
+header.app h1 { font-family: var(--serif); font-size: 24px; line-height: 1.05; margin: 0; font-weight: 700; letter-spacing: -0.2px; flex: 1; }
+header.app .sub { color: #b9d0ee; font-size: 12.5px; margin-top: 5px; }
+.ball { width: 30px; height: 30px; flex: none; }
+
+/* Demo banner */
+.demo-banner { background: #fff8d6; color: #6a5600; border-bottom: 1px solid #ecdf9a; padding: 8px 16px; font-size: 12.5px; text-align: center; }
+
+/* ---- Cards & type ---- */
+.card { background: var(--card); border-top: 1px solid var(--line); padding: 16px 0; }
+main > *:first-child.card, main .card:first-child { border-top: none; }
+.card h2 { font-family: var(--serif); font-size: 21px; font-weight: 700; margin: 0 0 4px; color: var(--ink); letter-spacing: -0.2px; }
+.card .hint { color: var(--muted); font-size: 13.5px; margin: 0 0 14px; }
+.headline { font-family: var(--serif); }
+.section-title { font-size: 13px; font-weight: 700; color: var(--navy); margin: 20px 0 8px; padding-top: 10px; border-top: 1px solid var(--line); text-transform: none; letter-spacing: 0; }
+.small { font-size: 12.5px; color: var(--muted); }
+.center { text-align: center; }
+.mt { margin-top: 12px; }
+
+/* ---- Buttons: yellow pill primary (Guardian "Continue") ---- */
+button, .btn { font: inherit; border: none; border-radius: 999px; padding: 14px 20px; font-weight: 700; cursor: pointer; width: 100%; transition: background .15s, transform .05s; }
+button:active { transform: scale(.99); }
+.btn-primary { background: var(--yellow); color: var(--navy); }
+.btn-primary:active { background: var(--yellow-press); }
+.btn-ghost { background: #fff; color: var(--navy); border: 1px solid var(--navy); }
+.btn-danger { background: #fff; color: var(--danger); border: 1px solid var(--danger); }
+.btn-warn { background: #fff; color: var(--navy); border: 1px solid var(--navy); }
+button:disabled { opacity: .4; pointer-events: none; }
+.btn-row { display: flex; gap: 10px; } .btn-row > * { flex: 1; }
+
+/* ---- Inputs ---- */
+input, select { font: inherit; width: 100%; padding: 13px 14px; border-radius: 4px; background: #fff; border: 1px solid #767676; color: var(--ink); margin-bottom: 10px; }
+input:focus, select:focus { outline: 2px solid var(--navy); border-color: var(--navy); }
+label.field { display: block; font-size: 12.5px; color: var(--muted); margin: 8px 2px 4px; font-weight: 600; }
+
+/* ---- Hero (this-week status) ---- */
+.hero { text-align: left; padding: 2px 0 4px; }
+.hero .kicker { color: var(--link); font-weight: 700; font-size: 13px; }
+.hero .date { font-family: var(--serif); font-size: 28px; font-weight: 700; line-height: 1.05; margin: 2px 0; }
+.hero .count { font-size: 13px; color: var(--muted); }
+.hero .capbar { height: 6px; border-radius: 0; background: #e4e6e8; overflow: hidden; margin: 12px 0 2px; }
+.hero .capbar > span { display: block; height: 100%; background: var(--navy); }
+
+.mine-banner { margin-top: 14px; padding: 12px 14px; border-radius: 4px; font-weight: 700; font-size: 14.5px; }
+.mine-banner.in { background: #e4f3ea; color: var(--in); border-left: 4px solid var(--in); }
+.mine-banner.wait { background: #fbf1df; color: var(--amber); border-left: 4px solid var(--amber); }
+.mine-banner.out { background: var(--row); color: var(--muted); border-left: 4px solid var(--line); }
+
+/* ---- Lineup (two-column squad) ---- */
+.lu-head { font-family: var(--serif); font-weight: 700; font-size: 16px; margin: 14px 0 4px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.lu-head.sub { margin-top: 22px; }
+.lineup { display: grid; grid-template-columns: 1fr 1fr; column-gap: 18px; }
+@media (max-width: 340px) { .lineup { grid-template-columns: 1fr; } }
+.lu-col { min-width: 0; }
+.lu-row { display: flex; align-items: center; gap: 8px; padding: 9px 2px; border-bottom: 1px solid var(--line-2); }
+.lu-row.me { background: #fffbe0; margin: 0 -6px; padding: 9px 6px; border-radius: 3px; }
+.lu-num { font-weight: 800; color: var(--navy); width: 22px; text-align: right; font-variant-numeric: tabular-nums; font-size: 15px; flex: none; }
+.lu-name { flex: 1; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lu-name .you { color: var(--muted); font-size: 12px; }
+.lu-badge { font-size: 12px; font-weight: 700; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; min-width: 34px; text-align: center; }
+.lu-badge.amber { color: var(--amber); border-color: #e6c48f; }
+
+/* ---- List rows (Table / roster) ---- */
+.player { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line-2); }
+.player.me { background: #fffbe0; margin: 0 -8px; padding: 11px 8px; }
+.player .num { width: 22px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 800; font-size: 14px; color: var(--navy); }
+.player .avatar { width: 34px; height: 34px; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 700; font-size: 13px; color: #fff; }
+.player .avatar.big { width: 64px; height: 64px; font-size: 22px; margin: 0 auto; }
+.player .info { flex: 1; min-width: 0; }
+.player .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 15px; }
+.player .meta { font-size: 12px; color: var(--muted); }
+.player .loyalty { font-weight: 800; font-variant-numeric: tabular-nums; font-size: 16px; color: var(--navy); }
+
+.pill { font-size: 11px; padding: 2px 9px; border-radius: 999px; font-weight: 700; border: 1px solid transparent; }
+.pill.in { background: #e4f3ea; color: var(--in); }
+.pill.wait { background: #fbf1df; color: var(--amber); }
+.pill.out { background: #fbe4e4; color: var(--danger); }
+
+.divider-wait { display: flex; align-items: center; gap: 10px; margin: 16px 0 10px; color: var(--amber); font-size: 12px; font-weight: 700; }
+.divider-wait::before, .divider-wait::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+.penalty-scale { list-style: none; padding: 0; margin: 8px 0 0; }
+.penalty-scale li { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line-2); font-size: 14.5px; }
+.penalty-scale li:last-child { border-bottom: none; }
+.penalty-scale .pts { font-weight: 800; color: var(--amber); }
+.penalty-scale .pts.free { color: var(--in); }
+
+/* ---- You: stats ---- */
+.hero-you { padding: 18px 0 6px; }
+.statgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; margin-bottom: 6px; }
+.stat { background: #fff; padding: 14px; text-align: center; }
+.statnum { font-family: var(--serif); font-size: 26px; font-weight: 700; color: var(--navy); }
+.statlbl { font-size: 12px; color: var(--muted); }
+.histrow { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line-2); font-size: 14px; }
+.notif-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; font-weight: 600; }
+.ios-hint { background: #eef4fb; border: 1px solid #cfe0f2; border-radius: 4px; padding: 12px; font-size: 13.5px; color: var(--navy); }
+
+/* ---- Bottom tabs ---- */
+nav.tabs { position: fixed; bottom: 0; left: 0; right: 0; z-index: 30; display: flex; max-width: 620px; margin: 0 auto; background: #fff; border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+nav.tabs button { flex: 1; background: none; border: none; border-radius: 0; padding: 8px 0 10px; color: var(--muted); font-size: 10.5px; font-weight: 600; display: flex; flex-direction: column; align-items: center; gap: 3px; border-top: 3px solid transparent; margin-top: -1px; }
+nav.tabs button.active { color: var(--navy); border-top-color: var(--link); }
+nav.tabs svg { width: 22px; height: 22px; }
+
+/* ---- Toast ---- */
+#toast { position: fixed; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(20px); background: var(--navy); color: #fff; padding: 12px 18px; border-radius: 4px; font-weight: 600; font-size: 14px; z-index: 60; opacity: 0; pointer-events: none; transition: .25s; max-width: 90vw; text-align: center; }
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.err { background: var(--danger); }
+
+.empty { text-align: center; color: var(--muted); padding: 22px 10px; }
+.link-tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 4px; }
+.link-tag.ok { background: #e4f3ea; color: var(--in); }
+.link-tag.no { background: #fbf1df; color: var(--amber); }
+/* Form guide: coloured W/D/L chips (Guardian match style) */
+.form-guide { display: inline-flex; gap: 3px; vertical-align: middle; }
+.fchip { width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 10px; font-weight: 800; color: #fff; }
+.fchip.w { background: var(--in); }
+.fchip.d { background: #8a8a8a; }
+.fchip.l { background: var(--danger); }

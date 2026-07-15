@@ -1,0 +1,50 @@
+rules_version = '2';
+// Firestore security rules for TNTF.
+// Paste these into: Firebase console → Firestore Database → Rules → Publish.
+//
+// Trust model: this is a private link shared in one WhatsApp group, so anyone
+// with the link can read and register. Writes are shape-checked so a stray
+// client can't scribble junk, but the organiser PIN is a *soft* gate in the UI,
+// not a hard security boundary. If you want proper admin protection, enable
+// Firebase Authentication and lock the admin-only paths to your uid (see the
+// commented block at the bottom).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Config / settings, the current-game pointer, and the notifier's
+    // bookkeeping doc (meta/notify). The notifier uses the Admin SDK, which
+    // bypasses these rules, so meta/notify can stay closed to clients.
+    match /meta/config {
+      allow read: if true;
+      allow write: if true;
+    }
+    match /meta/notify {
+      allow read, write: if false; // Admin SDK only
+    }
+
+    // Roster. Loyalty lives here; open so the app can award/deduct points.
+    match /players/{playerId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Games and their sign-ups.
+    match /games/{gameId} {
+      allow read: if true;
+      allow write: if true;
+      match /signups/{playerId} {
+        allow read: if true;
+        allow write: if true;
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OPTIONAL: proper admin lock-down with Firebase Auth.
+// 1. Enable Authentication → Sign-in method → Google (or Email/Password).
+// 2. Sign in once, find your uid in Authentication → Users.
+// 3. Replace the admin-only writes above with checks like:
+//      allow write: if request.auth != null && request.auth.uid == 'YOUR_UID';
+//    and keep player sign-up writes open (or also require auth).
+// ---------------------------------------------------------------------------
