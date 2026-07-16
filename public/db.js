@@ -172,12 +172,14 @@ function createLocalDB() {
     },
     async lockGame(id) { db.games.find(g => g.id === id).status = 'locked'; persist(); },
     async reopenGame(id) { db.games.find(g => g.id === id).status = 'open'; persist(); },
-    async completeGame(id) {
+    async completeGame(id, opts = {}) {
       const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
       const ranked = logic.rankSignups(g.signups, db.players, g.capacity);
-      const reward = db.config.scoring.playedReward;
+      const reward = logic.withDefaults(db.config).scoring.playedReward + (Number(opts.bonus) || 0);
       for (const r of ranked) if (r.status === 'confirmed') { db.players[r.playerId].loyalty += reward; db.players[r.playerId].gamesPlayed += 1; }
       g.status = 'completed'; g.completedAt = new Date().toISOString(); g.result = logic.finalResult(ranked);
+      if (opts.weather) g.weather = opts.weather;
+      if (Number(opts.bonus) > 0) { g.weatherBonus = Number(opts.bonus); g.bonusReasons = opts.reasons || []; }
       if (db.currentGameId === id) db.currentGameId = null; persist();
     },
     async setPlayerEmail(id, email, uid) { const p = db.players[id]; if (!p) throw new Error('Unknown player'); p.email = email || null; if (uid) p.uid = uid; persist(); },
@@ -348,14 +350,17 @@ async function createFirestoreDB() {
     },
     async lockGame(id) { await updateDoc(gameRef(id), { status: 'locked' }); },
     async reopenGame(id) { await updateDoc(gameRef(id), { status: 'open' }); },
-    async completeGame(id) {
+    async completeGame(id, opts = {}) {
       const ranked = logic.rankSignups(cache.signups, cache.players, cache.game?.capacity || cfg().capacity);
-      const reward = cfg().scoring.playedReward;
+      const reward = cfg().scoring.playedReward + (Number(opts.bonus) || 0);
       const batch = writeBatch(dbf);
       for (const r of ranked) if (r.status === 'confirmed') {
         batch.update(doc(playersCol, r.playerId), { loyalty: increment(reward), gamesPlayed: increment(1) });
       }
-      batch.update(gameRef(id), { status: 'completed', completedAt: new Date().toISOString(), result: logic.finalResult(ranked) });
+      const gamePatch = { status: 'completed', completedAt: new Date().toISOString(), result: logic.finalResult(ranked) };
+      if (opts.weather) gamePatch.weather = opts.weather;
+      if (Number(opts.bonus) > 0) { gamePatch.weatherBonus = Number(opts.bonus); gamePatch.bonusReasons = opts.reasons || []; }
+      batch.update(gameRef(id), gamePatch);
       batch.update(cfgRef, { currentGameId: null });
       await batch.commit();
     },

@@ -354,8 +354,17 @@ function emailAuthForm() {
 }
 
 function tableScreen() {
-  const rows = state.roster.map((p, i) => {
-    const an = history ? logic.playerAnalytics(p.id, history) : null;
+  // Rank by loyalty; break ties by lowest win %, then fewest goals, then name.
+  const entries = state.roster.map(p => ({ p, an: history ? logic.playerAnalytics(p.id, history) : null }));
+  entries.sort((a, b) => {
+    if (b.p.loyalty !== a.p.loyalty) return b.p.loyalty - a.p.loyalty;
+    const aw = a.an && a.an.played ? a.an.winPct : 0, bw = b.an && b.an.played ? b.an.winPct : 0;
+    if (aw !== bw) return aw - bw;              // lowest win% first
+    const ag = a.an && a.an.played ? a.an.gf : 0, bg = b.an && b.an.played ? b.an.gf : 0;
+    if (ag !== bg) return ag - bg;              // then fewest goals
+    return a.p.name.localeCompare(b.p.name);    // then alphabetical
+  });
+  const rows = entries.map(({ p, an }, i) => {
     const me = p.id === state.me?.id;
     const played = an && an.played ? an.played : p.gamesPlayed;
     const goals = an && an.played ? an.gf : '—';
@@ -413,12 +422,14 @@ function rulesScreen() {
     <p class="hint">Your loyalty score decides your priority when a game is oversubscribed. Here's exactly how it moves:</p>
     <ul class="penalty-scale">
       <li><span>Play a game (in the confirmed squad)</span><span class="pts free">+${reward}</span></li>
+      ${s.weatherBonus ? `<li><span>…in adverse weather (cold or wet)</span><span class="pts free">+${s.weatherBonus}</span></li>` : ''}
+      ${s.coldSeasonBonus ? `<li><span>…during the cold season</span><span class="pts free">+${s.coldSeasonBonus}</span></li>` : ''}
       <li><span>Drop out 2+ days before kickoff</span><span class="pts free">0</span></li>
       <li><span>Drop out the day before</span><span class="pts">-1</span></li>
       <li><span>Drop out same day</span><span class="pts">-3</span></li>
       <li><span>Last minute / no-show</span><span class="pts">-5</span></li>
     </ul>
-    <p class="small mt">So turning up week after week steadily builds your priority, while late dropouts chip it away. Miss a week without signing up? No penalty — you just don't earn the +${reward}. The organiser can also adjust scores by hand (e.g. if you played as a ringer).</p>
+    <p class="small mt">So turning up week after week steadily builds your priority, while late dropouts chip it away. Battling through the cold and rain earns you extra${s.weatherBonus || s.coldSeasonBonus ? ` (up to +${reward + (s.weatherBonus || 0) + (s.coldSeasonBonus || 0)} for a cold, wet night)` : ''}. Miss a week without signing up? No penalty — you just don't earn the +${reward}. The organiser can also adjust scores by hand (e.g. if you played as a ringer).</p>
   </div>`;
 }
 
@@ -525,13 +536,18 @@ function gameDetailScreen() {
        <p class="hint center" style="margin-top:6px">${res}${size ? ` · ${size}-a-side` : ''}</p>`
     : `<p class="hint center">Score not recorded${size ? ` · ${size}-a-side` : ''}.</p>`;
 
-  ensureWeather('h-' + g.id, gameISO(g));
+  // Prefer the weather frozen at completion; otherwise fetch it on demand.
+  if (g.weather) weatherCache['h-' + g.id] = g.weather;
+  else ensureWeather('h-' + g.id, gameISO(g));
+  const bonusNote = g.weatherBonus > 0
+    ? `<p class="hint center wx-bonus">🏅 Tough conditions — everyone who played earned +${g.weatherBonus} bonus loyalty.</p>` : '';
 
   return `<div class="card">
       <button class="back-link" onclick="go('history')">← All results</button>
       <h2>${esc(g.dateLabel || gameDateKey(g))}</h2>
       ${scoreline}
       <div class="wx-center">${weatherLine('h-' + g.id)}</div>
+      ${bonusNote}
       <div class="teams-grid detail mt">${teamCol(g.teams?.bibs, 'Bibs', 'bibs')}${teamCol(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
     </div>
     ${mediaCard(g)}`;
@@ -891,6 +907,8 @@ function adminScreen() {
       <label class="field">Kickoff (HH:MM)</label><input id="cKick" value="${esc(state.config.kickoff)}" />
       <label class="field">Default squad size</label><input id="cCap" type="number" value="${state.config.capacity}" />
       <label class="field">Loyalty per game played</label><input id="cReward" type="number" value="${state.config.scoring.playedReward}" />
+      <label class="field">Bonus for adverse weather (cold/wet)</label><input id="cWx" type="number" value="${state.config.scoring.weatherBonus ?? 1}" />
+      <label class="field">Bonus for the cold season</label><input id="cCold" type="number" value="${state.config.scoring.coldSeasonBonus ?? 1}" />
       <label class="field">Your email (for the auto-close squad alert)</label><input id="cOrg" type="email" value="${esc(state.config.organiserEmail || '')}" placeholder="you@email.com" />
       <label class="field">New admin PIN (leave blank to keep)</label><input id="cPin" type="password" inputmode="numeric" placeholder="••••" />
       <button class="btn-primary mt" onclick="saveConfig()">Save settings</button>
@@ -1031,9 +1049,25 @@ window.openGame = async () => {
   catch (e) { toast(e.message, true); }
 };
 window.completeGame = async (id) => {
-  if (!confirm('Mark as played? The confirmed squad each get their loyalty reward, then this game is archived.')) return;
-  try { await db.completeGame(id); toast('Loyalty banked · game archived'); }
-  catch (e) { toast(e.message, true); }
+  const g = state.game && state.game.id === id ? state.game : null;
+  const iso = g ? gameISO(g) : new Date().toISOString();
+  // Work out the adverse-conditions bonus: fetch the game's weather (if the
+  // pitch coords are set) and check the cold season.
+  let weather = null;
+  const { lat, lon } = state.config;
+  if (lat != null && lon != null) { try { weather = await fetchWeather(lat, lon, iso); } catch {} }
+  const adverse = weather ? weatherFlags(weather).rough : false;
+  const cold = logic.isColdSeason(iso, state.config);
+  const { bonus, reasons } = logic.completionBonus(state.config, { adverseWeather: adverse, coldSeason: cold });
+  const base = logic.withDefaults(state.config).scoring.playedReward;
+  const msg = bonus > 0
+    ? `Mark as played? Everyone in the squad gets +${base + bonus} loyalty (+${base} for playing, +${bonus} for ${reasons.map(r => r.replace(/ \+\d+$/, '')).join(' & ')}). Then it's archived.`
+    : 'Mark as played? The confirmed squad each get their loyalty reward, then this game is archived.';
+  if (!confirm(msg)) return;
+  try {
+    await db.completeGame(id, { bonus, weather, reasons });
+    toast(bonus > 0 ? `Loyalty banked (+${base + bonus} each) · archived` : 'Loyalty banked · game archived');
+  } catch (e) { toast(e.message, true); }
 };
 window.adjust = async (id, delta) => { try { await db.adjustLoyalty(id, delta); } catch (e) { toast(e.message, true); } };
 window.editPlayer = async (id) => {
@@ -1129,7 +1163,11 @@ window.saveConfig = async () => {
     kickoff: document.getElementById('cKick').value.trim(),
     capacity: Number(document.getElementById('cCap').value),
     organiserEmail: document.getElementById('cOrg').value.trim(),
-    scoring: { playedReward: Number(document.getElementById('cReward').value) }
+    scoring: {
+      playedReward: Number(document.getElementById('cReward').value),
+      weatherBonus: Number(document.getElementById('cWx').value),
+      coldSeasonBonus: Number(document.getElementById('cCold').value)
+    }
   };
   const pin = document.getElementById('cPin').value.trim();
   if (pin) patch.adminPin = pin;

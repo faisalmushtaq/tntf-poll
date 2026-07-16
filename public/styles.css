@@ -124,6 +124,7 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .wx-tag { display: inline-block; font-size: 11px; color: var(--amber); border: 1px solid #ddcca0; padding: 1px 7px; margin-left: 4px; vertical-align: middle; }
 .wx-center { text-align: center; }
 .wx-center .wx { color: var(--muted); }
+.wx-bonus { color: var(--green); margin-top: 4px; }
 .hero .count { font-size: 13.5px; color: var(--muted); margin-top: 8px; }
 .hero .capbar { height: 4px; border-radius: 0; background: var(--line); overflow: hidden; margin: 14px 0 2px; }
 .hero .capbar > span { display: block; height: 100%; background: var(--ink); }

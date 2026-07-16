@@ -80,8 +80,14 @@ The app can show the weather at kickoff on **This week** and on each **History**
 result, via [Open-Meteo](https://open-meteo.com) — **free, no API key**. In
 **Organiser → Settings**, set the pitch's **latitude, longitude** (find the
 pitch on Google Maps, right-click → copy the coordinates). Leave blank to hide
-weather. It flags cold/wet games (`cold & wet`), ready for a future loyalty
-bonus for turning up in rough conditions.
+weather.
+
+**Weather loyalty bonus:** when a game is marked as played, everyone who turned
+out gets extra loyalty for tough conditions — **adverse weather** (cold/wet at
+kickoff) and the **cold season** (Nov–Mar) each add a bonus (default +1 each,
+tunable in Settings). The weather is frozen onto the game record, and the
+History detail shows the bonus. The cold-season bonus works even without pitch
+coordinates; the adverse-weather bonus needs them set.
 
 ### 4. Paste config & deploy
 Edit [`public/firebase-config.js`](./public/firebase-config.js) with your values
