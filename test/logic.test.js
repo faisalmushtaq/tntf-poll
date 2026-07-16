@@ -94,10 +94,19 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   const a = logic.playerStats('a', games);
   ok('player A played 1 of 2 invited', a.played === 1 && a.invited === 2);
   ok('player A has 1 dropout', a.dropouts === 1);
-  ok('player A attendance = 50%', a.attendancePct === 50);
+  ok('total counts all completed games', a.total === 2);
+  ok('player A attendance = 50% (of all games)', a.attendancePct === 50);
   ok('history is newest-first', a.history[0].dateLabel === 'Wk2');
   const c = logic.playerStats('c', games);
   ok('player C was reserve in wk1, played wk2', c.played === 1 && c.history.some(h => h.reserve));
+  // A regular involved in only some games isn't 100% — it's out of ALL games.
+  const many = [
+    { id: 'x1', status: 'completed', result: { confirmed: ['p'], reserves: [] }, signups: [{ playerId: 'p', status: 'in' }] },
+    { id: 'x2', status: 'completed', result: { confirmed: ['q'], reserves: [] }, signups: [] },
+    { id: 'x3', status: 'completed', result: { confirmed: ['q'], reserves: [] }, signups: [] }
+  ];
+  const p = logic.playerStats('p', many);
+  ok('attendance is played/total, not played/involved (1 of 3 = 33%)', p.played === 1 && p.invited === 1 && p.total === 3 && p.attendancePct === 33);
 }
 
 // --- win/loss analytics ----------------------------------------------------
