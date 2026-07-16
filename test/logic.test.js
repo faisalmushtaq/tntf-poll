@@ -206,4 +206,17 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('gap bonuses go to the highest-ranked late sign-ups', a3.p3 === 8 && a3.p4 === 8 && !a3.p5);
 }
 
+// --- config self-heal patch ------------------------------------------------
+{
+  const old = logic.configMigrationPatch({ venue: 'Pitch 10', lat: null, lon: null });
+  ok('old placeholder venue is migrated', old.venue === 'Pitch 10 - Nou Camp');
+  ok('null coords are filled from defaults', typeof old.lat === 'number' && typeof old.lon === 'number');
+  const done = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 53.81928, lon: -1.74367 });
+  ok('already-current config needs no patch', Object.keys(done).length === 0);
+  const custom = logic.configMigrationPatch({ venue: 'Powerleague', lat: 51.5, lon: -0.1 });
+  ok('a custom venue is left untouched', !('venue' in custom) && !('lat' in custom));
+  const absent = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp' }); // no lat/lon keys → defaults apply
+  ok('absent coords already resolve to defaults (no patch)', Object.keys(absent).length === 0);
+}
+
 console.log(`\n${pass} checks passed ✅`);

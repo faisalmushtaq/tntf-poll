@@ -125,6 +125,7 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .wx-center { text-align: center; }
 .wx-center .wx { color: var(--muted); }
 .wx-bonus { color: var(--green); margin-top: 4px; }
+.wx-lead { color: var(--muted); }
 .hero .count { font-size: 13.5px; color: var(--muted); margin-top: 8px; }
 .hero .capbar { height: 4px; border-radius: 0; background: var(--line); overflow: hidden; margin: 14px 0 2px; }
 .hero .capbar > span { display: block; height: 100%; background: var(--ink); }
