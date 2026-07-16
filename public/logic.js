@@ -43,6 +43,30 @@ export function configMigrationPatch(config = {}) {
   return patch;
 }
 
+// Find duplicate player records that are provably the same person (they share
+// a Firebase uid) and return the merges to collapse them: [{ keep, drop }].
+// Keeps the richest record — most games, then a real profile over a bare
+// account, then higher loyalty, then the oldest — and folds the rest into it.
+export function duplicateMerges(playersById = {}) {
+  const groups = {};
+  for (const p of Object.values(playersById)) {
+    if (!p.uid) continue;
+    (groups[p.uid] ||= []).push(p);
+  }
+  const merges = [];
+  for (const group of Object.values(groups)) {
+    if (group.length < 2) continue;
+    group.sort((a, b) =>
+      (b.gamesPlayed || 0) - (a.gamesPlayed || 0) ||
+      ((a.account ? 1 : 0) - (b.account ? 1 : 0)) ||
+      (b.loyalty || 0) - (a.loyalty || 0) ||
+      String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+    const keep = group[0];
+    for (const drop of group.slice(1)) merges.push({ keep: keep.id, drop: drop.id });
+  }
+  return merges;
+}
+
 export function withDefaults(config = {}) {
   return {
     ...DEFAULT_CONFIG,

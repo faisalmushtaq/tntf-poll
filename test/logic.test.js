@@ -219,4 +219,20 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('absent coords already resolve to defaults (no patch)', Object.keys(absent).length === 0);
 }
 
+// --- duplicate account detection (same uid) --------------------------------
+{
+  const players = {
+    hist: { id: 'hist', name: 'Faisal', uid: 'g1', gamesPlayed: 16, loyalty: 32 },
+    a: { id: 'a', name: 'Faisal Mushtaq', uid: 'g1', account: true, gamesPlayed: 0, loyalty: 0, createdAt: '2026-07-01' },
+    b: { id: 'b', name: 'Faisal Mushtaq', uid: 'g1', account: true, gamesPlayed: 0, loyalty: 0, createdAt: '2026-07-02' },
+    other: { id: 'other', name: 'Suki', uid: 'g2', gamesPlayed: 5 },
+    nouid: { id: 'nouid', name: 'History Only' }
+  };
+  const merges = logic.duplicateMerges(players);
+  ok('two dup accounts → two merges, kept on the historic record', merges.length === 2 && merges.every(m => m.keep === 'hist'));
+  ok('a lone uid is not merged', !merges.some(m => m.drop === 'other' || m.keep === 'other'));
+  ok('records without a uid are ignored', !merges.some(m => m.drop === 'nouid' || m.keep === 'nouid'));
+  ok('clean roster needs no merges', logic.duplicateMerges({ x: { id: 'x', uid: 'z' }, y: { id: 'y', uid: 'w' } }).length === 0);
+}
+
 console.log(`\n${pass} checks passed ✅`);

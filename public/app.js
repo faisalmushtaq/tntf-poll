@@ -63,17 +63,29 @@ function resolveMe() {
 let accountPending = false;
 async function ensureAccount(u) {
   if (!u || !db || accountPending) return;
-  const matched = lastRaw && Object.values(lastRaw.playersById).find(p =>
-    p.uid === u.uid || (p.email && u.email && p.email.toLowerCase() === u.email.toLowerCase()));
-  if (matched) { LS.id = matched.id; return; }
   accountPending = true;
   try {
+    // upsertAccount is the single source of truth: with the DB cache loaded it
+    // matches an existing record by uid/email and only creates one when there's
+    // genuinely none — so this is idempotent and can't spawn duplicates.
     const name = u.displayName || pendingName || (u.email || '').split('@')[0];
     pendingName = null;
     const id = await db.upsertAccount({ uid: u.uid, email: u.email, name, photoURL: u.photoURL });
-    LS.id = id; // the players snapshot will re-render with the new record
+    LS.id = id; // the players snapshot will re-render with the resolved record
   } catch (e) { console.error('account setup', e); toast(e.message || 'Sign-in failed', true); }
   finally { accountPending = false; }
+}
+
+// Heal any pre-existing duplicate accounts (same uid) left by the earlier race:
+// collapse them into the richest record. Runs once per session when signed in.
+let dedupeRan = false;
+async function maybeDedupe() {
+  if (dedupeRan || !db || !user || !lastRaw) return;
+  const merges = logic.duplicateMerges(lastRaw.playersById);
+  if (!merges.length) { dedupeRan = true; return; }
+  dedupeRan = true;
+  try { for (const m of merges) await db.mergePlayers(m.keep, m.drop); }
+  catch (e) { console.error('dedupe', e); dedupeRan = false; }
 }
 
 // One-time config self-heal: bring an older stored config up to the current
@@ -1232,7 +1244,7 @@ window.addEventListener('tntf-push', e => {
       await auth.complete().catch(err => console.error('sign-in redirect', err));
       auth.onChange(u => { user = u; history = null; if (u) ensureAccount(u); buildView(); render(); ensureHistory(); });
     }
-    db.subscribe(raw => { lastRaw = raw; buildView(); render(); maybeMigrateConfig(); });
+    db.subscribe(raw => { lastRaw = raw; buildView(); render(); maybeMigrateConfig(); maybeDedupe(); });
     ensureHistory(); // load past results for form/analytics on Table & You
   } catch (e) {
     console.error(e);
