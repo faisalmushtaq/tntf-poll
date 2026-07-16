@@ -2,20 +2,20 @@
 // In demo mode (no Firebase config) this returns a disabled stub so the app
 // still runs with the lightweight "pick your name" flow.
 import { getFirebaseApp, FB_VERSION, FIREBASE_ENABLED } from './firebase.js';
-import { authProviders } from './firebase-config.js';
+import { authProviders, authEmailPassword } from './firebase-config.js';
 
-// Label + button styling per provider. Add a new key here to support more.
+// Label per OAuth provider. Add a new key here to support more.
 const PROVIDER_META = {
   google:    { label: 'Continue with Google' },
-  apple:     { label: 'Continue with Apple' },
   microsoft: { label: 'Continue with Microsoft' },
   github:    { label: 'Continue with GitHub' }
 };
 
 const DISABLED = {
-  enabled: false, providers: [],
+  enabled: false, providers: [], emailPassword: false,
   onChange() { return () => {}; }, get user() { return null; },
-  async signIn() {}, async complete() { return null; }, async signOut() {}
+  async signIn() {}, async signUpEmail() {}, async signInEmail() {},
+  async resetPassword() {}, async complete() { return null; }, async signOut() {}
 };
 
 export async function createAuth() {
@@ -25,7 +25,8 @@ export async function createAuth() {
   const m = await import(`https://www.gstatic.com/firebasejs/${FB_VERSION}/firebase-auth.js`);
   const {
     getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, getRedirectResult,
-    GoogleAuthProvider, GithubAuthProvider, OAuthProvider, signOut
+    GoogleAuthProvider, GithubAuthProvider, OAuthProvider, signOut,
+    createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail, updateProfile
   } = m;
   const auth = getAuth(app);
 
@@ -33,7 +34,6 @@ export async function createAuth() {
     switch (name) {
       case 'google': return new GoogleAuthProvider();
       case 'github': return new GithubAuthProvider();
-      case 'apple': return new OAuthProvider('apple.com');
       case 'microsoft': return new OAuthProvider('microsoft.com');
       default: throw new Error(`Unknown sign-in provider: ${name}`);
     }
@@ -52,6 +52,7 @@ export async function createAuth() {
   return {
     enabled: true,
     providers,
+    emailPassword: authEmailPassword !== false,
     onChange(cb) { return onAuthStateChanged(auth, cb); },
     get user() { return auth.currentUser; },
 
@@ -65,6 +66,19 @@ export async function createAuth() {
         throw e;
       }
     },
+
+    // Email + password: create a new account (optionally naming it), sign in,
+    // or send a reset link.
+    async signUpEmail(email, password, name) {
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      if (name) { try { await updateProfile(cred.user, { displayName: name }); } catch {} }
+      return cred.user;
+    },
+    async signInEmail(email, password) {
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      return cred.user;
+    },
+    async resetPassword(email) { await sendPasswordResetEmail(auth, email); },
 
     // Finish a redirect-based sign-in if we came back from one.
     async complete() {

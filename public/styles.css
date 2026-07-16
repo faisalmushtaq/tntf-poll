@@ -99,6 +99,8 @@ button:disabled { opacity: .4; pointer-events: none; }
 /* ---- Provider sign-in buttons ---- */
 button.provider { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .pv-icon { width: 19px; height: 19px; flex: none; }
+.or-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0 6px; color: var(--muted); font-size: 13px; }
+.or-divider::before, .or-divider::after { content: ''; flex: 1; height: 1px; background: var(--line); }
 
 /* ---- Organiser: sign-ins to link ---- */
 .acct-row { padding: 14px 0; border-bottom: 1px solid var(--line-2); }

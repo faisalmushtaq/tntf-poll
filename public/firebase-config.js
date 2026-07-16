@@ -29,17 +29,22 @@ export const firebaseConfig = {
   vapidKey: ''
 };
 
-// Sign-in providers offered on the Join screen. People sign in with one of
-// these (robust OAuth — no magic links), then the organiser merges the new
-// account into their historic record.
+// One-tap OAuth providers offered on the Join screen. People sign in with one
+// of these, then the organiser merges the new account into their historic
+// record.
 //
 // 'google' works out of the box once you enable it in the Firebase console
 // (Authentication → Sign-in method → Google → Enable). To offer more, enable
 // them in the console too and add them here:
-//   'apple'      (needs a paid Apple Developer account + Services ID)
 //   'github'     (register an OAuth app on GitHub)
 //   'microsoft'  (register an app in Azure AD)
 export const authProviders = ['google'];
+
+// Also let people create an account with an email + password (in addition to
+// the providers above). Enable "Email/Password" in the Firebase console
+// (Authentication → Sign-in method → Email/Password → Enable). Set to false to
+// offer OAuth only.
+export const authEmailPassword = true;
 
 // Set to true only after you've pasted a real config above.
 export const FIREBASE_ENABLED = Boolean(firebaseConfig.projectId);

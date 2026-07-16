@@ -52,21 +52,23 @@ You'll do this once. Times are rough. Everything's free.
 3. **Firestore → Rules** → paste [`firestore.rules`](./firestore.rules) → **Publish**.
 4. **Project settings** (gear) → **Your apps** → Web (`</>`) → register → copy the `firebaseConfig`.
 
-### 2. Turn on Google sign-in (~1 min)
-- **Build → Authentication → Get started → Sign-in method → Google →** enable →
-  pick a support email → Save.
+### 2. Turn on sign-in (~1 min)
+- **Build → Authentication → Get started → Sign-in method.** Enable two methods:
+  - **Google →** enable → pick a support email → Save (one-tap sign-in).
+  - **Email/Password →** enable → Save (so people can register with an email +
+    password — no third-party account needed).
 - **Authentication → Settings → Authorized domains →** add your GitHub Pages
   domain (`<username>.github.io`).
-- People sign in with Google (robust OAuth — no magic links). Want more options?
-  Enable **Apple**, **GitHub**, or **Microsoft** in the same Sign-in method tab,
-  then list them in `authProviders` in `public/firebase-config.js` (e.g.
-  `['google', 'apple']`).
+- Both are on by default in the app (`authProviders = ['google']` and
+  `authEmailPassword = true` in `public/firebase-config.js`). Prefer OAuth only?
+  Set `authEmailPassword = false`. Want more one-tap options? Enable **GitHub**
+  or **Microsoft** in the same tab and add them to `authProviders`.
 - **Linking accounts to history:** a new sign-in shows up as a fresh account.
   In the app's **Organiser → Sign-ins to link** card, pick who they are on the
   roster to merge the sign-in into that historic record (their games and loyalty
-  stay put), or mark them a brand-new player. Once linked, that Google account is
-  their permanent login on any device — every future sign-in resolves straight to
-  their profile to register, withdraw and get notifications.
+  stay put), or mark them a brand-new player. Once linked, that account is their
+  permanent login on any device — every future sign-in resolves straight to their
+  profile to register, withdraw and get notifications.
 
 ### 3. (Optional) Turn on push (~2 min)
 - **Project settings → Cloud Messaging → Web Push certificates → Generate key pair.**
