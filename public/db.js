@@ -176,11 +176,12 @@ function createLocalDB() {
       const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
       const ranked = logic.rankSignups(g.signups, db.players, g.capacity);
       const flat = logic.withDefaults(db.config).scoring.playedReward + (Number(opts.bonus) || 0);
+      const awards = logic.lateSignupAwards(g.signups, db.players, db.config, g.kickoffAt, g.capacity);
       for (const r of ranked) if (r.status === 'confirmed') {
-        const late = logic.lateSignupReward(db.config, r.joinedAt, g.kickoffAt);
-        db.players[r.playerId].loyalty += flat + late; db.players[r.playerId].gamesPlayed += 1;
+        db.players[r.playerId].loyalty += flat + (awards[r.playerId] || 0); db.players[r.playerId].gamesPlayed += 1;
       }
       g.status = 'completed'; g.completedAt = new Date().toISOString(); g.result = logic.finalResult(ranked);
+      if (opts.scores) g.scores = opts.scores;
       if (opts.weather) g.weather = opts.weather;
       if (Number(opts.bonus) > 0) { g.weatherBonus = Number(opts.bonus); g.bonusReasons = opts.reasons || []; }
       if (db.currentGameId === id) db.currentGameId = null; persist();
@@ -354,15 +355,16 @@ async function createFirestoreDB() {
     async lockGame(id) { await updateDoc(gameRef(id), { status: 'locked' }); },
     async reopenGame(id) { await updateDoc(gameRef(id), { status: 'open' }); },
     async completeGame(id, opts = {}) {
-      const ranked = logic.rankSignups(cache.signups, cache.players, cache.game?.capacity || cfg().capacity);
+      const capacity = cache.game?.capacity || cfg().capacity;
+      const ranked = logic.rankSignups(cache.signups, cache.players, capacity);
       const flat = cfg().scoring.playedReward + (Number(opts.bonus) || 0);
-      const kickoffAt = cache.game?.kickoffAt;
+      const awards = logic.lateSignupAwards(cache.signups, cache.players, cache.config, cache.game?.kickoffAt, capacity);
       const batch = writeBatch(dbf);
       for (const r of ranked) if (r.status === 'confirmed') {
-        const late = logic.lateSignupReward(cache.config, r.joinedAt, kickoffAt);
-        batch.update(doc(playersCol, r.playerId), { loyalty: increment(flat + late), gamesPlayed: increment(1) });
+        batch.update(doc(playersCol, r.playerId), { loyalty: increment(flat + (awards[r.playerId] || 0)), gamesPlayed: increment(1) });
       }
       const gamePatch = { status: 'completed', completedAt: new Date().toISOString(), result: logic.finalResult(ranked) };
+      if (opts.scores) gamePatch.scores = opts.scores;
       if (opts.weather) gamePatch.weather = opts.weather;
       if (Number(opts.bonus) > 0) { gamePatch.weatherBonus = Number(opts.bonus); gamePatch.bonusReasons = opts.reasons || []; }
       batch.update(gameRef(id), gamePatch);

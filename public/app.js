@@ -424,7 +424,7 @@ function rulesScreen() {
       <li><span>Play a game (in the confirmed squad)</span><span class="pts free">+${reward}</span></li>
       ${s.weatherBonus ? `<li><span>…in adverse weather (cold or wet)</span><span class="pts free">+${s.weatherBonus}</span></li>` : ''}
       ${s.coldSeasonBonus ? `<li><span>…during the cold season</span><span class="pts free">+${s.coldSeasonBonus}</span></li>` : ''}
-      ${s.lateSignupBonusGames ? `<li><span>Step in last minute (sign up within ${s.lateSignupHours ?? 24}h) &amp; play</span><span class="pts free">+${reward * s.lateSignupBonusGames}</span></li>` : ''}
+      ${s.lateSignupBonusGames ? `<li><span>Step in to fill a gap (sign up within ${s.lateSignupHours ?? 24}h when the squad's short) &amp; play</span><span class="pts free">+${reward * s.lateSignupBonusGames}</span></li>` : ''}
       <li><span>Drop out 2+ days before kickoff</span><span class="pts free">0</span></li>
       <li><span>Drop out the day before</span><span class="pts">-1</span></li>
       <li><span>Drop out same day</span><span class="pts">-3</span></li>
@@ -848,7 +848,13 @@ function adminScreen() {
       ${g.status === 'open'
         ? `<button class="btn-warn" onclick="admin('lockGame','${g.id}','Squad locked')">Lock squad (stop registration)</button>`
         : `<button class="btn-ghost" onclick="admin('reopenGame','${g.id}','Reopened')">Reopen registration</button>`}
-      <div class="mt"><button class="btn-primary" onclick="completeGame('${g.id}')">Mark as played → bank loyalty</button></div>
+      <div class="section-title">Enter the result</div>
+      <p class="hint" style="margin-top:-2px">Type the final score, then bank loyalty. You can tweak the score and teams (Team builder) right up until you confirm.</p>
+      <div class="btn-row">
+        <div><label class="field">Bibs</label><input id="scoreBibs" type="number" inputmode="numeric" value="${g.scores && Number.isFinite(g.scores.bibs) ? g.scores.bibs : ''}" placeholder="0" /></div>
+        <div><label class="field">Non-bibs</label><input id="scoreNonbibs" type="number" inputmode="numeric" value="${g.scores && Number.isFinite(g.scores.nonbibs) ? g.scores.nonbibs : ''}" placeholder="0" /></div>
+      </div>
+      <button class="btn-primary mt" onclick="completeGame('${g.id}')">Confirm result → bank loyalty</button>
     </div>` : `
     <div class="card">
       <h2>No game open</h2>
@@ -896,7 +902,7 @@ function adminScreen() {
     <div class="card">
       <h2>Settings</h2>
       <label class="field">Club name</label><input id="cName" value="${esc(state.config.clubName)}" />
-      <label class="field">Default venue</label><input id="cVenue" value="${esc(state.config.venue || '')}" />
+      <label class="field">Default venue</label><input id="cVenue" value="${esc(state.config.venue && state.config.venue !== 'Pitch 10' ? state.config.venue : 'Pitch 10 - Nou Camp')}" />
       <label class="field">Pitch location for weather (latitude, longitude)</label>
       <div class="btn-row">
         <input id="cLat" type="number" step="any" value="${state.config.lat ?? ''}" placeholder="e.g. 53.4808" />
@@ -1062,17 +1068,24 @@ window.completeGame = async (id) => {
   const cold = logic.isColdSeason(iso, state.config);
   const { bonus, reasons } = logic.completionBonus(state.config, { adverseWeather: adverse, coldSeason: cold });
   const base = logic.withDefaults(state.config).scoring.playedReward;
-  // Per-player last-minute bonus (only those who signed up inside the window).
-  const lateReward = base * (logic.withDefaults(state.config).scoring.lateSignupBonusGames || 0);
-  const lateCount = g ? g.confirmed.filter(r => logic.lateSignupReward(state.config, r.joinedAt, g.kickoffAt) > 0).length : 0;
-  const lateNote = lateCount > 0 ? ` ${lateCount} last-minute sign-up${lateCount === 1 ? '' : 's'} also get +${lateReward} for stepping in.` : '';
-  const msg = (bonus > 0
-    ? `Mark as played? Everyone in the squad gets +${base + bonus} loyalty (+${base} for playing, +${bonus} for ${reasons.map(r => r.replace(/ \+\d+$/, '')).join(' & ')}).`
-    : 'Mark as played? The confirmed squad each get their loyalty reward.') + lateNote + ' Then it\'s archived.';
+  // Gap-aware last-minute bonus: only the sign-ups that genuinely filled a gap.
+  const awards = g ? logic.lateSignupAwards(lastRaw.signups, lastRaw.playersById, state.config, g.kickoffAt, g.capacity) : {};
+  const lateCount = Object.keys(awards).length;
+  const lateEach = lateCount ? Object.values(awards)[0] : 0;
+  const lateNote = lateCount > 0 ? ` ${lateCount} player${lateCount === 1 ? '' : 's'} who stepped in late get +${lateEach} each.` : '';
+  // Read the entered score (optional but recommended).
+  const bibsRaw = document.getElementById('scoreBibs')?.value.trim();
+  const nonbibsRaw = document.getElementById('scoreNonbibs')?.value.trim();
+  const hasScore = bibsRaw !== '' && bibsRaw != null && nonbibsRaw !== '' && nonbibsRaw != null;
+  const scores = hasScore ? { bibs: Number(bibsRaw), nonbibs: Number(nonbibsRaw) } : null;
+  const scoreNote = scores ? `Final score Bibs ${scores.bibs}–${scores.nonbibs} Non-bibs. ` : 'No score entered (you can add it later). ';
+  const msg = scoreNote + (bonus > 0
+    ? `Everyone in the squad gets +${base + bonus} (+${base} for playing, +${bonus} for ${reasons.map(r => r.replace(/ \+\d+$/, '')).join(' & ')}).`
+    : `The confirmed squad each get +${base}.`) + lateNote + ' Confirm and archive?';
   if (!confirm(msg)) return;
   try {
-    await db.completeGame(id, { bonus, weather, reasons });
-    toast(bonus > 0 ? `Loyalty banked (+${base + bonus} each) · archived` : 'Loyalty banked · game archived');
+    await db.completeGame(id, { bonus, weather, reasons, scores });
+    toast('Result saved · loyalty banked · archived');
   } catch (e) { toast(e.message, true); }
 };
 window.adjust = async (id, delta) => { try { await db.adjustLoyalty(id, delta); } catch (e) { toast(e.message, true); } };

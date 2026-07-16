@@ -6,8 +6,8 @@ export const DEFAULT_CONFIG = {
   gameDay: 'Tuesday',
   kickoff: '20:00',        // 24h local time; default next Tuesday 8pm
   venue: 'Pitch 10 - Nou Camp', // default venue; editable per game / in settings
-  lat: null,               // venue latitude  (set in Settings → turns on weather)
-  lon: null,               // venue longitude (Open-Meteo, no API key needed)
+  lat: 53.81928,           // venue latitude  (Pitch 10 - Nou Camp); editable in Settings
+  lon: -1.74367,           // venue longitude (Open-Meteo, no API key needed)
   capacity: 14,            // 7-a-side default
   adminPin: '1234',        // change from Settings
   organiserEmail: '',      // where the auto-close squad alert is sent
@@ -49,15 +49,34 @@ export function isColdSeason(date, config = {}) {
   return months.includes(new Date(date).getMonth());
 }
 
-// Reward for stepping in at the last minute: signing up within `lateSignupHours`
-// of kickoff (and then playing) is worth `lateSignupBonusGames` games' reward.
-// Returns the loyalty amount (0 if not a late sign-up).
-export function lateSignupReward(config = {}, joinedAt, kickoffAt) {
+// Did this sign-up happen inside the "last minute" window before kickoff?
+export function isLateSignup(config = {}, joinedAt, kickoffAt) {
+  if (!joinedAt || !kickoffAt) return false;
+  const s = withDefaults(config).scoring;
+  return hoursUntilKickoff(kickoffAt, new Date(joinedAt).getTime()) <= (s.lateSignupHours ?? 24);
+}
+
+// Which confirmed players earn the last-minute "stepping in" bonus, and how
+// much each. Only rewards genuine gap-filling: if the players who signed up in
+// good time already fill the squad, nobody needed to step in, so no bonus. The
+// number of bonuses is capped at the number of gaps (capacity minus the count
+// of non-late active sign-ups), handed to the highest-ranked late sign-ups.
+// Returns { [playerId]: loyaltyAmount }.
+export function lateSignupAwards(signups = [], playersById = {}, config = {}, kickoffAt, capacity = 14) {
   const s = withDefaults(config).scoring;
   const games = s.lateSignupBonusGames || 0;
-  if (!games || !joinedAt || !kickoffAt) return 0;
-  const hrs = hoursUntilKickoff(kickoffAt, new Date(joinedAt).getTime());
-  return hrs <= (s.lateSignupHours ?? 24) ? s.playedReward * games : 0;
+  const perAward = s.playedReward * games;
+  const out = {};
+  if (!games || !perAward || !kickoffAt) return out;
+  const active = signups.filter(x => x.status !== 'withdrawn');
+  const nonLate = active.filter(su => !isLateSignup(config, su.joinedAt, kickoffAt)).length;
+  let gaps = Math.max(0, capacity - nonLate);
+  if (gaps <= 0) return out;
+  for (const r of rankSignups(active, playersById, capacity)) {
+    if (r.status !== 'confirmed' || gaps <= 0) break;
+    if (isLateSignup(config, r.joinedAt, kickoffAt)) { out[r.playerId] = perAward; gaps--; }
+  }
+  return out;
 }
 
 // Bonus loyalty for playing a game in tough conditions. Adverse weather

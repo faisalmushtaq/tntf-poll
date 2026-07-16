@@ -194,8 +194,12 @@ guide. (Files whose names start with `_` are docs, never treated as a game.)
 
 ## The loyalty model (editable in Settings)
 - **Play a game:** `+2`.
+- **Bad conditions:** `+1` adverse weather (cold/wet) · `+1` cold season (Nov–Mar) — stack on top of playing.
+- **Step in to fill a gap:** signing up within 24h of kickoff **and playing** is worth `4 games` (`+8`) — but only when the squad was short of players who signed up in good time (capped at the number of gaps). No reward for just signing up late to a full squad.
 - **Withdraw:** `2+ days before` free · `1–2 days` −1 · `same day` −3 · `last minute / no-show` −5.
 - **Selection:** active sign-ups by loyalty (desc), ties broken by sign-up time. Top `capacity` confirmed, rest reserves.
+- **Table order:** by loyalty; ties broken by lowest win %, then fewest goals, then name.
+- **Result:** the organiser enters the final score when marking a game as played (editable, along with the teams, right up until confirming); it's stored on the match record and drives win/loss analytics.
 
 ## Security note
 This is a private link for one group chat, so Firestore lets anyone with the

@@ -152,20 +152,58 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('bonuses honour custom config (weather 3, cold 0)', custom.bonus === 3);
 }
 
-// --- last-minute sign-up reward --------------------------------------------
+// --- last-minute "stepping in" detection -----------------------------------
 {
-  const cfg = logic.withDefaults({}); // playedReward 2, lateSignupBonusGames 4 → +8 within 24h
+  const cfg = logic.withDefaults({}); // lateSignupHours 24
   const kick = '2026-01-13T20:00:00Z';
-  const joinedLate = '2026-01-13T09:00:00Z';  // 11h before → late
-  const joinedEarly = '2026-01-10T09:00:00Z'; // ~3 days before → not late
-  ok('sign up 11h before → +8 (4 games)', logic.lateSignupReward(cfg, joinedLate, kick) === 8);
-  ok('sign up 3 days before → no bonus', logic.lateSignupReward(cfg, joinedEarly, kick) === 0);
-  ok('exactly 24h before still counts', logic.lateSignupReward(cfg, '2026-01-12T20:00:00Z', kick) === 8);
-  ok('missing data → no bonus', logic.lateSignupReward(cfg, null, kick) === 0);
-  const custom = logic.withDefaults({ scoring: { playedReward: 3, lateSignupBonusGames: 2, lateSignupHours: 12 } });
-  ok('honours custom reward (3×2=6)', logic.lateSignupReward(custom, joinedLate, kick) === 6);
-  ok('honours custom window (11h ≤ 12h)', logic.lateSignupReward(custom, joinedLate, kick) === 6);
-  ok('outside custom 12h window → 0', logic.lateSignupReward(custom, '2026-01-13T05:00:00Z', kick) === 0);
+  ok('sign up 11h before is late', logic.isLateSignup(cfg, '2026-01-13T09:00:00Z', kick));
+  ok('sign up 3 days before is not late', !logic.isLateSignup(cfg, '2026-01-10T09:00:00Z', kick));
+  ok('exactly 24h before counts as late', logic.isLateSignup(cfg, '2026-01-12T20:00:00Z', kick));
+  const custom = logic.withDefaults({ scoring: { lateSignupHours: 12 } });
+  ok('honours custom window (11h ≤ 12h)', logic.isLateSignup(custom, '2026-01-13T09:00:00Z', kick));
+  ok('outside custom 12h window', !logic.isLateSignup(custom, '2026-01-13T05:00:00Z', kick));
+}
+
+// --- gap-aware late-signup bonus -------------------------------------------
+{
+  const kick = '2026-01-13T20:00:00Z';
+  const early = '2026-01-10T10:00:00Z';   // in good time
+  const late = '2026-01-13T12:00:00Z';    // 8h before → last minute
+  const players = {};
+  for (let i = 1; i <= 6; i++) players['p' + i] = { id: 'p' + i, name: 'P' + i, loyalty: 10 - i };
+  const cfg = logic.withDefaults({}); // playedReward 2, lateSignupBonusGames 4 → +8
+
+  // Under-subscribed: capacity 4, only 3 in good time + 1 late → the late one fills a gap.
+  const short = [
+    { playerId: 'p1', status: 'in', joinedAt: early },
+    { playerId: 'p2', status: 'in', joinedAt: early },
+    { playerId: 'p3', status: 'in', joinedAt: early },
+    { playerId: 'p4', status: 'in', joinedAt: late }
+  ];
+  const a1 = logic.lateSignupAwards(short, players, cfg, kick, 4);
+  ok('late sign-up that fills a gap is rewarded +8', a1.p4 === 8 && Object.keys(a1).length === 1);
+
+  // Over-subscribed: capacity 3, 4 in good time + 1 late → nobody needed the late one.
+  const full = [
+    { playerId: 'p1', status: 'in', joinedAt: early },
+    { playerId: 'p2', status: 'in', joinedAt: early },
+    { playerId: 'p3', status: 'in', joinedAt: early },
+    { playerId: 'p4', status: 'in', joinedAt: early },
+    { playerId: 'p5', status: 'in', joinedAt: late }
+  ];
+  ok('late sign-up gets nothing when squad was already full', Object.keys(logic.lateSignupAwards(full, players, cfg, kick, 3)).length === 0);
+
+  // Two gaps, three late sign-ups → only two bonuses (capped at gaps), highest loyalty first.
+  const twoGaps = [
+    { playerId: 'p1', status: 'in', joinedAt: early },
+    { playerId: 'p2', status: 'in', joinedAt: early },
+    { playerId: 'p3', status: 'in', joinedAt: late }, // loyalty 7
+    { playerId: 'p4', status: 'in', joinedAt: late }, // loyalty 6
+    { playerId: 'p5', status: 'in', joinedAt: late }  // loyalty 5
+  ];
+  const a3 = logic.lateSignupAwards(twoGaps, players, cfg, kick, 4);
+  ok('bonuses capped at the number of gaps (2)', Object.keys(a3).length === 2);
+  ok('gap bonuses go to the highest-ranked late sign-ups', a3.p3 === 8 && a3.p4 === 8 && !a3.p5);
 }
 
 console.log(`\n${pass} checks passed ✅`);
