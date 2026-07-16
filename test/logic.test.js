@@ -263,4 +263,19 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('open games never count', !('open' in base) && base.a.gamesPlayed === 2);
 }
 
+// --- personal goals (from goalscorers) -------------------------------------
+{
+  const games = [
+    { id: '1', status: 'completed', date: '2026-01-01', teams: { bibs: ['x'], nonbibs: ['z'] }, scores: { bibs: 3, nonbibs: 1 }, goals: { x: 2, z: 1 } },
+    { id: '2', status: 'completed', date: '2026-01-08', teams: { bibs: ['x'], nonbibs: ['z'] }, scores: { bibs: 1, nonbibs: 0 }, goals: { x: 1 } },
+    { id: '3', status: 'completed', date: '2026-01-15', teams: { bibs: ['x'], nonbibs: ['z'] }, scores: { bibs: 0, nonbibs: 0 } } // no goals logged
+  ];
+  const x = logic.playerAnalytics('x', games);
+  ok('personal goals sum across games (2+1=3)', x.pg === 3);
+  ok('team goals still separate from personal', x.gf === 4);
+  const z = logic.playerAnalytics('z', games);
+  ok('opponent personal goals counted (1)', z.pg === 1);
+  ok('no personal goals when none logged', logic.playerAnalytics('nobody', games).pg === 0);
+}
+
 console.log(`\n${pass} checks passed ✅`);

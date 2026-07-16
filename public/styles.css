@@ -279,6 +279,15 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .sort-arrow { margin-left: 3px; font-size: 11px; }
 .tp-name { font-weight: 500; color: var(--ink); font-size: 15px; }
 .stats-table .c-num { font-variant-numeric: tabular-nums; }
+.stats-table .c-goals { color: var(--ink); font-weight: 500; }
+.stats-table thead .c-goals { color: var(--muted); }
+.stats-table thead .c-goals.active { color: var(--ink); }
+
+/* ---- Statto: goalscorer entry ---- */
+.goal-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line-2); }
+.goal-row:last-child { border-bottom: none; }
+.goal-name { font-size: 15px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.goal-in { width: 52px; flex: none; margin: 0; padding: 8px 2px; text-align: center; border: 1px solid var(--line); border-radius: 0; font-size: 15px; }
 .stats-table .c-pts { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; font-size: 16px; }
 .stats-table .c-form .form-guide { justify-content: flex-end; gap: 2px; display: inline-flex; }
 .stats-table .c-form .fchip { width: 16px; height: 16px; font-size: 9px; }
