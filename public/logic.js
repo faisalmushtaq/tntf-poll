@@ -79,6 +79,33 @@ export function hoursUntilKickoff(kickoffAt, now = Date.now()) {
   return (new Date(kickoffAt).getTime() - now) / 3_600_000;
 }
 
+// The players who took part in a game (both teams; falls back to the result).
+export function gamePlayers(g) {
+  if (g.teams) return [...new Set([...(g.teams.bibs || []), ...(g.teams.nonbibs || [])])];
+  if (g.result) return [...new Set(g.result.confirmed || [])];
+  return [];
+}
+
+// Recompute every player's loyalty purely from the completed match history,
+// applying the played reward plus the weather (adverse) and cold-season bonuses.
+// `adverseByGameId` says which games were cold/wet (the caller fetches weather).
+// Returns { [playerId]: { loyalty, gamesPlayed } }.
+export function recomputeLoyalty(games = [], config = {}, adverseByGameId = {}) {
+  const s = withDefaults(config).scoring;
+  const totals = {};
+  for (const g of games) {
+    if (g.status !== 'completed') continue;
+    const cold = isColdSeason(g.date || g.completedAt || g.kickoffAt || 0, config);
+    const per = s.playedReward + (adverseByGameId[g.id] ? (s.weatherBonus || 0) : 0) + (cold ? (s.coldSeasonBonus || 0) : 0);
+    for (const id of gamePlayers(g)) {
+      (totals[id] ||= { loyalty: 0, gamesPlayed: 0 });
+      totals[id].loyalty += per;
+      totals[id].gamesPlayed += 1;
+    }
+  }
+  return totals;
+}
+
 // Is this date in the configured cold-season months?
 export function isColdSeason(date, config = {}) {
   const months = withDefaults(config).scoring.coldMonths || [];

@@ -235,4 +235,23 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('clean roster needs no merges', logic.duplicateMerges({ x: { id: 'x', uid: 'z' }, y: { id: 'y', uid: 'w' } }).length === 0);
 }
 
+// --- recompute loyalty from history (incl. weather) ------------------------
+{
+  const games = [
+    { id: 'g1', status: 'completed', date: '2026-01-13', teams: { bibs: ['a', 'b'], nonbibs: ['c'] } }, // cold season (Jan)
+    { id: 'g2', status: 'completed', date: '2026-07-14', teams: { bibs: ['a'], nonbibs: ['c'] } },       // summer
+    { id: 'g3', status: 'open', teams: { bibs: ['a'], nonbibs: [] } }                                    // ignored
+  ];
+  const cfg = logic.withDefaults({}); // played 2, weather 1, cold 1
+  ok('gamePlayers reads both teams', logic.gamePlayers(games[0]).sort().join() === 'a,b,c');
+  // no weather data → only base + cold-season bonuses
+  const base = logic.recomputeLoyalty(games, cfg, {});
+  ok('cold-season game gives +3, summer +2 → a = 5', base.a.loyalty === 5 && base.a.gamesPlayed === 2);
+  ok('player only in the Jan game gets +3', base.b.loyalty === 3 && base.b.gamesPlayed === 1);
+  // mark the summer game adverse → that game becomes +3 for its players
+  const wx = logic.recomputeLoyalty(games, cfg, { g2: true });
+  ok('adverse flag adds the weather bonus (a = 3 + 3 = 6)', wx.a.loyalty === 6);
+  ok('open games never count', !('open' in base) && base.a.gamesPlayed === 2);
+}
+
 console.log(`\n${pass} checks passed ✅`);

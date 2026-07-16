@@ -425,15 +425,21 @@ function rulesScreen() {
   const s = state.config.scoring;
   const tiers = s.dropoutTiers;
   const reward = s.playedReward;
+  const cap = state.config.capacity;
+  const late = reward * (s.lateSignupBonusGames || 0);
+  const coldMax = reward + (s.weatherBonus || 0) + (s.coldSeasonBonus || 0);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const coldMonths = (s.coldMonths || []).map(m => months[m]);
+  const coldLabel = coldMonths.length ? `${coldMonths[0]}–${coldMonths[coldMonths.length - 1]}` : 'the winter';
   return `<div class="card">
     <h2>The system</h2>
     <p class="hint">Built from the group's suggestions — rewards regulars, kills the tap-race, and only penalises dropouts fairly.</p>
     <div class="section-title" style="margin-top:6px">1 · Consistent timing</div>
     <p class="small">The poll opens at a set time each week, so nobody misses out for being on the pitch or driving home. It auto-closes once we've got enough by ${esc(prevDay(state.config.gameDay))} 5pm, and the squad is set.</p>
     <div class="section-title">2 · Loyalty, not speed</div>
-    <p class="small">When more than ${state.config.capacity} sign up, the squad is the top ${state.config.capacity} by loyalty. Signing up first doesn't jump the queue — a regular who signs up late still ranks above a casual.</p>
+    <p class="small">When more than ${cap} sign up, the squad is the top ${cap} by loyalty score. Signing up first doesn't jump the queue — a regular who signs up late still ranks above a casual. Everyone else goes on the reserves, in loyalty order, and moves up automatically if someone drops out.</p>
     <div class="section-title">3 · Time-weighted dropout penalty</div>
-    <p class="small">Pulling out early is free — pulling out last-minute costs you. As Tom put it: a day or two's notice is fine, last minute isn't.</p>
+    <p class="small">Pulling out early is free — pulling out last-minute costs you, because it's harder to find a replacement. As Tom put it: a day or two's notice is fine, last minute isn't.</p>
     <ul class="penalty-scale">
       ${tiers.map(t => `<li><span>${esc(t.label)}</span><span class="pts ${t.penalty === 0 ? 'free' : ''}">${t.penalty === 0 ? 'no penalty' : '-' + t.penalty}</span></li>`).join('')}
     </ul>
@@ -443,15 +449,30 @@ function rulesScreen() {
     <p class="hint">Your loyalty score decides your priority when a game is oversubscribed. Here's exactly how it moves:</p>
     <ul class="penalty-scale">
       <li><span>Play a game (in the confirmed squad)</span><span class="pts free">+${reward}</span></li>
-      ${s.weatherBonus ? `<li><span>…in adverse weather (cold or wet)</span><span class="pts free">+${s.weatherBonus}</span></li>` : ''}
-      ${s.coldSeasonBonus ? `<li><span>…during the cold season</span><span class="pts free">+${s.coldSeasonBonus}</span></li>` : ''}
-      ${s.lateSignupBonusGames ? `<li><span>Step in to fill a gap (sign up within ${s.lateSignupHours ?? 24}h when the squad's short) &amp; play</span><span class="pts free">+${reward * s.lateSignupBonusGames}</span></li>` : ''}
+      ${s.weatherBonus ? `<li><span>…in adverse weather (cold or wet at kickoff)</span><span class="pts free">+${s.weatherBonus}</span></li>` : ''}
+      ${s.coldSeasonBonus ? `<li><span>…during the cold season (${coldLabel})</span><span class="pts free">+${s.coldSeasonBonus}</span></li>` : ''}
+      ${s.lateSignupBonusGames ? `<li><span>Step in to fill a gap (sign up within ${s.lateSignupHours ?? 24}h when the squad's short) &amp; play</span><span class="pts free">+${late}</span></li>` : ''}
       <li><span>Drop out 2+ days before kickoff</span><span class="pts free">0</span></li>
       <li><span>Drop out the day before</span><span class="pts">-1</span></li>
       <li><span>Drop out same day</span><span class="pts">-3</span></li>
       <li><span>Last minute / no-show</span><span class="pts">-5</span></li>
     </ul>
-    <p class="small mt">So turning up week after week steadily builds your priority, while late dropouts chip it away. Battling through the cold and rain earns you extra${s.weatherBonus || s.coldSeasonBonus ? ` (up to +${reward + (s.weatherBonus || 0) + (s.coldSeasonBonus || 0)} for a cold, wet night)` : ''}. Miss a week without signing up? No penalty — you just don't earn the +${reward}. The organiser can also adjust scores by hand (e.g. if you played as a ringer).</p>
+    <p class="small mt">Turning up week after week steadily builds your priority; late dropouts chip it away. Miss a week without signing up and there's no penalty — you just don't earn the +${reward}. The organiser can also nudge scores by hand (e.g. a one-off ringer).</p>
+  </div>
+  ${(s.weatherBonus || s.coldSeasonBonus) ? `<div class="card">
+    <h2>Bad-weather bonus</h2>
+    <p class="hint">Turning out when it's grim deserves credit — so the reward scales with the conditions.</p>
+    ${s.weatherBonus ? `<p class="small"><b>Adverse weather (+${s.weatherBonus}).</b> If it's cold or wet at kickoff — rain, or feels-like around 4°C or below — everyone who plays gets a bonus. The forecast shows on This week; the actual weather is frozen onto each result in History.</p>` : ''}
+    ${s.coldSeasonBonus ? `<p class="small"><b>Cold season (+${s.coldSeasonBonus}).</b> Games in the depths of the year (${coldLabel}) get a bonus regardless of the day's weather.</p>` : ''}
+    <p class="small">They stack, so a cold, wet ${coldMonths.length ? coldMonths[Math.floor(coldMonths.length / 2)] : 'winter'} night is worth <b>+${coldMax}</b> — ${Math.round(coldMax / reward * 10) / 10}× a normal game.</p>
+  </div>` : ''}
+  ${s.lateSignupBonusGames ? `<div class="card">
+    <h2>Stepping in late</h2>
+    <p class="small">If the squad's short and you sign up in the last ${s.lateSignupHours ?? 24} hours to fill a gap — then actually play — you earn <b>+${late}</b> (worth ${s.lateSignupBonusGames} games). It rewards bailing the game out, not just signing up late: if there were already enough players who signed up in good time, there's no bonus, and it only ever covers the number of empty spots.</p>
+  </div>` : ''}
+  <div class="card">
+    <h2>The table</h2>
+    <p class="small">The league table is ranked by <b>loyalty points</b>. When players are level, the tie is broken by <b>lowest win %</b>, then <b>fewest goals</b>, then alphabetically — so it's not just the same faces on top. Games played, team goals, win % and recent form all come from the match history.</p>
   </div>`;
 }
 
@@ -916,6 +937,11 @@ function adminScreen() {
   return `${gameCard}
     ${g ? lineupBuilderCard(g) : ''}
     ${accountsCard()}
+    <div class="card">
+      <h2>Recalculate loyalty</h2>
+      <p class="hint">Rebuild everyone's loyalty from the full match history, applying the played reward plus the weather (cold/wet) and cold-season bonuses to every past game. It fetches the weather for each game and freezes it onto the record. Use this after importing history or changing the bonus values. Replaces current loyalty totals.</p>
+      <button class="btn-primary" id="recalcBtn" onclick="recalcLoyalty()">Recalculate loyalty from history</button>
+    </div>
     ${ratingsCard()}
     <div class="card">
       <h2>Roster</h2>
@@ -1123,6 +1149,35 @@ window.completeGame = async (id) => {
   } catch (e) { toast(e.message, true); }
 };
 window.adjust = async (id, delta) => { try { await db.adjustLoyalty(id, delta); } catch (e) { toast(e.message, true); } };
+// Recompute everyone's loyalty from the whole match history, fetching the
+// weather for each past game so the adverse-weather + cold-season bonuses count.
+window.recalcLoyalty = async () => {
+  if (!confirm('Recalculate everyone\'s loyalty from the full match history — applying the played reward plus the weather and cold-season bonuses to every past game?\n\nThis replaces current loyalty values (including any manual +/- tweaks), and fetches the weather for each game (may take a few seconds).')) return;
+  const btn = document.getElementById('recalcBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Recalculating…'; }
+  try {
+    const games = (history && history.length ? history : await db.loadHistory()).filter(g => g.status === 'completed');
+    const { lat, lon } = state.config;
+    const s = logic.withDefaults(state.config).scoring;
+    const adverse = {}; const gamesWeather = []; let wxCount = 0, coldCount = 0;
+    for (const g of games) {
+      let w = g.weather || null;
+      if (!w && lat != null && lon != null) { try { w = await fetchWeather(lat, lon, gameISO(g)); } catch {} }
+      const isAdv = w ? weatherFlags(w).rough : false;
+      const cold = logic.isColdSeason(g.date || g.completedAt || g.kickoffAt, state.config);
+      adverse[g.id] = isAdv;
+      if (isAdv) wxCount++; if (cold) coldCount++;
+      const reasons = []; if (isAdv) reasons.push('adverse weather'); if (cold) reasons.push('cold season');
+      const bonus = (isAdv ? (s.weatherBonus || 0) : 0) + (cold ? (s.coldSeasonBonus || 0) : 0);
+      gamesWeather.push({ id: g.id, weather: w || undefined, weatherBonus: bonus, bonusReasons: reasons });
+    }
+    const totals = logic.recomputeLoyalty(games, state.config, adverse);
+    const players = Object.entries(totals).map(([id, t]) => ({ id, loyalty: t.loyalty, gamesPlayed: t.gamesPlayed }));
+    await db.commitRecalc({ players, games: gamesWeather });
+    history = null; ensureHistory();
+    toast(`Recalculated ${players.length} players · ${wxCount} wet/cold + ${coldCount} cold-season games`);
+  } catch (e) { toast(e.message, true); }
+  finally { const b = document.getElementById('recalcBtn'); if (b) { b.disabled = false; b.textContent = 'Recalculate loyalty from history'; } }
+};
 window.editPlayer = async (id) => {
   const cur = state.roster.find(p => p.id === id);
   const name = prompt('Edit name', cur ? cur.name : '');
