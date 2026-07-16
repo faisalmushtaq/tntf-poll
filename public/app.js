@@ -76,6 +76,17 @@ async function ensureAccount(u) {
   finally { accountPending = false; }
 }
 
+// One-time config self-heal: bring an older stored config up to the current
+// defaults (venue name + pitch coordinates), so weather turns on and the venue
+// updates without anyone touching Settings. Runs once per session.
+let configMigrated = false;
+function maybeMigrateConfig() {
+  if (configMigrated || !db || !state) return;
+  configMigrated = true;
+  const patch = logic.configMigrationPatch(state.config);
+  if (Object.keys(patch).length) db.updateConfig(patch).catch(e => console.error('config self-heal', e));
+}
+
 // ---- derive the render view from a raw snapshot ---------------------------
 function buildView() {
   if (!lastRaw) return;
@@ -219,8 +230,6 @@ function weekScreen() {
   const dateLine = k.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   const timeLine = k.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-  ensureWeather('g-' + g.id, gameISO(g));
-
   return `
     ${alert}
     <div class="card">
@@ -228,7 +237,7 @@ function weekScreen() {
         <div class="kicker">${kicker}</div>
         <div class="date">${esc(dateLine)}</div>
         <div class="fixture">⏰ ${timeLine}${g.venue ? ` · 📍 ${esc(g.venue)}` : ''}</div>
-        ${weatherLine('g-' + g.id)}
+        ${weatherBlock(g)}
         <div class="count">${g.confirmed.length}/${g.capacity} confirmed${g.waitlist.length ? ` · ${g.waitlist.length} on the bench` : ''} · ${fmtCountdown(g.kickoffAt)}</div>
         <div class="capbar"><span style="width:${pct}%"></span></div>
       </div>
@@ -591,8 +600,20 @@ function ensureWeather(key, iso) {
     .catch(() => { weatherCache[key] = null; })
     .finally(() => { weatherPending[key] = false; render(); });
 }
+// This week's forecast block: shows the kickoff-time forecast once it loads,
+// or a brief "checking" hint while it fetches. Empty if no pitch coords.
+function weatherBlock(g) {
+  const { lat, lon } = state.config;
+  if (lat == null || lon == null) return '';
+  const key = 'g-' + g.id;
+  ensureWeather(key, gameISO(g));
+  const line = weatherLine(key, 'Forecast');
+  if (line) return line;
+  return (weatherPending[key] || weatherCache[key] === undefined) ? `<div class="wx">🌦️ Checking the forecast…</div>` : '';
+}
+
 // One-line weather summary chip. Empty until coords are set and data arrives.
-function weatherLine(key) {
+function weatherLine(key, prefix) {
   const w = weatherCache[key];
   if (!w) return '';
   const t = w.tempC != null ? `${Math.round(w.tempC)}°C` : '';
@@ -602,7 +623,8 @@ function weatherLine(key) {
   else if (w.precipMm != null && w.precipMm >= 0.2) bits.push(`${w.precipMm.toFixed(1)}mm`);
   if (w.windKph != null && w.windKph >= 30) bits.push(`${Math.round(w.windKph)} km/h wind`);
   const tag = flags.rough ? ` <span class="wx-tag">${flags.cold && flags.wet ? 'cold & wet' : flags.cold ? 'cold' : 'wet'}</span>` : '';
-  return `<div class="wx">${bits.join(' · ')}${tag}</div>`;
+  const lead = prefix ? `<span class="wx-lead">${esc(prefix)}</span> ` : '';
+  return `<div class="wx">${lead}${bits.join(' · ')}${tag}</div>`;
 }
 
 // Pull the 11-char YouTube id out of the common URL shapes.
@@ -1210,7 +1232,7 @@ window.addEventListener('tntf-push', e => {
       await auth.complete().catch(err => console.error('sign-in redirect', err));
       auth.onChange(u => { user = u; history = null; if (u) ensureAccount(u); buildView(); render(); ensureHistory(); });
     }
-    db.subscribe(raw => { lastRaw = raw; buildView(); render(); });
+    db.subscribe(raw => { lastRaw = raw; buildView(); render(); maybeMigrateConfig(); });
     ensureHistory(); // load past results for form/analytics on Table & You
   } catch (e) {
     console.error(e);

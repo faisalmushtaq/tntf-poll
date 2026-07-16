@@ -31,6 +31,18 @@ export const DEFAULT_CONFIG = {
 };
 
 // Merge a stored config over the defaults so new keys always exist.
+// One-time config self-heal: brings a stored config up to the current defaults
+// for the venue name and pitch coordinates (which older seeds saved as the old
+// placeholder / null). Returns the patch to apply, or {} if already current.
+export function configMigrationPatch(config = {}) {
+  const c = withDefaults(config);
+  const patch = {};
+  if (c.venue === 'Pitch 10') patch.venue = DEFAULT_CONFIG.venue; // the old placeholder default
+  if (c.lat == null) patch.lat = DEFAULT_CONFIG.lat;
+  if (c.lon == null) patch.lon = DEFAULT_CONFIG.lon;
+  return patch;
+}
+
 export function withDefaults(config = {}) {
   return {
     ...DEFAULT_CONFIG,
