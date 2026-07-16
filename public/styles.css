@@ -120,6 +120,10 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .hero .kicker { display: inline-block; color: var(--muted); font-size: 14px; }
 .hero .date { font-size: 30px; font-weight: 500; letter-spacing: -.01em; color: var(--ink); margin: 6px 0 3px; line-height: 1.08; }
 .hero .fixture { font-size: 15px; color: var(--body); }
+.wx { font-size: 14px; color: var(--body); margin-top: 6px; }
+.wx-tag { display: inline-block; font-size: 11px; color: var(--amber); border: 1px solid #ddcca0; padding: 1px 7px; margin-left: 4px; vertical-align: middle; }
+.wx-center { text-align: center; }
+.wx-center .wx { color: var(--muted); }
 .hero .count { font-size: 13.5px; color: var(--muted); margin-top: 8px; }
 .hero .capbar { height: 4px; border-radius: 0; background: var(--line); overflow: hidden; margin: 14px 0 2px; }
 .hero .capbar > span { display: block; height: 100%; background: var(--ink); }
@@ -179,8 +183,11 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .stat:nth-child(odd) { border-right: 1px solid var(--line); }
 .statnum { font-size: 30px; font-weight: 500; color: var(--ink); letter-spacing: -.01em; }
 .statlbl { font-size: 13px; color: var(--muted); margin-top: 3px; }
-.histrow { display: flex; justify-content: space-between; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--line-2); font-size: 15px; color: var(--ink); }
+.histrow { display: flex; justify-content: space-between; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--line-2); font-size: 15px; color: var(--ink); text-decoration: none; cursor: pointer; }
 .histrow:last-child { border-bottom: none; }
+.histrow:hover { background: var(--soft); margin: 0 -10px; padding: 13px 10px; }
+.hr-right { display: flex; align-items: center; gap: 10px; }
+.hr-chev { color: var(--muted); font-size: 18px; line-height: 1; }
 .notif-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; color: var(--ink); }
 .ios-hint { background: var(--soft); border: 1px solid var(--line); padding: 14px; font-size: 14px; color: var(--body); }
 
