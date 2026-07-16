@@ -137,4 +137,19 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('attrOverall sums provided attrs', logic.attrOverall(P.a) === 80);
 }
 
+// --- cold season + adverse-weather loyalty bonus ---------------------------
+{
+  const cfg = logic.withDefaults({}); // defaults: weatherBonus 1, coldSeasonBonus 1, coldMonths Nov–Mar
+  ok('January counts as cold season', logic.isColdSeason('2026-01-13T20:00:00', cfg));
+  ok('July is not cold season', !logic.isColdSeason('2026-07-14T20:00:00', cfg));
+  const both = logic.completionBonus(cfg, { adverseWeather: true, coldSeason: true });
+  ok('adverse + cold stacks to +2', both.bonus === 2 && both.reasons.length === 2);
+  const wxOnly = logic.completionBonus(cfg, { adverseWeather: true, coldSeason: false });
+  ok('adverse weather alone is +1', wxOnly.bonus === 1);
+  const none = logic.completionBonus(cfg, { adverseWeather: false, coldSeason: false });
+  ok('fine summer game gets no bonus', none.bonus === 0 && none.reasons.length === 0);
+  const custom = logic.completionBonus(logic.withDefaults({ scoring: { weatherBonus: 3, coldSeasonBonus: 0 } }), { adverseWeather: true, coldSeason: true });
+  ok('bonuses honour custom config (weather 3, cold 0)', custom.bonus === 3);
+}
+
 console.log(`\n${pass} checks passed ✅`);

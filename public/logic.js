@@ -13,6 +13,9 @@ export const DEFAULT_CONFIG = {
   organiserEmail: '',      // where the auto-close squad alert is sent
   scoring: {
     playedReward: 2,       // loyalty gained for turning up
+    weatherBonus: 1,       // extra loyalty when the game is cold/wet (adverse)
+    coldSeasonBonus: 1,    // extra loyalty for playing in the cold-season months
+    coldMonths: [10, 11, 0, 1, 2], // Nov–Mar (0-indexed) count as cold season
     // Time-weighted dropout penalty. The first tier whose `hoursBefore`
     // cutoff the withdrawal is still outside of applies.
     // Drop >=48h out -> 0, 24-48h -> 1, 3-24h -> 3, <3h / no-show -> 5.
@@ -36,6 +39,22 @@ export function withDefaults(config = {}) {
 
 export function hoursUntilKickoff(kickoffAt, now = Date.now()) {
   return (new Date(kickoffAt).getTime() - now) / 3_600_000;
+}
+
+// Is this date in the configured cold-season months?
+export function isColdSeason(date, config = {}) {
+  const months = withDefaults(config).scoring.coldMonths || [];
+  return months.includes(new Date(date).getMonth());
+}
+
+// Bonus loyalty for playing a game in tough conditions. Adverse weather
+// (cold/wet) and the cold season stack. Returns the total and human reasons.
+export function completionBonus(config = {}, { adverseWeather = false, coldSeason = false } = {}) {
+  const s = withDefaults(config).scoring;
+  let bonus = 0; const reasons = [];
+  if (adverseWeather && s.weatherBonus) { bonus += s.weatherBonus; reasons.push(`adverse weather +${s.weatherBonus}`); }
+  if (coldSeason && s.coldSeasonBonus) { bonus += s.coldSeasonBonus; reasons.push(`cold season +${s.coldSeasonBonus}`); }
+  return { bonus, reasons };
 }
 
 // Which penalty applies to a withdrawal `hours` before kickoff.
