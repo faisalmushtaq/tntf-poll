@@ -29,6 +29,7 @@ let weatherCache = {}; // cacheKey -> weather summary | null (none) | undefined 
 let weatherPending = {};
 let authMode = 'signup'; // email form mode on the Join screen: 'signup' | 'signin'
 let pendingName = null;   // name typed on account creation, used to name the roster record
+let tableSort = { key: 'loyalty', dir: 'desc' }; // League-table sort column + direction
 let adminUnlocked = false;
 let lineupDraft = null;        // organiser lineupDraft builder state { bibs:[], nonbibs:[] }
 let lineupGameId = null;  // which game `lineupDraft` was built for
@@ -401,16 +402,34 @@ function emailAuthForm() {
     <p class="small center mt">Already have an account? <a role="button" tabindex="0" class="inline-link" onclick="setAuthMode('signin')">Sign in</a></p>`;
 }
 
+// The number behind each sortable column (0 when a player has no games yet).
+function tableValue(e, key) {
+  const an = e.an;
+  const has = an && an.played;
+  switch (key) {
+    case 'played': return has ? an.played : (e.p.gamesPlayed || 0);
+    case 'gf': return has ? an.gf : 0;
+    case 'winPct': return has ? an.winPct : 0;
+    case 'loyalty': return e.p.loyalty || 0;
+    default: return 0;
+  }
+}
+// Canonical order: loyalty desc, then lowest win %, fewest goals, then name.
+function canonicalOrder(a, b) {
+  return (b.p.loyalty - a.p.loyalty)
+    || (tableValue(a, 'winPct') - tableValue(b, 'winPct'))
+    || (tableValue(a, 'gf') - tableValue(b, 'gf'))
+    || a.p.name.localeCompare(b.p.name);
+}
+
 function tableScreen() {
-  // Rank by loyalty; break ties by lowest win %, then fewest goals, then name.
+  const { key, dir } = tableSort;
   const entries = state.roster.map(p => ({ p, an: history ? logic.playerAnalytics(p.id, history) : null }));
   entries.sort((a, b) => {
-    if (b.p.loyalty !== a.p.loyalty) return b.p.loyalty - a.p.loyalty;
-    const aw = a.an && a.an.played ? a.an.winPct : 0, bw = b.an && b.an.played ? b.an.winPct : 0;
-    if (aw !== bw) return aw - bw;              // lowest win% first
-    const ag = a.an && a.an.played ? a.an.gf : 0, bg = b.an && b.an.played ? b.an.gf : 0;
-    if (ag !== bg) return ag - bg;              // then fewest goals
-    return a.p.name.localeCompare(b.p.name);    // then alphabetical
+    if (key === 'loyalty') { const c = canonicalOrder(a, b); return dir === 'desc' ? c : -c; }
+    let cmp = key === 'name' ? a.p.name.localeCompare(b.p.name) : tableValue(a, key) - tableValue(b, key);
+    cmp = dir === 'asc' ? cmp : -cmp;
+    return cmp || canonicalOrder(a, b); // stable tie-break
   });
   const rows = entries.map(({ p, an }, i) => {
     const me = p.id === state.me?.id;
@@ -428,19 +447,21 @@ function tableScreen() {
       <td class="c-pts">${p.loyalty}</td>
     </tr>`;
   }).join('');
+  const arrow = k => key === k ? `<span class="sort-arrow">${dir === 'asc' ? '↑' : '↓'}</span>` : '';
+  const th = (k, label, cls, attrs = '') => `<th class="${cls} sortable${key === k ? ' active' : ''}" ${attrs} onclick="sortTable('${k}')">${label}${arrow(k)}</th>`;
   return `<div class="card">
     <h2>League table</h2>
-    <p class="hint">Ranked by loyalty points — turn up each week to climb. Swipe the table sideways to see every column. Tap <b>You</b> for your full profile.</p>
+    <p class="hint">Ranked by loyalty points — turn up each week to climb. <b>Tap a heading to sort; tap again to reverse.</b> Swipe sideways to see every column; tap <b>You</b> for your profile.</p>
     <div class="table-scroll">
       <table class="stats-table">
         <thead><tr>
           <th class="c-pos">#</th>
-          <th class="c-player">Player</th>
-          <th class="c-num" title="Games played">GP</th>
-          <th class="c-num" title="Team goals scored">Goals</th>
-          <th class="c-num">Win%</th>
+          ${th('name', 'Player', 'c-player')}
+          ${th('played', 'GP', 'c-num', 'title="Games played"')}
+          ${th('gf', 'Goals', 'c-num', 'title="Team goals scored"')}
+          ${th('winPct', 'Win%', 'c-num')}
           <th class="c-form">Form</th>
-          <th class="c-pts">Pts</th>
+          ${th('loyalty', 'Pts', 'c-pts')}
         </tr></thead>
         <tbody>${rows || '<tr><td colspan="7" class="empty">No players yet.</td></tr>'}</tbody>
       </table>
@@ -1033,6 +1054,12 @@ async function ensureHistory() {
 
 // ---- actions --------------------------------------------------------------
 window.go = t => { tab = t; menuOpen = false; if (t !== 'game') detailId = null; render(); window.scrollTo(0, 0); };
+// Tap a table heading to sort by it; tap the same one again to reverse.
+window.sortTable = (key) => {
+  if (tableSort.key === key) tableSort.dir = tableSort.dir === 'asc' ? 'desc' : 'asc';
+  else tableSort = { key, dir: key === 'name' ? 'asc' : 'desc' };
+  render();
+};
 window.toggleMenu = () => { menuOpen = !menuOpen; render(); };
 window.viewGame = id => {
   detailId = id; tab = 'game'; menuOpen = false;

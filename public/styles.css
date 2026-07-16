@@ -273,6 +273,10 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .stats-table .c-pos { position: sticky; left: 0; z-index: 2; width: 34px; padding-left: 20px; text-align: right; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; background: inherit; }
 .stats-table .c-player { position: sticky; left: 46px; z-index: 2; text-align: left; min-width: 100px; max-width: 155px; overflow: hidden; text-overflow: ellipsis; background: inherit; box-shadow: 12px 0 8px -8px rgba(23,22,20,.06); }
 .stats-table thead .c-pos, .stats-table thead .c-player { background: var(--card); z-index: 3; }
+.stats-table th.sortable { cursor: pointer; -webkit-user-select: none; user-select: none; }
+.stats-table th.sortable:hover { color: var(--ink); }
+.stats-table th.active { color: var(--ink); }
+.sort-arrow { margin-left: 3px; font-size: 11px; }
 .tp-name { font-weight: 500; color: var(--ink); font-size: 15px; }
 .stats-table .c-num { font-variant-numeric: tabular-nums; }
 .stats-table .c-pts { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; font-size: 16px; }
