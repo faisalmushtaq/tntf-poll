@@ -16,6 +16,8 @@ export const DEFAULT_CONFIG = {
     weatherBonus: 1,       // extra loyalty when the game is cold/wet (adverse)
     coldSeasonBonus: 1,    // extra loyalty for playing in the cold-season months
     coldMonths: [10, 11, 0, 1, 2], // Nov–Mar (0-indexed) count as cold season
+    lateSignupBonusGames: 4, // stepping in late (see lateSignupHours) is worth this many games' reward
+    lateSignupHours: 24,     // "last minute" = signed up within this many hours of kickoff
     // Time-weighted dropout penalty. The first tier whose `hoursBefore`
     // cutoff the withdrawal is still outside of applies.
     // Drop >=48h out -> 0, 24-48h -> 1, 3-24h -> 3, <3h / no-show -> 5.
@@ -45,6 +47,17 @@ export function hoursUntilKickoff(kickoffAt, now = Date.now()) {
 export function isColdSeason(date, config = {}) {
   const months = withDefaults(config).scoring.coldMonths || [];
   return months.includes(new Date(date).getMonth());
+}
+
+// Reward for stepping in at the last minute: signing up within `lateSignupHours`
+// of kickoff (and then playing) is worth `lateSignupBonusGames` games' reward.
+// Returns the loyalty amount (0 if not a late sign-up).
+export function lateSignupReward(config = {}, joinedAt, kickoffAt) {
+  const s = withDefaults(config).scoring;
+  const games = s.lateSignupBonusGames || 0;
+  if (!games || !joinedAt || !kickoffAt) return 0;
+  const hrs = hoursUntilKickoff(kickoffAt, new Date(joinedAt).getTime());
+  return hrs <= (s.lateSignupHours ?? 24) ? s.playedReward * games : 0;
 }
 
 // Bonus loyalty for playing a game in tough conditions. Adverse weather

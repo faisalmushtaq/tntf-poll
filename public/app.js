@@ -424,6 +424,7 @@ function rulesScreen() {
       <li><span>Play a game (in the confirmed squad)</span><span class="pts free">+${reward}</span></li>
       ${s.weatherBonus ? `<li><span>…in adverse weather (cold or wet)</span><span class="pts free">+${s.weatherBonus}</span></li>` : ''}
       ${s.coldSeasonBonus ? `<li><span>…during the cold season</span><span class="pts free">+${s.coldSeasonBonus}</span></li>` : ''}
+      ${s.lateSignupBonusGames ? `<li><span>Step in last minute (sign up within ${s.lateSignupHours ?? 24}h) &amp; play</span><span class="pts free">+${reward * s.lateSignupBonusGames}</span></li>` : ''}
       <li><span>Drop out 2+ days before kickoff</span><span class="pts free">0</span></li>
       <li><span>Drop out the day before</span><span class="pts">-1</span></li>
       <li><span>Drop out same day</span><span class="pts">-3</span></li>
@@ -909,6 +910,7 @@ function adminScreen() {
       <label class="field">Loyalty per game played</label><input id="cReward" type="number" value="${state.config.scoring.playedReward}" />
       <label class="field">Bonus for adverse weather (cold/wet)</label><input id="cWx" type="number" value="${state.config.scoring.weatherBonus ?? 1}" />
       <label class="field">Bonus for the cold season</label><input id="cCold" type="number" value="${state.config.scoring.coldSeasonBonus ?? 1}" />
+      <label class="field">Last-minute sign-up bonus (× games' reward)</label><input id="cLate" type="number" value="${state.config.scoring.lateSignupBonusGames ?? 4}" />
       <label class="field">Your email (for the auto-close squad alert)</label><input id="cOrg" type="email" value="${esc(state.config.organiserEmail || '')}" placeholder="you@email.com" />
       <label class="field">New admin PIN (leave blank to keep)</label><input id="cPin" type="password" inputmode="numeric" placeholder="••••" />
       <button class="btn-primary mt" onclick="saveConfig()">Save settings</button>
@@ -1060,9 +1062,13 @@ window.completeGame = async (id) => {
   const cold = logic.isColdSeason(iso, state.config);
   const { bonus, reasons } = logic.completionBonus(state.config, { adverseWeather: adverse, coldSeason: cold });
   const base = logic.withDefaults(state.config).scoring.playedReward;
-  const msg = bonus > 0
-    ? `Mark as played? Everyone in the squad gets +${base + bonus} loyalty (+${base} for playing, +${bonus} for ${reasons.map(r => r.replace(/ \+\d+$/, '')).join(' & ')}). Then it's archived.`
-    : 'Mark as played? The confirmed squad each get their loyalty reward, then this game is archived.';
+  // Per-player last-minute bonus (only those who signed up inside the window).
+  const lateReward = base * (logic.withDefaults(state.config).scoring.lateSignupBonusGames || 0);
+  const lateCount = g ? g.confirmed.filter(r => logic.lateSignupReward(state.config, r.joinedAt, g.kickoffAt) > 0).length : 0;
+  const lateNote = lateCount > 0 ? ` ${lateCount} last-minute sign-up${lateCount === 1 ? '' : 's'} also get +${lateReward} for stepping in.` : '';
+  const msg = (bonus > 0
+    ? `Mark as played? Everyone in the squad gets +${base + bonus} loyalty (+${base} for playing, +${bonus} for ${reasons.map(r => r.replace(/ \+\d+$/, '')).join(' & ')}).`
+    : 'Mark as played? The confirmed squad each get their loyalty reward.') + lateNote + ' Then it\'s archived.';
   if (!confirm(msg)) return;
   try {
     await db.completeGame(id, { bonus, weather, reasons });
@@ -1166,7 +1172,8 @@ window.saveConfig = async () => {
     scoring: {
       playedReward: Number(document.getElementById('cReward').value),
       weatherBonus: Number(document.getElementById('cWx').value),
-      coldSeasonBonus: Number(document.getElementById('cCold').value)
+      coldSeasonBonus: Number(document.getElementById('cCold').value),
+      lateSignupBonusGames: Number(document.getElementById('cLate').value)
     }
   };
   const pin = document.getElementById('cPin').value.trim();

@@ -152,4 +152,20 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('bonuses honour custom config (weather 3, cold 0)', custom.bonus === 3);
 }
 
+// --- last-minute sign-up reward --------------------------------------------
+{
+  const cfg = logic.withDefaults({}); // playedReward 2, lateSignupBonusGames 4 → +8 within 24h
+  const kick = '2026-01-13T20:00:00Z';
+  const joinedLate = '2026-01-13T09:00:00Z';  // 11h before → late
+  const joinedEarly = '2026-01-10T09:00:00Z'; // ~3 days before → not late
+  ok('sign up 11h before → +8 (4 games)', logic.lateSignupReward(cfg, joinedLate, kick) === 8);
+  ok('sign up 3 days before → no bonus', logic.lateSignupReward(cfg, joinedEarly, kick) === 0);
+  ok('exactly 24h before still counts', logic.lateSignupReward(cfg, '2026-01-12T20:00:00Z', kick) === 8);
+  ok('missing data → no bonus', logic.lateSignupReward(cfg, null, kick) === 0);
+  const custom = logic.withDefaults({ scoring: { playedReward: 3, lateSignupBonusGames: 2, lateSignupHours: 12 } });
+  ok('honours custom reward (3×2=6)', logic.lateSignupReward(custom, joinedLate, kick) === 6);
+  ok('honours custom window (11h ≤ 12h)', logic.lateSignupReward(custom, joinedLate, kick) === 6);
+  ok('outside custom 12h window → 0', logic.lateSignupReward(custom, '2026-01-13T05:00:00Z', kick) === 0);
+}
+
 console.log(`\n${pass} checks passed ✅`);
