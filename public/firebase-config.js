@@ -17,12 +17,12 @@
 // Access is controlled by firestore.rules, not by hiding these keys.
 // ---------------------------------------------------------------------------
 export const firebaseConfig = {
-  apiKey: '',
-  authDomain: '',
-  projectId: '',
-  storageBucket: '',
-  messagingSenderId: '',
-  appId: '',
+  apiKey: 'AIzaSyCbF8HQtfAF7PXZK0AtUp6Qc9gku7nl9MU',
+  authDomain: 'tntf-428e3.firebaseapp.com',
+  projectId: 'tntf-428e3',
+  storageBucket: 'tntf-428e3.firebasestorage.app',
+  messagingSenderId: '869349849601',
+  appId: '1:869349849601:web:75a15814fa334b2be35e00',
   // For PUSH notifications only. Firebase console → Project settings → Cloud
   // Messaging → Web Push certificates → "Generate key pair" → paste the key.
   // Leave blank if you only want email notifications.
