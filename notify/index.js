@@ -10,8 +10,15 @@ import * as logic from '../public/logic.js';
 const APP_URL = process.env.APP_URL || '';
 
 // --- Firebase Admin (service account from a GitHub secret) ------------------
-const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
-if (!sa.project_id) { console.error('Missing FIREBASE_SERVICE_ACCOUNT secret'); process.exit(1); }
+// If the notifier isn't configured yet, skip cleanly (exit 0) so the scheduled
+// run doesn't fail and spam the repo owner with failure emails.
+let sa = {};
+try { sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}'); }
+catch { console.log('FIREBASE_SERVICE_ACCOUNT is not valid JSON — skipping this run.'); process.exit(0); }
+if (!sa.project_id) {
+  console.log('Notifications not configured yet (no FIREBASE_SERVICE_ACCOUNT secret) — skipping this run.');
+  process.exit(0);
+}
 admin.initializeApp({ credential: admin.credential.cert(sa) });
 const db = admin.firestore();
 
