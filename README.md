@@ -75,6 +75,14 @@ You'll do this once. Times are rough. Everything's free.
 - Copy that key into `vapidKey` in `public/firebase-config.js`.
 - Skip this if you only want email notifications.
 
+### (Optional) Match weather
+The app can show the weather at kickoff on **This week** and on each **History**
+result, via [Open-Meteo](https://open-meteo.com) — **free, no API key**. In
+**Organiser → Settings**, set the pitch's **latitude, longitude** (find the
+pitch on Google Maps, right-click → copy the coordinates). Leave blank to hide
+weather. It flags cold/wet games (`cold & wet`), ready for a future loyalty
+bonus for turning up in rough conditions.
+
 ### 4. Paste config & deploy
 Edit [`public/firebase-config.js`](./public/firebase-config.js) with your values
 (and `vapidKey` if using push), then:

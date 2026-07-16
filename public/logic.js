@@ -5,7 +5,9 @@ export const DEFAULT_CONFIG = {
   clubName: 'Tuesday Night Total Football',
   gameDay: 'Tuesday',
   kickoff: '20:00',        // 24h local time; default next Tuesday 8pm
-  venue: 'Pitch 10',       // default venue; editable per game / in settings
+  venue: 'Pitch 10 - Nou Camp', // default venue; editable per game / in settings
+  lat: null,               // venue latitude  (set in Settings → turns on weather)
+  lon: null,               // venue longitude (Open-Meteo, no API key needed)
   capacity: 14,            // 7-a-side default
   adminPin: '1234',        // change from Settings
   organiserEmail: '',      // where the auto-close squad alert is sent

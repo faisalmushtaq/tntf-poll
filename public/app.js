@@ -2,6 +2,7 @@
 import { createDB } from './db.js';
 import { createAuth } from './auth.js';
 import { enablePush, pushSupported, pushConfigured, isIOS, isStandalone } from './messaging.js';
+import { fetchWeather, weatherFlags } from './weather.js';
 import * as logic from './logic.js';
 
 const $app = document.getElementById('app');
@@ -24,6 +25,8 @@ let detailId = null;  // which historic game the detail view is showing
 let menuOpen = false; // mobile top-nav dropdown open?
 let mediaCache = {};  // dateKey -> {videos, clips, note} | null (fetched, none) | undefined (unchecked)
 let mediaPending = {}; // dateKey -> true while its file is loading
+let weatherCache = {}; // cacheKey -> weather summary | null (none) | undefined (unchecked)
+let weatherPending = {};
 let authMode = 'signup'; // email form mode on the Join screen: 'signup' | 'signin'
 let pendingName = null;   // name typed on account creation, used to name the roster record
 let adminUnlocked = false;
@@ -216,6 +219,8 @@ function weekScreen() {
   const dateLine = k.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   const timeLine = k.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
+  ensureWeather('g-' + g.id, gameISO(g));
+
   return `
     ${alert}
     <div class="card">
@@ -223,6 +228,7 @@ function weekScreen() {
         <div class="kicker">${kicker}</div>
         <div class="date">${esc(dateLine)}</div>
         <div class="fixture">⏰ ${timeLine}${g.venue ? ` · 📍 ${esc(g.venue)}` : ''}</div>
+        ${weatherLine('g-' + g.id)}
         <div class="count">${g.confirmed.length}/${g.capacity} confirmed${g.waitlist.length ? ` · ${g.waitlist.length} on the bench` : ''} · ${fmtCountdown(g.kickoffAt)}</div>
         <div class="capbar"><span style="width:${pct}%"></span></div>
       </div>
@@ -519,10 +525,13 @@ function gameDetailScreen() {
        <p class="hint center" style="margin-top:6px">${res}${size ? ` · ${size}-a-side` : ''}</p>`
     : `<p class="hint center">Score not recorded${size ? ` · ${size}-a-side` : ''}.</p>`;
 
+  ensureWeather('h-' + g.id, gameISO(g));
+
   return `<div class="card">
       <button class="back-link" onclick="go('history')">← All results</button>
       <h2>${esc(g.dateLabel || gameDateKey(g))}</h2>
       ${scoreline}
+      <div class="wx-center">${weatherLine('h-' + g.id)}</div>
       <div class="teams-grid detail mt">${teamCol(g.teams?.bibs, 'Bibs', 'bibs')}${teamCol(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
     </div>
     ${mediaCard(g)}`;
@@ -545,6 +554,38 @@ function mediaCard(g) {
   }
   const note = m.note ? `<div class="md-note">${mdBlock(m.note)}</div>` : '';
   return `<div class="card"><h2>Highlights</h2>${note}${out || '<p class="hint">No video links yet.</p>'}</div>`;
+}
+
+// ---- weather (Open-Meteo) --------------------------------------------------
+// The kickoff datetime for a game: live games carry kickoffAt; historic ones
+// only have a date, so pair it with the configured kickoff time.
+function gameISO(g) {
+  if (g.kickoffAt) return g.kickoffAt;
+  const day = g.date || gameDateKey(g);
+  return day ? `${day}T${(state.config.kickoff || '20:00')}:00` : null;
+}
+// Lazily fetch the weather for one game and cache it; re-renders when it lands.
+function ensureWeather(key, iso) {
+  const { lat, lon } = state.config;
+  if (lat == null || lon == null || !iso) return;
+  if (key in weatherCache || weatherPending[key]) return;
+  weatherPending[key] = true;
+  fetchWeather(lat, lon, iso).then(w => { weatherCache[key] = w || null; })
+    .catch(() => { weatherCache[key] = null; })
+    .finally(() => { weatherPending[key] = false; render(); });
+}
+// One-line weather summary chip. Empty until coords are set and data arrives.
+function weatherLine(key) {
+  const w = weatherCache[key];
+  if (!w) return '';
+  const t = w.tempC != null ? `${Math.round(w.tempC)}°C` : '';
+  const flags = weatherFlags(w);
+  const bits = [w.emoji + ' ' + w.label, t].filter(Boolean);
+  if (w.rainProb != null && w.rainProb >= 20) bits.push(`${w.rainProb}% rain`);
+  else if (w.precipMm != null && w.precipMm >= 0.2) bits.push(`${w.precipMm.toFixed(1)}mm`);
+  if (w.windKph != null && w.windKph >= 30) bits.push(`${Math.round(w.windKph)} km/h wind`);
+  const tag = flags.rough ? ` <span class="wx-tag">${flags.cold && flags.wet ? 'cold & wet' : flags.cold ? 'cold' : 'wet'}</span>` : '';
+  return `<div class="wx">${bits.join(' · ')}${tag}</div>`;
 }
 
 // Pull the 11-char YouTube id out of the common URL shapes.
@@ -619,8 +660,8 @@ function youScreen() {
         <div class="stat"><div class="statnum">${me.loyalty}</div><div class="statlbl">loyalty</div></div>
         <div class="stat"><div class="statnum">${stats.dropouts}</div><div class="statlbl">dropouts</div></div>
       </div>
-      ${stats.history.length ? `<div class="section-title">History</div>${stats.history.map(h =>
-        `<div class="histrow"><span>${esc(h.dateLabel || 'Game')}</span><span class="pill ${h.played ? 'in' : h.withdrew ? 'out' : 'wait'}">${h.played ? 'played' : h.withdrew ? 'dropped out' : 'reserve'}</span></div>`).join('')}`
+      ${stats.history.length ? `<div class="section-title">History</div><p class="hint" style="margin:-2px 0 2px">Tap a game for the line-ups, score and highlights.</p>${stats.history.map(h =>
+        `<a class="histrow" role="button" tabindex="0" onclick="viewGame('${h.gameId}')"><span>${esc(h.dateLabel || 'Game')}</span><span class="hr-right"><span class="pill ${h.played ? 'in' : h.withdrew ? 'out' : 'wait'}">${h.played ? 'played' : h.withdrew ? 'dropped out' : 'reserve'}</span><span class="hr-chev">›</span></span></a>`).join('')}`
         : '<p class="hint">No completed games yet — your history builds up from here.</p>'}
     </div>` : `<div class="card"><h2>Your record</h2><p class="hint">Loading your history…</p></div>`;
 
@@ -839,6 +880,12 @@ function adminScreen() {
       <h2>Settings</h2>
       <label class="field">Club name</label><input id="cName" value="${esc(state.config.clubName)}" />
       <label class="field">Default venue</label><input id="cVenue" value="${esc(state.config.venue || '')}" />
+      <label class="field">Pitch location for weather (latitude, longitude)</label>
+      <div class="btn-row">
+        <input id="cLat" type="number" step="any" value="${state.config.lat ?? ''}" placeholder="e.g. 53.4808" />
+        <input id="cLon" type="number" step="any" value="${state.config.lon ?? ''}" placeholder="e.g. -2.2426" />
+      </div>
+      <p class="small">Find the pitch on Google Maps, right-click it → the numbers at the top are latitude, longitude. Leave blank to hide weather. Free, no API key (Open-Meteo).</p>
       <label class="field">Game day</label>
       <select id="cDay">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `<option ${d === state.config.gameDay ? 'selected' : ''}>${d}</option>`).join('')}</select>
       <label class="field">Kickoff (HH:MM)</label><input id="cKick" value="${esc(state.config.kickoff)}" />
@@ -1071,9 +1118,13 @@ window.saveLineup = async (finalised) => {
   catch (e) { toast(e.message, true); }
 };
 window.saveConfig = async () => {
+  const latRaw = document.getElementById('cLat').value.trim();
+  const lonRaw = document.getElementById('cLon').value.trim();
   const patch = {
     clubName: document.getElementById('cName').value.trim(),
     venue: document.getElementById('cVenue').value.trim(),
+    lat: latRaw === '' ? null : Number(latRaw),
+    lon: lonRaw === '' ? null : Number(lonRaw),
     gameDay: document.getElementById('cDay').value,
     kickoff: document.getElementById('cKick').value.trim(),
     capacity: Number(document.getElementById('cCap').value),
@@ -1082,7 +1133,7 @@ window.saveConfig = async () => {
   };
   const pin = document.getElementById('cPin').value.trim();
   if (pin) patch.adminPin = pin;
-  try { await db.updateConfig(patch); render(); toast('Settings saved'); }
+  try { weatherCache = {}; await db.updateConfig(patch); render(); toast('Settings saved'); }
   catch (e) { toast(e.message, true); }
 };
 
