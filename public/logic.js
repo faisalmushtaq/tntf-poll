@@ -219,10 +219,11 @@ export function finalResult(ranked = []) {
 // Per-player attendance stats from the archived completed games, using the
 // frozen result recorded on each game (see finalResult / completeGame).
 export function playerStats(playerId, games = []) {
-  let played = 0, invited = 0, dropouts = 0;
+  let played = 0, invited = 0, dropouts = 0, total = 0;
   const history = [];
   for (const g of games) {
     if (g.status !== 'completed' || !g.result) continue;
+    total += 1; // every completed game the club has played
     const signup = (g.signups || []).find(s => s.playerId === playerId);
     const withdrew = signup && signup.status === 'withdrawn';
     const wasConfirmed = g.result.confirmed.includes(playerId);
@@ -234,7 +235,8 @@ export function playerStats(playerId, games = []) {
     history.push({ gameId: g.id, dateLabel: g.dateLabel, completedAt: g.completedAt, played: wasConfirmed, reserve: wasReserve && !wasConfirmed, withdrew });
   }
   history.sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0));
-  return { played, invited, dropouts, attendancePct: invited ? Math.round(played / invited * 100) : 0, history };
+  // Attendance is turnout across ALL the club's games, not just those you were in.
+  return { played, invited, dropouts, total, attendancePct: total ? Math.round(played / total * 100) : 0, history };
 }
 
 // Organiser-only player attributes, each rated /20. Missing → treated as 10.
