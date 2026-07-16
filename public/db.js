@@ -115,6 +115,15 @@ function createLocalDB() {
       persist(); return id;
     },
     async clearAccount(id) { const p = db.players[id]; if (p) { p.account = false; persist(); } },
+    async commitRecalc({ players = [], games = [] }) {
+      for (const p of players) { const rec = db.players[p.id]; if (rec) { rec.loyalty = p.loyalty; rec.gamesPlayed = p.gamesPlayed; } }
+      for (const gw of games) {
+        const g = db.games.find(x => x.id === gw.id); if (!g) continue;
+        if (gw.weather) g.weather = gw.weather;
+        if (gw.weatherBonus != null) { g.weatherBonus = gw.weatherBonus; g.bonusReasons = gw.bonusReasons || []; }
+      }
+      persist();
+    },
     async renamePlayer(id, name) { db.players[id].name = String(name).trim(); persist(); },
     async adjustLoyalty(id, delta) { db.players[id].loyalty += Number(delta) || 0; persist(); },
     async deletePlayer(id) {
@@ -303,6 +312,17 @@ async function createFirestoreDB() {
       return id;
     },
     async clearAccount(id) { await updateDoc(doc(playersCol, id), { account: false }); },
+    async commitRecalc({ players = [], games = [] }) {
+      const batch = writeBatch(dbf);
+      for (const p of players) batch.update(doc(playersCol, p.id), { loyalty: p.loyalty, gamesPlayed: p.gamesPlayed });
+      for (const gw of games) {
+        const patch = {};
+        if (gw.weather) patch.weather = gw.weather;
+        if (gw.weatherBonus != null) { patch.weatherBonus = gw.weatherBonus; patch.bonusReasons = gw.bonusReasons || []; }
+        if (Object.keys(patch).length) batch.update(gameRef(gw.id), patch);
+      }
+      await batch.commit();
+    },
     async renamePlayer(id, name) { await updateDoc(doc(playersCol, id), { name: String(name).trim() }); },
     async adjustLoyalty(id, delta) { await updateDoc(doc(playersCol, id), { loyalty: increment(Number(delta) || 0) }); },
     async deletePlayer(id) {
