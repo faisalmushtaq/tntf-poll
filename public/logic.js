@@ -10,6 +10,7 @@ export const DEFAULT_CONFIG = {
   lon: -1.74367,           // venue longitude (Open-Meteo, no API key needed)
   capacity: 14,            // 7-a-side default
   adminPin: '1234',        // change from Settings
+  stattoPin: '2468',       // stats-keeper role: edit scores + enter goalscorers
   organiserEmail: '',      // where the auto-close squad alert is sent
   scoring: {
     playedReward: 2,       // loyalty gained for turning up
@@ -275,7 +276,8 @@ export function playerAnalytics(playerId, games = []) {
       if (!side) return null;
       const other = side === 'bibs' ? 'nonbibs' : 'bibs';
       const gf = g.scores[side], ga = g.scores[other];
-      return { date: g.date, dateLabel: g.dateLabel, gf, ga, outcome: gf > ga ? 'W' : gf < ga ? 'L' : 'D' };
+      const pg = (g.goals && Number(g.goals[playerId])) || 0; // personal goals this game
+      return { date: g.date, dateLabel: g.dateLabel, gf, ga, pg, outcome: gf > ga ? 'W' : gf < ga ? 'L' : 'D' };
     })
     .filter(Boolean)
     .sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -286,6 +288,7 @@ export function playerAnalytics(playerId, games = []) {
   const losses = rel.filter(r => r.outcome === 'L').length;
   const gf = rel.reduce((s, r) => s + r.gf, 0);
   const ga = rel.reduce((s, r) => s + r.ga, 0);
+  const pg = rel.reduce((s, r) => s + r.pg, 0); // total personal goals
 
   let longestWin = 0, longestUnbeaten = 0, w = 0, u = 0;
   for (const r of rel) {
@@ -301,7 +304,7 @@ export function playerAnalytics(playerId, games = []) {
   return {
     played, wins, draws, losses,
     winPct: played ? Math.round(wins / played * 100) : 0,
-    gf, ga, gd: gf - ga,
+    gf, ga, gd: gf - ga, pg,
     currentStreak: current, longestWin, longestUnbeaten,
     form: rel.slice(-6).reverse().map(r => r.outcome),   // newest first
     log: rel.slice().reverse()

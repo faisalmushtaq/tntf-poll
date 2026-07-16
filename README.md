@@ -26,15 +26,20 @@ hamburger menu on mobile.
 
 - **This week** — the live squad (two-column, by loyalty) and the reserves,
   visible to everyone. One-tap *I'm in* / *Withdraw* with the penalty shown up front.
-- **Join** — one-tap onboarding for newcomers, plus a plain-English "how it works".
+- **Join / You** — one nav slot: **Join** (onboarding) when signed out, your
+  **You** profile (attendance, games, record, history, notifications, account)
+  once you're in.
 - **History** — every logged result. Tap into a game for the line-ups, the
-  score and embedded highlights (see below).
-- **Table** — the loyalty leaderboard.
-- **You** — your attendance %, games played, dropout record and game history,
-  plus your notification settings and account.
+  score, goalscorers and embedded highlights (see below).
+- **Table** — the leaderboard. Ranked by loyalty; **tap a heading to sort, tap
+  again to reverse**. Columns include **TG** (team goals) and **Goals**
+  (personal goals scored).
 - **Rules** — the system explained, with the penalty scale.
 - **Organiser** — PIN-protected: open/lock/complete games, manage the roster,
-  change every setting.
+  recalculate loyalty, change every setting.
+- **Statto** — a separate PIN-protected role for the stats-keeper: correct any
+  game's score and log **who scored the goals** (which feeds the Goals column
+  and the History detail). Set the Statto PIN in Organiser → Settings.
 
 Notifications tell you the moment your spot changes — promoted off the reserves,
 or bumped out — by **email and push** (push works on Android/desktop directly,

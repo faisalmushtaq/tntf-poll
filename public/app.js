@@ -31,6 +31,8 @@ let authMode = 'signup'; // email form mode on the Join screen: 'signup' | 'sign
 let pendingName = null;   // name typed on account creation, used to name the roster record
 let tableSort = { key: 'loyalty', dir: 'desc' }; // League-table sort column + direction
 let adminUnlocked = false;
+let stattoUnlocked = false;    // stats-keeper role unlocked this session?
+let stattoGameId = null;       // which game the statto is editing
 let lineupDraft = null;        // organiser lineupDraft builder state { bibs:[], nonbibs:[] }
 let lineupGameId = null;  // which game `lineupDraft` was built for
 
@@ -39,11 +41,12 @@ let lineupGameId = null;  // which game `lineupDraft` was built for
 const NAV = [
   ['week', 'This week'],
   ['join', 'Join'],
+  ['you', 'You'],
   ['history', 'History'],
   ['table', 'Table'],
-  ['you', 'You'],
   ['rules', 'Rules'],
-  ['admin', 'Organiser']
+  ['admin', 'Organiser'],
+  ['statto', 'Statto']
 ];
 
 // Resolve "me": in cloud+auth mode match the signed-in account to a roster
@@ -191,7 +194,12 @@ function renderTopbar() {
     document.body.insertBefore(bar, $app);
   }
   bar.className = menuOpen ? 'open' : '';
-  const links = NAV.map(([k, label]) => {
+  const loggedIn = !!state.me;
+  const links = NAV.filter(([k]) => {
+    if (k === 'join') return !loggedIn; // once you're in, Join collapses into You
+    if (k === 'you') return loggedIn;
+    return true;
+  }).map(([k, label]) => {
     const active = tab === k || (tab === 'game' && k === 'history');
     return `<a class="navlink${active ? ' active' : ''}" role="button" tabindex="0" onclick="go('${k}')">${label}</a>`;
   }).join('');
@@ -409,6 +417,7 @@ function tableValue(e, key) {
   switch (key) {
     case 'played': return has ? an.played : (e.p.gamesPlayed || 0);
     case 'gf': return has ? an.gf : 0;
+    case 'pg': return has ? an.pg : 0;
     case 'winPct': return has ? an.winPct : 0;
     case 'loyalty': return e.p.loyalty || 0;
     default: return 0;
@@ -434,14 +443,16 @@ function tableScreen() {
   const rows = entries.map(({ p, an }, i) => {
     const me = p.id === state.me?.id;
     const played = an && an.played ? an.played : p.gamesPlayed;
-    const goals = an && an.played ? an.gf : '—';
+    const tg = an && an.played ? an.gf : '—';
+    const pg = an && an.played ? an.pg : '—';
     const win = an && an.played ? an.winPct + '%' : '—';
     const form = an && an.played ? formGuide(an.form.slice(0, 6)) : '<span class="tdash">—</span>';
     return `<tr class="${me ? 'me' : ''}">
       <td class="c-pos">${i + 1}</td>
       <td class="c-player"><span class="tp-name">${esc(p.name)}</span>${me ? ' <span class="small">(you)</span>' : ''}</td>
       <td class="c-num">${played}</td>
-      <td class="c-num">${goals}</td>
+      <td class="c-num">${tg}</td>
+      <td class="c-num c-goals">${pg}</td>
       <td class="c-num">${win}</td>
       <td class="c-form">${form}</td>
       <td class="c-pts">${p.loyalty}</td>
@@ -458,12 +469,13 @@ function tableScreen() {
           <th class="c-pos">#</th>
           ${th('name', 'Player', 'c-player')}
           ${th('played', 'GP', 'c-num', 'title="Games played"')}
-          ${th('gf', 'Goals', 'c-num', 'title="Team goals scored"')}
+          ${th('gf', 'TG', 'c-num', 'title="Team goals — goals your team scored in games you played"')}
+          ${th('pg', 'Goals', 'c-num c-goals', 'title="Goals you scored"')}
           ${th('winPct', 'Win%', 'c-num')}
           <th class="c-form">Form</th>
           ${th('loyalty', 'Pts', 'c-pts')}
         </tr></thead>
-        <tbody>${rows || '<tr><td colspan="7" class="empty">No players yet.</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="8" class="empty">No players yet.</td></tr>'}</tbody>
       </table>
     </div>
   </div>`;
@@ -633,10 +645,18 @@ function gameDetailScreen() {
   const bonusNote = g.weatherBonus > 0
     ? `<p class="hint center wx-bonus">🏅 Tough conditions — everyone who played earned +${g.weatherBonus} bonus loyalty.</p>` : '';
 
+  const scorers = g.goals && Object.keys(g.goals).length
+    ? Object.entries(g.goals).filter(([, v]) => Number(v) > 0)
+        .sort((a, b) => b[1] - a[1])
+        .map(([id, v]) => `${esc(state.playersById[id]?.name || '—')}${v > 1 ? ` ×${v}` : ''}`).join(', ')
+    : '';
+  const scorersLine = scorers ? `<p class="hint center" style="margin-top:4px">⚽ ${scorers}</p>` : '';
+
   return `<div class="card">
       <button class="back-link" onclick="go('history')">← All results</button>
       <h2>${esc(g.dateLabel || gameDateKey(g))}</h2>
       ${scoreline}
+      ${scorersLine}
       <div class="wx-center">${weatherLine('h-' + g.id)}</div>
       ${bonusNote}
       <div class="teams-grid detail mt">${teamCol(g.teams?.bibs, 'Bibs', 'bibs')}${teamCol(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
@@ -1028,15 +1048,78 @@ function adminScreen() {
       <label class="field">Last-minute sign-up bonus (× games' reward)</label><input id="cLate" type="number" value="${state.config.scoring.lateSignupBonusGames ?? 4}" />
       <label class="field">Your email (for the auto-close squad alert)</label><input id="cOrg" type="email" value="${esc(state.config.organiserEmail || '')}" placeholder="you@email.com" />
       <label class="field">New admin PIN (leave blank to keep)</label><input id="cPin" type="password" inputmode="numeric" placeholder="••••" />
+      <label class="field">Statto PIN — for the stats-keeper (leave blank to keep)</label><input id="cStatto" type="password" inputmode="numeric" placeholder="••••" />
       <button class="btn-primary mt" onclick="saveConfig()">Save settings</button>
       <button class="btn-ghost mt" onclick="adminLogout()">Log out of organiser</button>
     </div>`;
 }
 
+// ---- statto: stats-keeper (correct scores, log goalscorers) ----------------
+function stattoScreen() {
+  if (!stattoUnlocked) {
+    return `<div class="card">
+      <h2>Statto area 📊</h2>
+      <p class="hint">For the stats-keeper — correct scores and log who scored the goals. Ask the organiser for the Statto PIN.</p>
+      <input id="stattoPin" type="password" inputmode="numeric" placeholder="Statto PIN" />
+      <button class="btn-primary" onclick="stattoLogin()">Unlock</button>
+    </div>`;
+  }
+  if (history === null) { ensureHistory(); return `<div class="card"><h2>Match records</h2><p class="hint">Loading…</p></div>`; }
+  const games = [...history].filter(g => g.status === 'completed').sort((a, b) => gameDateKey(b).localeCompare(gameDateKey(a)));
+  if (stattoGameId) {
+    const g = games.find(x => x.id === stattoGameId);
+    if (g) return stattoEditor(g);
+    stattoGameId = null;
+  }
+  const rows = games.map(g => {
+    const b = g.scores?.bibs, n = g.scores?.nonbibs;
+    const hasScore = Number.isFinite(b) && Number.isFinite(n);
+    const scorers = g.goals ? Object.values(g.goals).reduce((s, v) => s + Number(v || 0), 0) : 0;
+    return `<a class="hist-row" role="button" tabindex="0" onclick="selectStattoGame('${g.id}')">
+      <div class="hist-main"><div class="hist-date">${esc(g.dateLabel || gameDateKey(g))}</div>
+        <div class="hist-sub">${scorers ? `${scorers} goal${scorers === 1 ? '' : 's'} logged` : 'no scorers yet'}</div></div>
+      <div class="hist-score">${hasScore ? `${b}<span>–</span>${n}` : '<span class="tdash">—</span>'}</div>
+      <div class="hist-res">edit ›</div>
+    </a>`;
+  }).join('');
+  return `<div class="card">
+      <h2>Match records 📊</h2>
+      <p class="hint">Tap a game to correct the score and log who scored.</p>
+      <div class="hist-list">${rows || '<div class="empty">No completed games yet.</div>'}</div>
+    </div>
+    <div class="card"><button class="btn-ghost" onclick="stattoLogout()">Lock Statto</button></div>`;
+}
+
+function stattoEditor(g) {
+  const b = g.scores?.bibs, n = g.scores?.nonbibs;
+  const goalInput = id => {
+    const p = state.playersById[id];
+    const val = g.goals && g.goals[id] != null ? g.goals[id] : '';
+    return `<div class="goal-row"><span class="goal-name">${esc(p ? p.name : '—')}</span>
+      <input class="goal-in" id="sg-${id}" type="number" min="0" inputmode="numeric" value="${val}" placeholder="0" /></div>`;
+  };
+  const col = (ids, label, cls) => `<div class="team-col">
+      <div class="team-head ${cls}">${label}</div>
+      ${(ids || []).map(goalInput).join('') || '<div class="empty">—</div>'}</div>`;
+  return `<div class="card">
+    <button class="back-link" onclick="stattoBack()">← All games</button>
+    <h2>${esc(g.dateLabel || gameDateKey(g))}</h2>
+    <div class="section-title">Score</div>
+    <div class="btn-row">
+      <div><label class="field">Bibs</label><input id="ssBibs" type="number" inputmode="numeric" value="${Number.isFinite(b) ? b : ''}" placeholder="0" /></div>
+      <div><label class="field">Non-bibs</label><input id="ssNon" type="number" inputmode="numeric" value="${Number.isFinite(n) ? n : ''}" placeholder="0" /></div>
+    </div>
+    <div class="section-title">Goalscorers</div>
+    <p class="hint" style="margin-top:-2px">How many each player scored — leave blank if none.</p>
+    <div class="teams-grid">${col(g.teams?.bibs, 'Bibs', 'bibs')}${col(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
+    <button class="btn-primary mt" onclick="saveStattoGame('${g.id}')">Save record</button>
+  </div>`;
+}
+
 // ---- render ---------------------------------------------------------------
 const SCREENS = {
   week: weekScreen, join: joinScreen, history: historyScreen, game: gameDetailScreen,
-  table: tableScreen, you: youScreen, rules: rulesScreen, admin: adminScreen
+  table: tableScreen, you: youScreen, rules: rulesScreen, admin: adminScreen, statto: stattoScreen
 };
 function render() {
   if (!state) return;
@@ -1157,6 +1240,30 @@ window.adminLogin = async () => {
   catch (e) { toast(e.message, true); }
 };
 window.adminLogout = () => { adminUnlocked = false; render(); toast('Logged out'); };
+
+// ---- statto actions --------------------------------------------------------
+window.stattoLogin = async () => {
+  const pin = document.getElementById('stattoPin').value;
+  try { if (!(await db.checkStattoPin(pin))) return toast('Wrong PIN', true); stattoUnlocked = true; render(); toast('Statto unlocked 📊'); }
+  catch (e) { toast(e.message, true); }
+};
+window.stattoLogout = () => { stattoUnlocked = false; stattoGameId = null; render(); toast('Statto locked'); };
+window.selectStattoGame = (id) => { stattoGameId = id; render(); window.scrollTo(0, 0); };
+window.stattoBack = () => { stattoGameId = null; render(); window.scrollTo(0, 0); };
+window.saveStattoGame = async (id) => {
+  const g = (history || []).find(x => x.id === id); if (!g) return;
+  const bibs = document.getElementById('ssBibs').value.trim();
+  const non = document.getElementById('ssNon').value.trim();
+  const scores = (bibs !== '' && non !== '') ? { bibs: Number(bibs), nonbibs: Number(non) } : null;
+  const goals = {};
+  for (const pid of logic.gamePlayers(g)) {
+    const el = document.getElementById('sg-' + pid);
+    const v = el ? Number(el.value) : 0;
+    if (v > 0) goals[pid] = v;
+  }
+  try { await db.saveGameStats(id, { scores, goals }); history = null; ensureHistory(); stattoGameId = null; render(); toast('Record saved 📊'); }
+  catch (e) { toast(e.message, true); }
+};
 window.admin = async (method, id, ok) => {
   try { await db[method](id); toast(ok || 'Done'); }
   catch (e) { toast(e.message, true); }
@@ -1344,6 +1451,8 @@ window.saveConfig = async () => {
   };
   const pin = document.getElementById('cPin').value.trim();
   if (pin) patch.adminPin = pin;
+  const spin = document.getElementById('cStatto').value.trim();
+  if (spin) patch.stattoPin = spin;
   try { weatherCache = {}; await db.updateConfig(patch); render(); toast('Settings saved'); }
   catch (e) { toast(e.message, true); }
 };

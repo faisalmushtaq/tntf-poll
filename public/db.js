@@ -212,7 +212,14 @@ function createLocalDB() {
       if (patch.scoring) db.config.scoring = { ...db.config.scoring, ...patch.scoring };
       persist();
     },
-    async checkPin(pin) { return String(pin) === String(logic.withDefaults(db.config).adminPin); }
+    async checkPin(pin) { return String(pin) === String(logic.withDefaults(db.config).adminPin); },
+    async checkStattoPin(pin) { const c = logic.withDefaults(db.config); return String(pin) === String(c.stattoPin) || String(pin) === String(c.adminPin); },
+    async saveGameStats(gameId, { scores, goals }) {
+      const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
+      if (scores) g.scores = { bibs: Number(scores.bibs), nonbibs: Number(scores.nonbibs) };
+      if (goals) g.goals = goals;
+      persist();
+    }
   };
 }
 
@@ -457,6 +464,13 @@ async function createFirestoreDB() {
       if (patch.scoring) flat.scoring = { ...cfg().scoring, ...patch.scoring };
       await setDoc(cfgRef, flat, { merge: true });
     },
-    async checkPin(pin) { return String(pin) === String(cfg().adminPin); }
+    async checkPin(pin) { return String(pin) === String(cfg().adminPin); },
+    async checkStattoPin(pin) { const c = cfg(); return String(pin) === String(c.stattoPin) || String(pin) === String(c.adminPin); },
+    async saveGameStats(gameId, { scores, goals }) {
+      const patch = {};
+      if (scores) patch.scores = { bibs: Number(scores.bibs), nonbibs: Number(scores.nonbibs) };
+      if (goals) patch.goals = goals;
+      if (Object.keys(patch).length) await updateDoc(gameRef(gameId), patch);
+    }
   };
 }
