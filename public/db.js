@@ -104,11 +104,13 @@ function createLocalDB() {
         if (photoURL && !byEmail.photoURL) byEmail.photoURL = photoURL;
         persist(); return byEmail.id;
       }
-      const id = uuid();
+      const id = uid ? 'u_' + String(uid).replace(/[^A-Za-z0-9_-]/g, '') : uuid();
       db.players[id] = {
+        ...(db.players[id] || {}),
         id, name: String(name || 'Player').trim(), email: email || null, uid: uid || null,
-        photoURL: photoURL || null, account: true,
-        loyalty: 0, gamesPlayed: 0, dropouts: 0, createdAt: new Date().toISOString()
+        photoURL: photoURL || null, account: db.players[id]?.account ?? true,
+        loyalty: db.players[id]?.loyalty || 0, gamesPlayed: db.players[id]?.gamesPlayed || 0,
+        dropouts: db.players[id]?.dropouts || 0, createdAt: db.players[id]?.createdAt || new Date().toISOString()
       };
       persist(); return id;
     },
@@ -245,13 +247,26 @@ async function createFirestoreDB() {
     });
   }
 
+  // Gate startup on the first config + players snapshots so the cache is
+  // authoritative before anyone (e.g. account sign-in) reads or writes it —
+  // otherwise account look-ups race an empty cache and create duplicates.
+  let seenConfig, seenPlayers;
+  const firstConfig = new Promise(r => { seenConfig = r; });
+  const firstPlayers = new Promise(r => { seenPlayers = r; });
+
   onSnapshot(cfgRef, s => {
     const data = s.data() || {}; cache.config = data;
     watchGame(data.currentGameId || null);
+    seenConfig();
   });
   onSnapshot(playersCol, qs => {
     const m = {}; qs.docs.forEach(d => { m[d.id] = { id: d.id, ...d.data() }; }); cache.players = m; emit();
+    seenPlayers();
   });
+  // Normally both fire in well under a second; the timeout just prevents a
+  // blank app if a snapshot is unusually slow (e.g. a cold offline start).
+  const timeout = new Promise(r => setTimeout(r, 12000));
+  await Promise.race([Promise.all([firstConfig, firstPlayers]), timeout]);
 
   const cfg = () => logic.withDefaults(cache.config);
 
@@ -268,6 +283,7 @@ async function createFirestoreDB() {
       return id;
     },
     async upsertAccount({ uid, email, name, photoURL }) {
+      // Match an existing record first (the cache is loaded before we get here).
       const byUid = uid && Object.values(cache.players).find(p => p.uid === uid);
       if (byUid) return byUid.id;
       const byEmail = email && Object.values(cache.players).find(p => p.email && p.email.toLowerCase() === email.toLowerCase());
@@ -276,12 +292,14 @@ async function createFirestoreDB() {
         if (Object.keys(patch).length) await updateDoc(doc(playersCol, byEmail.id), patch);
         return byEmail.id;
       }
-      const id = uuid();
+      // Brand-new account. Key the doc on the uid so repeated/concurrent
+      // sign-ins can never create duplicates (idempotent create).
+      const id = uid ? 'u_' + String(uid).replace(/[^A-Za-z0-9_-]/g, '') : uuid();
       await setDoc(doc(playersCol, id), {
         id, name: String(name || 'Player').trim(), email: email || null, uid: uid || null,
         photoURL: photoURL || null, account: true,
         loyalty: 0, gamesPlayed: 0, dropouts: 0, createdAt: new Date().toISOString()
-      });
+      }, { merge: true });
       return id;
     },
     async clearAccount(id) { await updateDoc(doc(playersCol, id), { account: false }); },
@@ -310,6 +328,20 @@ async function createFirestoreDB() {
       for (const d of gs.docs) {
         const g = { id: d.id, ...d.data() }; repointPlayer(g, dropId, keepId);
         batch.update(gameRef(d.id), { teams: g.teams || null, result: g.result || null });
+      }
+      // The current game's sign-ups live in a subcollection the loop above
+      // doesn't touch — migrate the dropped player's sign-up onto the kept one
+      // so a merge can't leave (or duplicate) a registration.
+      const cg = cache.game;
+      if (cg) {
+        const dropSu = cache.signups.find(s => s.playerId === dropId);
+        if (dropSu) {
+          if (!cache.signups.find(s => s.playerId === keepId)) {
+            const { playerId, ...data } = dropSu;
+            batch.set(doc(signupsCol(cg.id), keepId), data);
+          }
+          batch.delete(doc(signupsCol(cg.id), dropId));
+        }
       }
       const patch = {
         loyalty: increment(drop.loyalty || 0), gamesPlayed: increment(drop.gamesPlayed || 0), dropouts: increment(drop.dropouts || 0)
