@@ -181,6 +181,13 @@ function createLocalDB() {
       if (tier.penalty > 0) { db.players[playerId].loyalty -= tier.penalty; db.players[playerId].dropouts += 1; }
       persist(); return { penalty: tier.penalty, label: tier.label };
     },
+    async setPaid(playerId, gameId, paid) {
+      const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
+      const s = g.signups.find(x => x.playerId === playerId && x.status !== 'withdrawn');
+      if (!s) throw new Error('Not signed up');
+      s.paid = !!paid; s.paidAt = paid ? new Date().toISOString() : null;
+      persist();
+    },
     async lockGame(id) { db.games.find(g => g.id === id).status = 'locked'; persist(); },
     async reopenGame(id) { db.games.find(g => g.id === id).status = 'open'; persist(); },
     async completeGame(id, opts = {}) {
@@ -403,6 +410,9 @@ async function createFirestoreDB() {
       if (tier.penalty > 0) batch.update(doc(playersCol, playerId), { loyalty: increment(-tier.penalty), dropouts: increment(1) });
       await batch.commit();
       return { penalty: tier.penalty, label: tier.label };
+    },
+    async setPaid(playerId, gameId, paid) {
+      await setDoc(doc(signupsCol(gameId), playerId), { paid: !!paid, paidAt: paid ? new Date().toISOString() : null }, { merge: true });
     },
     async lockGame(id) { await updateDoc(gameRef(id), { status: 'locked' }); },
     async reopenGame(id) { await updateDoc(gameRef(id), { status: 'open' }); },

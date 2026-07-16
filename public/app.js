@@ -111,14 +111,17 @@ function buildView() {
     const ranked = logic.rankSignups(lastRaw.signups, lastRaw.playersById, g.capacity);
     const mine = playerId ? ranked.find(r => r.playerId === playerId) : null;
     const hrs = logic.hoursUntilKickoff(g.kickoffAt);
+    const paidBy = {};
+    for (const s of lastRaw.signups) if (s.status !== 'withdrawn') paidBy[s.playerId] = !!s.paid;
+    const withPaid = r => ({ ...r, paid: !!paidBy[r.playerId] });
     game = {
       id: g.id, status: g.status, dateLabel: g.dateLabel, kickoffAt: g.kickoffAt, capacity: g.capacity,
       venue: g.venue || lastRaw.config.venue,
       teams: g.teams || null, teamsFinalised: !!g.teamsFinalised,
-      confirmed: ranked.filter(r => r.status === 'confirmed'),
-      waitlist: ranked.filter(r => r.status === 'waitlist'),
+      confirmed: ranked.filter(r => r.status === 'confirmed').map(withPaid),
+      waitlist: ranked.filter(r => r.status === 'waitlist').map(withPaid),
       totalIn: ranked.length,
-      me: mine ? { rank: mine.rank, status: mine.status } : null,
+      me: mine ? { rank: mine.rank, status: mine.status, paid: !!paidBy[playerId] } : null,
       withdrawPenaltyNow: logic.penaltyForHours(hrs, lastRaw.config).penalty
     };
   }
@@ -255,6 +258,7 @@ function weekScreen() {
       </div>
       ${mine}
       ${actionBtn()}
+      ${paymentControl(g)}
     </div>
     ${teamsCard(g)}
     <div class="card">
@@ -264,6 +268,29 @@ function weekScreen() {
       ${renderLineup(g.confirmed, 1, 'loyalty')}
       ${g.waitlist.length ? `<div class="lu-head sub">Reserves</div>${renderLineup(g.waitlist, g.capacity + 1, 'reserve')}` : ''}
     </div>`;
+}
+
+// Player's own "have you paid?" toggle — appears once you're in the squad.
+function paymentControl(g) {
+  if (!state.me || !g.me) return '';
+  if (g.me.status !== 'confirmed' && !g.me.paid) return ''; // only once you're actually in
+  const paid = g.me.paid;
+  return `<div class="pay-row${paid ? ' paid' : ''}">
+    <span class="pay-label">${paid ? '✅ Payment confirmed — thanks!' : '💸 Have you paid the match fee?'}</span>
+    <button class="btn-ghost pay-btn" onclick="markPaid('${g.id}', ${paid ? 'false' : 'true'})">${paid ? 'Mark unpaid' : "Yes, I've paid"}</button>
+  </div>`;
+}
+
+// Organiser payment tracker for the current squad.
+function paymentsAdmin(g) {
+  const paidCount = g.confirmed.filter(r => r.paid).length;
+  const rows = g.confirmed.map(r => `<div class="pay-line">
+      <span class="pay-name">${esc(r.name)}</span>
+      <button class="pay-toggle${r.paid ? ' ok' : ''}" onclick="togglePaid('${r.playerId}','${g.id}',${r.paid ? 'false' : 'true'})">${r.paid ? '✅ paid' : 'mark paid'}</button>
+    </div>`).join('');
+  return `<div class="section-title">Payments · ${paidCount}/${g.confirmed.length} paid</div>
+    <p class="hint" style="margin-top:-2px">Players tick themselves off — tap here to record cash on the night.</p>
+    <div class="pay-list">${rows || '<div class="empty">No one confirmed yet.</div>'}</div>`;
 }
 
 // Published teams (bibs vs non-bibs) shown once the organiser finalises them.
@@ -903,6 +930,7 @@ function adminScreen() {
       ${g.status === 'open'
         ? `<button class="btn-warn" onclick="admin('lockGame','${g.id}','Squad locked')">Lock squad (stop registration)</button>`
         : `<button class="btn-ghost" onclick="admin('reopenGame','${g.id}','Reopened')">Reopen registration</button>`}
+      ${paymentsAdmin(g)}
       <div class="section-title">Enter the result</div>
       <p class="hint" style="margin-top:-2px">Type the final score, then bank loyalty. You can tweak the score and teams (Team builder) right up until you confirm.</p>
       <div class="btn-row">
@@ -1149,6 +1177,15 @@ window.completeGame = async (id) => {
   } catch (e) { toast(e.message, true); }
 };
 window.adjust = async (id, delta) => { try { await db.adjustLoyalty(id, delta); } catch (e) { toast(e.message, true); } };
+const asBool = v => v === true || v === 'true';
+window.markPaid = async (gameId, paid) => {
+  try { await db.setPaid(state.me.id, gameId, asBool(paid)); toast(asBool(paid) ? 'Payment confirmed 💸' : 'Marked unpaid'); }
+  catch (e) { toast(e.message, true); }
+};
+window.togglePaid = async (playerId, gameId, paid) => {
+  try { await db.setPaid(playerId, gameId, asBool(paid)); }
+  catch (e) { toast(e.message, true); }
+};
 // Recompute everyone's loyalty from the whole match history, fetching the
 // weather for each past game so the adverse-weather + cold-season bonuses count.
 window.recalcLoyalty = async () => {
