@@ -24,6 +24,8 @@ let detailId = null;  // which historic game the detail view is showing
 let menuOpen = false; // mobile top-nav dropdown open?
 let mediaCache = {};  // dateKey -> {videos, clips, note} | null (fetched, none) | undefined (unchecked)
 let mediaPending = {}; // dateKey -> true while its file is loading
+let authMode = 'signup'; // email form mode on the Join screen: 'signup' | 'signin'
+let pendingName = null;   // name typed on account creation, used to name the roster record
 let adminUnlocked = false;
 let lineupDraft = null;        // organiser lineupDraft builder state { bibs:[], nonbibs:[] }
 let lineupGameId = null;  // which game `lineupDraft` was built for
@@ -63,7 +65,9 @@ async function ensureAccount(u) {
   if (matched) { LS.id = matched.id; return; }
   accountPending = true;
   try {
-    const id = await db.upsertAccount({ uid: u.uid, email: u.email, name: u.displayName || (u.email || '').split('@')[0], photoURL: u.photoURL });
+    const name = u.displayName || pendingName || (u.email || '').split('@')[0];
+    pendingName = null;
+    const id = await db.upsertAccount({ uid: u.uid, email: u.email, name, photoURL: u.photoURL });
     LS.id = id; // the players snapshot will re-render with the new record
   } catch (e) { console.error('account setup', e); toast(e.message || 'Sign-in failed', true); }
   finally { accountPending = false; }
@@ -293,9 +297,13 @@ function identityPrompt() {
     if (!user) {
       const btns = (auth.providers || []).map(p =>
         `<button class="btn-ghost provider mt" onclick="signIn('${p.name}')">${providerIcon(p.name)}<span>${esc(p.label)}</span></button>`).join('');
+      const hasOAuth = (auth.providers || []).length > 0;
+      const divider = hasOAuth && auth.emailPassword ? `<div class="or-divider">or</div>` : '';
       return `<h2>Sign in to register</h2>
-        <p class="hint">Sign in once with an account you already have — no passwords, no magic links. This is also how you're notified when your spot changes.</p>
-        ${btns || '<p class="small">No sign-in providers configured yet — see README.</p>'}
+        <p class="hint">Create an account or sign in — this is also how you're notified when your spot changes.</p>
+        ${btns}
+        ${auth.emailPassword ? divider + emailAuthForm() : ''}
+        ${!hasOAuth && !auth.emailPassword ? '<p class="small">No sign-in methods configured yet — see README.</p>' : ''}
         <p class="small center mt">You can still see the squad and reserves without signing in.</p>`;
     }
     // Signed in, roster record still being created — resolves within a moment.
@@ -313,10 +321,30 @@ function identityPrompt() {
 function providerIcon(name) {
   const wrap = inner => `<svg class="pv-icon" viewBox="0 0 24 24" aria-hidden="true">${inner}</svg>`;
   if (name === 'google') return wrap('<path fill="currentColor" d="M21.35 11.1H12v3.2h5.35c-.25 1.36-1.02 2.5-2.17 3.27v2.7h3.5c2.05-1.9 3.22-4.68 3.22-8 0-.72-.07-1.42-.2-2.09z"/><path fill="currentColor" d="M12 22c2.7 0 4.96-.9 6.62-2.43l-3.5-2.7c-.97.65-2.22 1.03-3.12 1.03-2.4 0-4.43-1.62-5.16-3.8H3.2v2.38A10 10 0 0 0 12 22z"/><path fill="currentColor" d="M6.84 14.1a5.99 5.99 0 0 1 0-3.82V7.9H3.2a10 10 0 0 0 0 8.98l3.64-2.78z"/><path fill="currentColor" d="M12 6.5c1.47 0 2.79.5 3.83 1.5l2.86-2.86A9.6 9.6 0 0 0 12 2 10 10 0 0 0 3.2 7.9l3.64 2.38C7.57 8.12 9.6 6.5 12 6.5z"/>');
-  if (name === 'apple') return wrap('<path fill="currentColor" d="M16.4 12.9c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9s-1.8-.9-3-.9c-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2-.05 1.6-.75 3-.75s1.8.75 3 .73c1.25-.02 2.03-1.13 2.8-2.24.88-1.28 1.24-2.52 1.26-2.58-.03-.01-2.42-.93-2.44-3.69zM14.2 5.9c.65-.8 1.1-1.9.97-3-.94.04-2.07.63-2.74 1.42-.6.7-1.13 1.82-.99 2.9 1.05.08 2.11-.53 2.76-1.32z"/>');
   if (name === 'github') return wrap('<path fill="currentColor" d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.94.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.6 9.6 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"/>');
   if (name === 'microsoft') return wrap('<path fill="currentColor" d="M3 3h8.5v8.5H3zM12.5 3H21v8.5h-8.5zM3 12.5h8.5V21H3zM12.5 12.5H21V21h-8.5z"/>');
   return '';
+}
+
+// Email + password form for the Join screen. Two modes: create an account
+// (with a name) or sign in to an existing one.
+function emailAuthForm() {
+  if (authMode === 'signin') {
+    return `<label class="field">Email</label>
+      <input id="authEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com" />
+      <label class="field">Password</label>
+      <input id="authPassword" type="password" autocomplete="current-password" placeholder="Your password" />
+      <button class="btn-primary mt" onclick="emailSignIn()">Sign in</button>
+      <p class="small center mt"><a role="button" tabindex="0" class="inline-link" onclick="resetPw()">Forgot password?</a> · New here? <a role="button" tabindex="0" class="inline-link" onclick="setAuthMode('signup')">Create an account</a></p>`;
+  }
+  return `<label class="field">Your name</label>
+    <input id="authName" autocomplete="name" placeholder="e.g. ${esc((state.roster[0] && state.roster[0].name) || 'Your name')}" />
+    <label class="field">Email</label>
+    <input id="authEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com" />
+    <label class="field">Password</label>
+    <input id="authPassword" type="password" autocomplete="new-password" placeholder="At least 6 characters" />
+    <button class="btn-primary mt" onclick="emailSignUp()">Create account</button>
+    <p class="small center mt">Already have an account? <a role="button" tabindex="0" class="inline-link" onclick="setAuthMode('signin')">Sign in</a></p>`;
 }
 
 function tableScreen() {
@@ -863,6 +891,51 @@ window.join = async () => {
 window.signIn = async (provider) => {
   try { await auth.signIn(provider); /* onChange handles the rest */ }
   catch (e) { toast(e.message || 'Sign-in failed', true); }
+};
+window.setAuthMode = (mode) => { authMode = mode; render(); };
+
+// Friendly messages for the common Firebase Auth error codes.
+function authErrorMessage(e) {
+  switch (e.code) {
+    case 'auth/email-already-in-use': return 'That email already has an account — try signing in.';
+    case 'auth/invalid-email': return 'Enter a valid email address.';
+    case 'auth/missing-password': return 'Enter a password.';
+    case 'auth/weak-password': return 'Password should be at least 6 characters.';
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+    case 'auth/invalid-credential': return 'Wrong email or password.';
+    case 'auth/too-many-requests': return 'Too many attempts — try again in a bit.';
+    default: return e.message || 'Something went wrong.';
+  }
+}
+window.emailSignUp = async () => {
+  const name = document.getElementById('authName')?.value.trim();
+  const email = document.getElementById('authEmail')?.value.trim();
+  const password = document.getElementById('authPassword')?.value || '';
+  if (!name) return toast('Enter your name', true);
+  if (!email) return toast('Enter your email', true);
+  if (password.length < 6) return toast('Password should be at least 6 characters', true);
+  pendingName = name;
+  try { await auth.signUpEmail(email, password, name); /* onChange handles the rest */ }
+  catch (e) {
+    pendingName = null;
+    if (e.code === 'auth/email-already-in-use') { authMode = 'signin'; render(); }
+    toast(authErrorMessage(e), true);
+  }
+};
+window.emailSignIn = async () => {
+  const email = document.getElementById('authEmail')?.value.trim();
+  const password = document.getElementById('authPassword')?.value || '';
+  if (!email) return toast('Enter your email', true);
+  if (!password) return toast('Enter your password', true);
+  try { await auth.signInEmail(email, password); }
+  catch (e) { toast(authErrorMessage(e), true); }
+};
+window.resetPw = async () => {
+  const email = document.getElementById('authEmail')?.value.trim();
+  if (!email) return toast('Enter your email first, then tap reset', true);
+  try { await auth.resetPassword(email); toast('Password reset link sent — check your inbox 📧'); }
+  catch (e) { toast(authErrorMessage(e), true); }
 };
 window.signOutUser = async () => { try { await auth.signOut(); LS.id = ''; toast('Signed out'); } catch (e) { toast(e.message, true); } };
 window.forgetMe = () => { LS.id = ''; buildView(); render(); };
