@@ -213,6 +213,19 @@ function createLocalDB() {
     async lockGame(id) { db.games.find(g => g.id === id).status = 'locked'; persist(); },
     async reopenGame(id) { db.games.find(g => g.id === id).status = 'open'; persist(); },
     async setCapacity(id, capacity) { const g = db.games.find(x => x.id === id); if (g) { g.capacity = Math.max(2, Number(capacity) || 0); persist(); } },
+    async rescheduleGame(id, { kickoffAt, dateLabel, venue }) {
+      const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
+      if (kickoffAt) g.kickoffAt = kickoffAt;
+      if (dateLabel != null && dateLabel !== '') g.dateLabel = dateLabel;
+      if (venue != null) g.venue = venue;
+      persist();
+    },
+    async cancelGame(id) {
+      const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
+      g.status = 'cancelled';
+      if (db.currentGameId === id) db.currentGameId = null;
+      persist();
+    },
     async completeGame(id, opts = {}) {
       const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
       const ranked = logic.rankSignups(g.signups, db.players, g.capacity);
@@ -516,6 +529,19 @@ async function createFirestoreDB() {
     },
     async lockGame(id) { await updateDoc(gameRef(id), { status: 'locked' }); },
     async setCapacity(id, capacity) { await updateDoc(gameRef(id), { capacity: Math.max(2, Number(capacity) || 0) }); },
+    async rescheduleGame(id, { kickoffAt, dateLabel, venue }) {
+      const patch = {};
+      if (kickoffAt) patch.kickoffAt = kickoffAt;
+      if (dateLabel != null && dateLabel !== '') patch.dateLabel = dateLabel;
+      if (venue != null) patch.venue = venue;
+      if (Object.keys(patch).length) await updateDoc(gameRef(id), patch);
+    },
+    async cancelGame(id) {
+      const batch = writeBatch(dbf);
+      batch.update(gameRef(id), { status: 'cancelled' });
+      batch.update(cfgRef, { currentGameId: null });
+      await batch.commit();
+    },
     async reopenGame(id) { await updateDoc(gameRef(id), { status: 'open' }); },
     async completeGame(id, opts = {}) {
       const capacity = cache.game?.capacity || cfg().capacity;
