@@ -32,14 +32,22 @@ hamburger menu on mobile.
 - **History** — every logged result. Tap into a game for the line-ups, the
   score, goalscorers and embedded highlights (see below).
 - **Table** — the leaderboard. Ranked by loyalty; **tap a heading to sort, tap
-  again to reverse**. Columns include **TG** (team goals) and **Goals**
-  (personal goals scored).
+  again to reverse**. Shows **TG** (team goals — a team metric) but deliberately
+  **not** personal goals, so it never nudges anyone towards chasing individual
+  numbers over the team.
+- **Performances** — the individual side, kept separate from the league table.
+  A sortable record of each player's match stats — **goals, assists, saves,
+  shots, tackles, blocks, passes** — from the games we've logged them for.
+  Realistically it's mostly goals each week; the rest fills in when someone's
+  counting. Your own numbers also appear on your **You** profile.
 - **Rules** — the system explained, with the penalty scale.
 - **Organiser** — PIN-protected: open/lock/complete games, manage the roster,
-  recalculate loyalty, change every setting.
+  recalculate loyalty, add highlight links, change every setting.
 - **Statto** — a separate PIN-protected role for the stats-keeper: correct any
-  game's score and log **who scored the goals** (which feeds the Goals column
-  and the History detail). Set the Statto PIN in Organiser → Settings.
+  game's score, log **who scored** (goals + assists up front, the full stat set
+  behind a **+ more** toggle), add **highlight links**, and one-tap **import**
+  the stats spreadsheet. Feeds the Performances page, each player's profile and
+  the History detail. Set the Statto PIN in Organiser → Settings.
 
 Notifications tell you the moment your spot changes — promoted off the reserves,
 or bumped out — by **email and push** (push works on Android/desktop directly,
@@ -161,12 +169,19 @@ difference, win streaks, longest unbeaten run, current form** — shown on the
 > If you set up Firestore *before* this history existed, clear the `players` and
 > `games` collections (or the `meta/config` doc) so the app re-seeds with it.
 
-### Match highlights (drop a text file, it renders)
+### Match highlights (two ways)
 
-Highlights on the **History** detail view come from one file per game in
-[`public/content/games/`](./public/content/games/). No build step, no manifest,
-no code — add a file, commit/push, and the site renders it (the app fetches a
-game's file lazily, only when you open that result).
+Highlights on the **History** detail view come from two sources, merged:
+
+1. **In the app** — the Organiser (when completing a game) and the Statto (on
+   any past game) can paste YouTube links and a match note straight onto the
+   record. Nothing to commit; it saves to Firestore and shows immediately.
+2. **A committed text file** — one file per game in
+   [`public/content/games/`](./public/content/games/), for richer write-ups
+   (labelled clips, longer notes). No build step, no manifest — add a file,
+   commit/push, and the site renders it (fetched lazily when you open that
+   result). Links entered in the app and in the file both show; duplicate videos
+   are de-duped.
 
 Copy [`_TEMPLATE.md`](./public/content/games/_TEMPLATE.md) to a file named after
 the game's date (`YYYY-MM-DD.md`, e.g. `2026-01-13.md`) and fill in what you have:

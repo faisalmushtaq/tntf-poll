@@ -278,4 +278,34 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('no personal goals when none logged', logic.playerAnalytics('nobody', games).pg === 0);
 }
 
+// --- player performance (stats) --------------------------------------------
+{
+  const games = [
+    { id: '1', status: 'completed', date: '2026-01-01', teams: { bibs: ['x'], nonbibs: ['z'] },
+      stats: { x: { g: 2, a: 1, sv: 3, sh: 5, sot: 3 }, z: { g: 1 } } },
+    { id: '2', status: 'completed', date: '2026-01-08', teams: { bibs: ['x'], nonbibs: ['z'] },
+      stats: { x: { g: 1, sh: 3, sot: 1 } } },
+    { id: '3', status: 'open', teams: { bibs: ['x'], nonbibs: ['z'] }, stats: { x: { g: 9 } } } // open → ignored
+  ];
+  const x = logic.playerPerformance('x', games);
+  ok('performance sums goals across completed games (2+1=3)', x.g === 3);
+  ok('performance sums assists (1)', x.a === 1);
+  ok('performance counts only games with stats recorded', x.games === 2);
+  ok('open games are not counted in performance', x.g === 3); // the g:9 open game excluded
+  ok('shots-on-target % derived (4/8=50)', x.sotPct === 50);
+  ok('missing stat keys default to 0', x.tkl === 0 && x.blk === 0);
+  const none = logic.playerPerformance('nobody', games);
+  ok('a player with no recorded stats has 0 games', none.games === 0 && none.g === 0);
+  ok('STATS lists goals first (priority order)', logic.STATS[0].key === 'g' && logic.STATS[1].key === 'a');
+}
+
+// --- personal goals prefer stats over the legacy goals map -----------------
+{
+  const games = [
+    { id: '1', status: 'completed', date: '2026-02-01', teams: { bibs: ['x'], nonbibs: ['z'] },
+      scores: { bibs: 2, nonbibs: 0 }, goals: { x: 5 }, stats: { x: { g: 2 } } } // stats win over goals
+  ];
+  ok('playerAnalytics reads personal goals from stats when present', logic.playerAnalytics('x', games).pg === 2);
+}
+
 console.log(`\n${pass} checks passed ✅`);

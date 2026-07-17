@@ -6,7 +6,12 @@
 import { FIREBASE_ENABLED } from './firebase-config.js';
 import { getFirebaseApp, FB_VERSION } from './firebase.js';
 import { SEED } from './seed-data.js';
+import { PERF } from './perf-data.js';
 import * as logic from './logic.js';
+
+// Goals map { playerId: count } derived from a game's per-player stats.
+const goalsFromStats = perf => Object.fromEntries(
+  Object.entries(perf).filter(([, v]) => Number(v.g) > 0).map(([id, v]) => [id, Number(v.g)]));
 
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID()
   : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -21,7 +26,11 @@ function seedPlayers() {
   return players;
 }
 function seedGames() {
-  return SEED.games.map(g => ({ ...g, signups: [] }));
+  return SEED.games.map(g => {
+    const perf = PERF[g.id];
+    const extra = perf ? { stats: perf, goals: goalsFromStats(perf) } : {};
+    return { ...g, ...extra, signups: [] };
+  });
 }
 
 const dedupe = arr => [...new Set(arr)];
@@ -202,6 +211,7 @@ function createLocalDB() {
       if (opts.scores) g.scores = opts.scores;
       if (opts.weather) g.weather = opts.weather;
       if (Number(opts.bonus) > 0) { g.weatherBonus = Number(opts.bonus); g.bonusReasons = opts.reasons || []; }
+      if (opts.highlights !== undefined) g.highlights = opts.highlights;
       if (db.currentGameId === id) db.currentGameId = null; persist();
     },
     async setPlayerEmail(id, email, uid) { const p = db.players[id]; if (!p) throw new Error('Unknown player'); p.email = email || null; if (uid) p.uid = uid; persist(); },
@@ -214,11 +224,25 @@ function createLocalDB() {
     },
     async checkPin(pin) { return String(pin) === String(logic.withDefaults(db.config).adminPin); },
     async checkStattoPin(pin) { const c = logic.withDefaults(db.config); return String(pin) === String(c.stattoPin) || String(pin) === String(c.adminPin); },
-    async saveGameStats(gameId, { scores, goals }) {
+    async saveGameStats(gameId, { scores, goals, stats, highlights }) {
       const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
       if (scores) g.scores = { bibs: Number(scores.bibs), nonbibs: Number(scores.nonbibs) };
       if (goals) g.goals = goals;
+      if (stats) g.stats = stats;
+      if (highlights !== undefined) g.highlights = highlights;
       persist();
+    },
+    async saveHighlights(gameId, highlights) {
+      const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
+      g.highlights = highlights; persist();
+    },
+    async importPerf() {
+      let n = 0;
+      for (const g of db.games) {
+        const perf = PERF[g.id]; if (!perf) continue;
+        g.stats = perf; g.goals = goalsFromStats(perf); n++;
+      }
+      persist(); return n;
     }
   };
 }
@@ -436,6 +460,7 @@ async function createFirestoreDB() {
       if (opts.scores) gamePatch.scores = opts.scores;
       if (opts.weather) gamePatch.weather = opts.weather;
       if (Number(opts.bonus) > 0) { gamePatch.weatherBonus = Number(opts.bonus); gamePatch.bonusReasons = opts.reasons || []; }
+      if (opts.highlights !== undefined) gamePatch.highlights = opts.highlights;
       batch.update(gameRef(id), gamePatch);
       batch.update(cfgRef, { currentGameId: null });
       await batch.commit();
@@ -466,11 +491,23 @@ async function createFirestoreDB() {
     },
     async checkPin(pin) { return String(pin) === String(cfg().adminPin); },
     async checkStattoPin(pin) { const c = cfg(); return String(pin) === String(c.stattoPin) || String(pin) === String(c.adminPin); },
-    async saveGameStats(gameId, { scores, goals }) {
+    async saveGameStats(gameId, { scores, goals, stats, highlights }) {
       const patch = {};
       if (scores) patch.scores = { bibs: Number(scores.bibs), nonbibs: Number(scores.nonbibs) };
       if (goals) patch.goals = goals;
+      if (stats) patch.stats = stats;
+      if (highlights !== undefined) patch.highlights = highlights;
       if (Object.keys(patch).length) await updateDoc(gameRef(gameId), patch);
+    },
+    async saveHighlights(gameId, highlights) {
+      await updateDoc(gameRef(gameId), { highlights });
+    },
+    async importPerf() {
+      const batch = writeBatch(dbf); let n = 0;
+      for (const [gid, perf] of Object.entries(PERF)) {
+        batch.update(gameRef(gid), { stats: perf, goals: goalsFromStats(perf) }); n++;
+      }
+      await batch.commit(); return n;
     }
   };
 }

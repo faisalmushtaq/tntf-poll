@@ -288,6 +288,22 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .goal-row:last-child { border-bottom: none; }
 .goal-name { font-size: 15px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .goal-in { width: 52px; flex: none; margin: 0; padding: 8px 2px; text-align: center; border: 1px solid var(--line); border-radius: 0; font-size: 15px; }
+/* ---- Statto: per-player stat entry ---- */
+.stat-grid { gap: 12px; }
+.stat-col { min-width: 0; }
+.stat-player { border-bottom: 1px solid var(--line-2); padding: 8px 0; }
+.stat-player:last-child { border-bottom: none; }
+.sp-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sp-name { font-size: 15px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 100%; }
+.sp-quick { display: flex; gap: 8px; align-items: center; }
+.sp-quick label { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); margin: 0; }
+.stat-in { width: 44px; flex: none; margin: 0; padding: 6px 2px; text-align: center; border: 1px solid var(--line); border-radius: 0; font-size: 15px; font-variant-numeric: tabular-nums; }
+.sp-more { flex: none; margin-left: auto; background: none; border: none; color: var(--muted); font-size: 12px; padding: 4px 6px; cursor: pointer; text-decoration: underline; }
+.sp-more:hover { color: var(--ink); }
+.sp-rest { margin-top: 8px; padding: 8px 0 2px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; border-top: 1px dashed var(--line); }
+.sp-rest[hidden] { display: none; }
+.sp-stat { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; color: var(--muted); margin: 0; }
+.hl-input { width: 100%; margin: 4px 0 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 0; font: inherit; font-size: 14px; resize: vertical; box-sizing: border-box; }
 .stats-table .c-pts { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; font-size: 16px; }
 .stats-table .c-form .form-guide { justify-content: flex-end; gap: 2px; display: inline-flex; }
 .stats-table .c-form .fchip { width: 16px; height: 16px; font-size: 9px; }
