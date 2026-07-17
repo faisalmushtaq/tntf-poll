@@ -33,6 +33,7 @@ let pendingName = null;   // name typed on account creation, used to name the ro
 let tableSort = { key: 'loyalty', dir: 'desc' }; // League-table sort column + direction
 let perfSort = { key: 'g', dir: 'desc' };        // Performances-table sort column + direction
 let adminUnlocked = false;
+let pendingAction = null;      // 'in' | 'out' — two-tap confirm for sign-up / withdraw
 let stattoUnlocked = false;    // stats-keeper role unlocked this session?
 let stattoGameId = null;       // which game the statto is editing
 let importDraft = null;        // { text, targetGameId, resolved } — stats import preview
@@ -264,15 +265,30 @@ function weekScreen() {
       const warn = pen > 0
         ? `Withdrawing now costs <b>-${pen} loyalty</b> (${fmtCountdown(g.kickoffAt).replace(' to kickoff', '')} out).`
         : `Free to withdraw now — no penalty this far ahead.`;
-      return `<p class="small mt center">${warn}</p><button class="btn-danger" onclick="withdraw()">Withdraw from this game</button>`;
+      if (pendingAction === 'out') {
+        return `<p class="small mt center">${warn} <b>Sure?</b></p>
+          <div class="btn-row">
+            <button class="btn-danger" onclick="withdraw()">Yes, withdraw${pen > 0 ? ` (-${pen})` : ''}</button>
+            <button class="btn-ghost" onclick="cancelPending()">Keep my place</button>
+          </div>`;
+      }
+      return `<p class="small mt center">${warn}</p><button class="btn-danger" onclick="askWithdraw()">Withdraw from this game</button>`;
+    }
+    // Not in the squad — sign-up flow (two-tap confirm so it's never a misfire).
+    if (pendingAction === 'in') {
+      return `<p class="small mt center">Confirm you're playing ${esc(g.dateLabel)}?</p>
+        <div class="btn-row">
+          <button class="btn-primary" onclick="signup()">Yes, I'm in →</button>
+          <button class="btn-ghost" onclick="cancelPending()">Cancel</button>
+        </div>`;
     }
     if (g.iAmOut) {
       return `<div class="btn-row">
-        <button class="btn-primary" onclick="signup()">Changed my mind — I'm in →</button>
+        <button class="btn-primary" onclick="askSignup()">Changed my mind — I'm in →</button>
         <button class="btn-ghost" onclick="clearUnavailable()">Undo</button>
       </div>`;
     }
-    return `<button class="btn-primary" onclick="signup()">I'm in for ${esc(g.dateLabel)} &nbsp;→</button>
+    return `<button class="btn-primary" onclick="askSignup()">I'm in for ${esc(g.dateLabel)} &nbsp;→</button>
       <button class="btn-ghost mt" onclick="markUnavailable()">Can't make it this week</button>`;
   };
 
@@ -1467,7 +1483,7 @@ async function ensureHistory() {
 }
 
 // ---- actions --------------------------------------------------------------
-window.go = t => { tab = t; menuOpen = false; if (t !== 'game') detailId = null; render(); window.scrollTo(0, 0); };
+window.go = t => { tab = t; menuOpen = false; pendingAction = null; if (t !== 'game') detailId = null; render(); window.scrollTo(0, 0); };
 // Tap a table heading to sort by it; tap the same one again to reverse.
 window.sortTable = (key) => {
   if (tableSort.key === key) tableSort.dir = tableSort.dir === 'asc' ? 'desc' : 'asc';
@@ -1556,14 +1572,18 @@ window.enablePushNow = async () => {
   } catch (e) { toast(e.message, true); }
 };
 
+// Two-tap confirm: first tap arms the confirmation, second tap does it.
+window.askSignup = () => { pendingAction = 'in'; render(); };
+window.askWithdraw = () => { pendingAction = 'out'; render(); };
+window.cancelPending = () => { pendingAction = null; render(); };
 window.signup = async () => {
+  pendingAction = null;
   try { await db.signup(state.me.id, state.game.id); buildView(); render();
     toast(state.game?.me?.status === 'waitlist' ? "Added — you're on the waitlist" : "You're in ✅"); }
   catch (e) { toast(e.message, true); }
 };
 window.withdraw = async () => {
-  const pen = state.game.withdrawPenaltyNow;
-  if (!confirm(pen > 0 ? `Withdraw now for -${pen} loyalty?` : 'Withdraw from this game?')) return;
+  pendingAction = null;
   try { const r = await db.withdraw(state.me.id, state.game.id);
     toast(r.penalty > 0 ? `Withdrawn · -${r.penalty} loyalty (${r.label})` : 'Withdrawn · no penalty'); }
   catch (e) { toast(e.message, true); }

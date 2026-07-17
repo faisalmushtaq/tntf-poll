@@ -30,8 +30,9 @@ A responsive top bar carries the navigation — inline links on the web, a
 hamburger menu on mobile.
 
 - **This week** — the live squad (two-column, by loyalty) and the reserves,
-  visible to everyone. One-tap *I'm in* / *Withdraw* with the penalty shown up
-  front, plus *Can't make it this week* — a no-penalty way to say you're out so
+  visible to everyone. *I'm in* / *Withdraw* each take a quick **tap-to-confirm**
+  (so it's never a misfire), with the penalty shown up front, plus *Can't make
+  it this week* — a no-penalty way to say you're out so
   nobody chases you; the out list shows for all to see (and you can undo it).
 - **Join / You** — one nav slot: **Join** (onboarding) when signed out, your
   **You** profile (attendance, games, record, history, notifications, account)
