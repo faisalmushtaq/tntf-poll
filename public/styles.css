@@ -303,7 +303,37 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .sp-rest { margin-top: 8px; padding: 8px 0 2px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; border-top: 1px dashed var(--line); }
 .sp-rest[hidden] { display: none; }
 .sp-stat { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; color: var(--muted); margin: 0; }
+.sp-rate { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; color: var(--muted); margin: 0 0 2px; }
 .hl-input { width: 100%; margin: 4px 0 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 0; font: inherit; font-size: 14px; resize: vertical; box-sizing: border-box; }
+
+/* ---- Man of the match toggle (Statto) ---- */
+.motm-toggle { flex: none; background: none; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11px; font-weight: 500; padding: 3px 8px; cursor: pointer; letter-spacing: .02em; }
+.motm-toggle.on { background: var(--amber); border-color: var(--amber); color: var(--ink); }
+
+/* ---- Own-goals sub-panel (Statto) ---- */
+.og-toggle { background: none; border: none; color: var(--muted); font-size: 13px; padding: 6px 0; margin: 2px 0; cursor: pointer; text-decoration: underline; }
+.og-toggle:hover { color: var(--ink); }
+.og-section { padding: 4px 0 6px; }
+.og-section[hidden] { display: none; }
+.og-line { color: var(--muted); }
+
+/* ---- Star ratings ---- */
+.stars, .star-input { display: inline-flex; gap: 1px; vertical-align: middle; }
+.stars .star { color: var(--line); font-size: 14px; line-height: 1; }
+.stars .star.full { color: var(--amber); }
+.stars .star.half { position: relative; color: var(--line); }
+.stars .star.half::before { content: '★'; position: absolute; left: 0; width: 50%; overflow: hidden; color: var(--amber); }
+.rating-num { margin-left: 5px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.star-input .star { color: var(--line); font-size: 22px; line-height: 1; cursor: pointer; padding: 0 1px; -webkit-user-select: none; user-select: none; }
+.star-input .star.on { color: var(--amber); }
+.self-stars { margin-top: 4px; }
+.lu-rating { flex: none; }
+.stats-table .c-rating { color: var(--ink); }
+.rate-self .self-stars { display: flex; justify-content: center; }
+
+/* ---- Man of the match, in the history line-up ---- */
+.lu-row.motm .lu-name { font-weight: 600; }
+.motm-badge { display: inline-block; font-size: 9px; font-weight: 600; letter-spacing: .04em; color: var(--ink); background: var(--amber-soft); border: 1px solid #ddcca0; padding: 0 4px; border-radius: 3px; margin-left: 5px; vertical-align: middle; }
 .stats-table .c-pts { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; font-size: 16px; }
 .stats-table .c-form .form-guide { justify-content: flex-end; gap: 2px; display: inline-flex; }
 .stats-table .c-form .fchip { width: 16px; height: 16px; font-size: 9px; }
