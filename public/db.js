@@ -177,8 +177,21 @@ function createLocalDB() {
       const g = db.games.find(x => x.id === gameId);
       if (!g) throw new Error('No game'); if (g.status !== 'open') throw new Error('Registration is closed');
       const s = g.signups.find(x => x.playerId === playerId);
-      if (s) { if (s.status === 'withdrawn') { s.status = 'in'; s.joinedAt = new Date().toISOString(); } }
+      if (s) { if (s.status !== 'in') { s.status = 'in'; s.joinedAt = new Date().toISOString(); } }
       else g.signups.push({ playerId, status: 'in', joinedAt: new Date().toISOString() });
+      persist();
+    },
+    // Mark a player as unavailable this week (no penalty — they never signed up),
+    // or clear it back to "no response" when out=false.
+    async setUnavailable(playerId, gameId, out = true) {
+      const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
+      const s = g.signups.find(x => x.playerId === playerId);
+      if (out) {
+        if (s) { s.status = 'out'; s.outAt = new Date().toISOString(); }
+        else g.signups.push({ playerId, status: 'out', outAt: new Date().toISOString() });
+      } else {
+        g.signups = g.signups.filter(x => x.playerId !== playerId);
+      }
       persist();
     },
     async withdraw(playerId, gameId) {
@@ -303,7 +316,7 @@ function createLocalDB() {
 async function createFirestoreDB() {
   const fs = await import(`https://www.gstatic.com/firebasejs/${FB_VERSION}/firebase-firestore.js`);
   const {
-    getFirestore, doc, getDoc, setDoc, updateDoc, deleteField,
+    getFirestore, doc, getDoc, setDoc, updateDoc, deleteField, deleteDoc,
     collection, getDocs, onSnapshot, writeBatch, increment
   } = fs;
 
@@ -480,6 +493,12 @@ async function createFirestoreDB() {
       if (!g || g.id !== gameId) throw new Error('No game');
       if (g.status !== 'open') throw new Error('Registration is closed');
       await setDoc(doc(signupsCol(gameId), playerId), { status: 'in', joinedAt: new Date().toISOString() }, { merge: true });
+    },
+    // Mark unavailable this week (no penalty), or clear it back to no-response.
+    async setUnavailable(playerId, gameId, out = true) {
+      const ref = doc(signupsCol(gameId), playerId);
+      if (out) await setDoc(ref, { status: 'out', outAt: new Date().toISOString() }, { merge: true });
+      else await deleteDoc(ref);
     },
     async withdraw(playerId, gameId) {
       const g = cache.game; if (!g) throw new Error('No game');

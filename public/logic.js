@@ -182,7 +182,7 @@ export function penaltyForHours(hours, config = DEFAULT_CONFIG) {
 // which is what kills the "fastest tapper wins" problem.
 export function rankSignups(signups = [], playersById = {}, capacity = 14) {
   const active = signups
-    .filter(s => s.status !== 'withdrawn')
+    .filter(s => s.status !== 'withdrawn' && s.status !== 'out')
     .map(s => ({ ...s, player: playersById[s.playerId] }))
     .filter(s => s.player);
 

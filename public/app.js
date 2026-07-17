@@ -123,6 +123,12 @@ function buildView() {
     const paidBy = {};
     for (const s of lastRaw.signups) if (s.status !== 'withdrawn') paidBy[s.playerId] = !!s.paid;
     const withPaid = r => ({ ...r, paid: !!paidBy[r.playerId] });
+    // People who've said they can't make it this week (no penalty, never in).
+    const unavailable = lastRaw.signups.filter(s => s.status === 'out')
+      .map(s => ({ playerId: s.playerId, name: lastRaw.playersById[s.playerId]?.name }))
+      .filter(x => x.name)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const iAmOut = !!playerId && unavailable.some(u => u.playerId === playerId);
     game = {
       id: g.id, status: g.status, dateLabel: g.dateLabel, kickoffAt: g.kickoffAt, capacity: g.capacity,
       venue: g.venue || lastRaw.config.venue,
@@ -130,6 +136,7 @@ function buildView() {
       confirmed: ranked.filter(r => r.status === 'confirmed').map(withPaid),
       waitlist: ranked.filter(r => r.status === 'waitlist').map(withPaid),
       totalIn: ranked.length,
+      unavailable, iAmOut,
       me: mine ? { rank: mine.rank, status: mine.status, paid: !!paidBy[playerId] } : null,
       withdrawPenaltyNow: logic.penaltyForHours(hrs, lastRaw.config).penalty
     };
@@ -246,6 +253,7 @@ function weekScreen() {
   else if (g.me) mine = g.me.status === 'confirmed'
     ? `<div class="mine-banner in">${ICON('icon-confirmed', 'inline-ico')} You're IN — squad place #${g.me.rank} of ${g.capacity}</div>`
     : `<div class="mine-banner wait">⏳ You're ${ordinal(g.me.rank - g.capacity)} reserve. You'll move up if someone in the squad drops.</div>`;
+  else if (g.iAmOut) mine = `<div class="mine-banner out">You've said you can't make it this week — no problem, you won't be chased.</div>`;
   else mine = `<div class="mine-banner out">You haven't registered for this game yet.</div>`;
 
   const actionBtn = () => {
@@ -258,7 +266,14 @@ function weekScreen() {
         : `Free to withdraw now — no penalty this far ahead.`;
       return `<p class="small mt center">${warn}</p><button class="btn-danger" onclick="withdraw()">Withdraw from this game</button>`;
     }
-    return `<button class="btn-primary" onclick="signup()">I'm in for ${esc(g.dateLabel)} &nbsp;→</button>`;
+    if (g.iAmOut) {
+      return `<div class="btn-row">
+        <button class="btn-primary" onclick="signup()">Changed my mind — I'm in →</button>
+        <button class="btn-ghost" onclick="clearUnavailable()">Undo</button>
+      </div>`;
+    }
+    return `<button class="btn-primary" onclick="signup()">I'm in for ${esc(g.dateLabel)} &nbsp;→</button>
+      <button class="btn-ghost mt" onclick="markUnavailable()">Can't make it this week</button>`;
   };
 
   const kicker = g.status === 'open' ? 'Registration open' : g.status === 'locked' ? 'Squad locked' : g.status;
@@ -274,7 +289,7 @@ function weekScreen() {
         <div class="date">${ICON('icon-fixture-date', 'fx-ico')}${esc(dateLine)}</div>
         <div class="fixture">${ICON('icon-kickoff-time', 'fx-ico')}${timeLine}${g.venue ? ` · ${ICON('icon-pitch-location', 'fx-ico')}${esc(g.venue)}` : ''}</div>
         ${weatherBlock(g)}
-        <div class="count">${ICON('icon-squad-players', 'fx-ico')}${g.confirmed.length}/${g.capacity} confirmed${g.waitlist.length ? ` · ${g.waitlist.length} on the bench` : ''} · ${fmtCountdown(g.kickoffAt)}</div>
+        <div class="count">${ICON('icon-squad-players', 'fx-ico')}${g.confirmed.length}/${g.capacity} confirmed${g.waitlist.length ? ` · ${g.waitlist.length} on the bench` : ''}${g.unavailable.length ? ` · ${g.unavailable.length} out` : ''} · ${fmtCountdown(g.kickoffAt)}</div>
         <div class="capbar"><span style="width:${pct}%"></span></div>
       </div>
       ${mine}
@@ -288,6 +303,8 @@ function weekScreen() {
       <div class="lu-head">Starting ${g.capacity} · by loyalty</div>
       ${renderLineup(g.confirmed, 1, 'loyalty')}
       ${g.waitlist.length ? `<div class="lu-head sub">Reserves</div>${renderLineup(g.waitlist, g.capacity + 1, 'reserve')}` : ''}
+      ${g.unavailable.length ? `<div class="lu-head sub">Can't make it this week (${g.unavailable.length})</div>
+        <div class="unavail-list">${g.unavailable.map(u => `<span class="unavail-chip${u.playerId === state.me?.id ? ' me' : ''}">${esc(abbrev(u.name))}</span>`).join('')}</div>` : ''}
     </div>`;
 }
 
@@ -1549,6 +1566,14 @@ window.withdraw = async () => {
   if (!confirm(pen > 0 ? `Withdraw now for -${pen} loyalty?` : 'Withdraw from this game?')) return;
   try { const r = await db.withdraw(state.me.id, state.game.id);
     toast(r.penalty > 0 ? `Withdrawn · -${r.penalty} loyalty (${r.label})` : 'Withdrawn · no penalty'); }
+  catch (e) { toast(e.message, true); }
+};
+window.markUnavailable = async () => {
+  try { await db.setUnavailable(state.me.id, state.game.id, true); buildView(); render(); toast("Marked as out this week — thanks for letting us know"); }
+  catch (e) { toast(e.message, true); }
+};
+window.clearUnavailable = async () => {
+  try { await db.setUnavailable(state.me.id, state.game.id, false); buildView(); render(); toast('Back to undecided'); }
   catch (e) { toast(e.message, true); }
 };
 
