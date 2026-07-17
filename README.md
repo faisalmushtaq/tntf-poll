@@ -5,8 +5,12 @@ GitHub**. The app is static (hosted free on **GitHub Pages**), the shared data
 lives in **Firebase Firestore**, and a scheduled **GitHub Action** sends the
 email / push notifications. No server to run or pay for.
 
-Styled after the Guardian's football pages: navy masthead, serif headlines,
-yellow buttons, and a two-column "Lineups / Substitutes" squad list.
+An editorial look — near-white paper, one serif (Newsreader), hairline rules
+and the **club crest** in the masthead and on your profile. A custom icon set
+carries throughout: bib/vest markers on every team column, weather glyphs at
+kickoff, and goal / own-goal / man-of-the-match marks on the match report. The
+icons live in [`public/assets/`](./public/assets/) (source SVGs) with the crest
+also exported as the PWA/app icon.
 
 ## What it solves
 

@@ -2,23 +2,24 @@
 // Forecast for upcoming games, historical archive for past ones. Returns a
 // small normalised summary the UI renders, or null if unavailable.
 
-// WMO weather-interpretation codes → label + emoji.
+// WMO weather-interpretation codes → label + emoji + icon (public/assets/*.svg).
 // https://open-meteo.com/en/docs (WMO Weather interpretation codes)
 const WMO = {
-  0: ['Clear', '☀️'],
-  1: ['Mainly clear', '🌤️'], 2: ['Partly cloudy', '⛅'], 3: ['Overcast', '☁️'],
-  45: ['Fog', '🌫️'], 48: ['Freezing fog', '🌫️'],
-  51: ['Light drizzle', '🌦️'], 53: ['Drizzle', '🌦️'], 55: ['Heavy drizzle', '🌦️'],
-  56: ['Freezing drizzle', '🌧️'], 57: ['Freezing drizzle', '🌧️'],
-  61: ['Light rain', '🌦️'], 63: ['Rain', '🌧️'], 65: ['Heavy rain', '🌧️'],
-  66: ['Freezing rain', '🌧️'], 67: ['Freezing rain', '🌧️'],
-  71: ['Light snow', '🌨️'], 73: ['Snow', '🌨️'], 75: ['Heavy snow', '❄️'], 77: ['Snow grains', '🌨️'],
-  80: ['Light showers', '🌦️'], 81: ['Showers', '🌧️'], 82: ['Heavy showers', '🌧️'],
-  85: ['Snow showers', '🌨️'], 86: ['Snow showers', '🌨️'],
-  95: ['Thunderstorm', '⛈️'], 96: ['Thunderstorm', '⛈️'], 99: ['Thunderstorm', '⛈️']
+  0: ['Clear', '☀️', 'weather-sunny'],
+  1: ['Mainly clear', '🌤️', 'weather-mainly-clear'], 2: ['Partly cloudy', '⛅', 'weather-partly-cloudy'], 3: ['Overcast', '☁️', 'weather-overcast'],
+  45: ['Fog', '🌫️', 'weather-fog'], 48: ['Freezing fog', '🌫️', 'weather-fog'],
+  51: ['Light drizzle', '🌦️', 'weather-drizzle'], 53: ['Drizzle', '🌦️', 'weather-drizzle'], 55: ['Heavy drizzle', '🌦️', 'weather-drizzle'],
+  56: ['Freezing drizzle', '🌧️', 'weather-freezing-drizzle'], 57: ['Freezing drizzle', '🌧️', 'weather-freezing-drizzle'],
+  61: ['Light rain', '🌦️', 'weather-rain'], 63: ['Rain', '🌧️', 'weather-rain'], 65: ['Heavy rain', '🌧️', 'weather-rain'],
+  66: ['Freezing rain', '🌧️', 'weather-freezing-rain'], 67: ['Freezing rain', '🌧️', 'weather-freezing-rain'],
+  71: ['Light snow', '🌨️', 'weather-snow'], 73: ['Snow', '🌨️', 'weather-snow'], 75: ['Heavy snow', '❄️', 'weather-snow'], 77: ['Snow grains', '🌨️', 'weather-snow'],
+  80: ['Light showers', '🌦️', 'weather-rain-showers'], 81: ['Showers', '🌧️', 'weather-rain-showers'], 82: ['Heavy showers', '🌧️', 'weather-rain-showers'],
+  85: ['Snow showers', '🌨️', 'weather-snow-showers'], 86: ['Snow showers', '🌨️', 'weather-snow-showers'],
+  95: ['Thunderstorm', '⛈️', 'weather-thunderstorm'], 96: ['Thunderstorm', '⛈️', 'weather-thunderstorm-hail'], 99: ['Thunderstorm', '⛈️', 'weather-thunderstorm-hail']
 };
 export function describeWeather(code) {
-  const w = WMO[code]; return { label: w ? w[0] : 'Unknown', emoji: w ? w[1] : '🌡️' };
+  const w = WMO[code];
+  return { label: w ? w[0] : 'Unknown', emoji: w ? w[1] : '🌡️', icon: w ? w[2] : 'weather-partly-cloudy' };
 }
 
 // Flags for the (future) weather loyalty weighting: was it cold / wet enough
@@ -55,7 +56,7 @@ function pickHour(hourly, iso) {
     precipMm: num(hourly.precipitation),
     rainProb: num(hourly.precipitation_probability),
     windKph: num(hourly.wind_speed_10m),
-    code, label: d.label, emoji: d.emoji
+    code, label: d.label, emoji: d.emoji, icon: d.icon
   };
 }
 

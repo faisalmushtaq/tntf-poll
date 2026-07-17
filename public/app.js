@@ -185,7 +185,14 @@ function playerRow(p, opts = {}) {
 // Persistent full-width masthead + responsive nav. Inline links on the web,
 // a hamburger dropdown on mobile. Rendered outside #app so it can span the
 // full window width and stay sticky.
-const BALL_SVG = `<svg class="ball" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M12 6.6l3.1 2.25-1.18 3.65H10.08L8.9 8.85 12 6.6z" fill="currentColor"/><path d="M12 6.6V3.9M15.1 8.85l2.5-.8M13.9 12.5l1.6 2.1M10.1 12.5l-1.6 2.1M8.9 8.85l-2.5-.8" stroke="currentColor" stroke-width="1" stroke-linecap="round" fill="none"/></svg>`;
+// Club crest mark for the masthead.
+const BRAND_CREST = `<img class="brand-crest" src="./assets/crest-compact-mark.svg" alt="" aria-hidden="true" />`;
+
+// New icon set (public/assets/*.svg) — small inline images on the editorial
+// palette. `cls` adds a sizing class.
+const ICON = (name, cls = '') => `<img class="ico${cls ? ' ' + cls : ''}" src="./assets/${name}.svg" alt="" aria-hidden="true" />`;
+// The bib/vest marker for a team column: filled for bibs, outline for non-bibs.
+const bibIcon = cls => ICON(cls === 'bibs' ? 'team-bibs' : 'team-non-bibs', 'bib-ico');
 
 function renderTopbar() {
   const c = state.config;
@@ -206,7 +213,7 @@ function renderTopbar() {
     return `<a class="navlink${active ? ' active' : ''}" role="button" tabindex="0" onclick="go('${k}')">${label}</a>`;
   }).join('');
   bar.innerHTML = `<div class="bar">
-    <a class="brand" role="button" tabindex="0" onclick="go('week')">${BALL_SVG}<h1>${esc(c.clubName)}</h1></a>
+    <a class="brand" role="button" tabindex="0" onclick="go('week')">${BRAND_CREST}<h1>${esc(c.clubName)}</h1></a>
     <button class="menu-btn" aria-label="Menu" aria-expanded="${menuOpen}" onclick="toggleMenu()">${menuOpen ? '✕' : '☰'}</button>
     <nav class="topnav">${links}</nav>
   </div>`;
@@ -234,7 +241,7 @@ function weekScreen() {
   let mine = '';
   if (!state.me) mine = `<div class="card">${identityPrompt()}</div>`;
   else if (g.me) mine = g.me.status === 'confirmed'
-    ? `<div class="mine-banner in">✅ You're IN — squad place #${g.me.rank} of ${g.capacity}</div>`
+    ? `<div class="mine-banner in">${ICON('icon-confirmed', 'inline-ico')} You're IN — squad place #${g.me.rank} of ${g.capacity}</div>`
     : `<div class="mine-banner wait">⏳ You're ${ordinal(g.me.rank - g.capacity)} reserve. You'll move up if someone in the squad drops.</div>`;
   else mine = `<div class="mine-banner out">You haven't registered for this game yet.</div>`;
 
@@ -261,10 +268,10 @@ function weekScreen() {
     <div class="card">
       <div class="hero">
         <div class="kicker">${kicker}</div>
-        <div class="date">${esc(dateLine)}</div>
-        <div class="fixture">⏰ ${timeLine}${g.venue ? ` · 📍 ${esc(g.venue)}` : ''}</div>
+        <div class="date">${ICON('icon-fixture-date', 'fx-ico')}${esc(dateLine)}</div>
+        <div class="fixture">${ICON('icon-kickoff-time', 'fx-ico')}${timeLine}${g.venue ? ` · ${ICON('icon-pitch-location', 'fx-ico')}${esc(g.venue)}` : ''}</div>
         ${weatherBlock(g)}
-        <div class="count">${g.confirmed.length}/${g.capacity} confirmed${g.waitlist.length ? ` · ${g.waitlist.length} on the bench` : ''} · ${fmtCountdown(g.kickoffAt)}</div>
+        <div class="count">${ICON('icon-squad-players', 'fx-ico')}${g.confirmed.length}/${g.capacity} confirmed${g.waitlist.length ? ` · ${g.waitlist.length} on the bench` : ''} · ${fmtCountdown(g.kickoffAt)}</div>
         <div class="capbar"><span style="width:${pct}%"></span></div>
       </div>
       ${mine}
@@ -308,7 +315,7 @@ function paymentsAdmin(g) {
 function teamsCard(g) {
   if (!g.teamsFinalised || !g.teams) return '';
   const col = (ids, label, cls) => `<div class="team-col">
-      <div class="team-head ${cls}">${label} <span>${ids.length}</span></div>
+      <div class="team-head ${cls}">${bibIcon(cls)}<span class="th-label">${label}</span> <span>${ids.length}</span></div>
       ${ids.map((id, i) => {
         const p = state.playersById[id];
         const me = id === state.me?.id;
@@ -705,7 +712,7 @@ function gameDetailScreen() {
   const size = Math.max(g.teams?.bibs?.length || 0, g.teams?.nonbibs?.length || 0);
 
   const teamCol = (ids, label, cls) => `<div class="team-col">
-      <div class="team-head ${cls}">${label}${hasScore ? ` <span class="tscore">${cls === 'bibs' ? b : n}</span>` : ''}</div>
+      <div class="team-head ${cls}">${bibIcon(cls)}<span class="th-label">${label}</span>${hasScore ? ` <span class="tscore">${cls === 'bibs' ? b : n}</span>` : ''}</div>
       ${(ids || []).map((id, i) => {
         const p = state.playersById[id];
         const me = id === state.me?.id;
@@ -735,12 +742,12 @@ function gameDetailScreen() {
         .sort((a, b) => b[1] - a[1])
         .map(([id, v]) => `${esc(state.playersById[id]?.name || '—')}${v > 1 ? ` ×${v}` : ''}`).join(', ')
     : '';
-  const scorersLine = scorers ? `<p class="hint center" style="margin-top:4px">⚽ ${scorers}</p>` : '';
+  const scorersLine = scorers ? `<p class="hint center scorers-line" style="margin-top:4px">${ICON('icon-goal', 'inline-ico')} ${scorers}</p>` : '';
   const ogs = g.ownGoals && Object.keys(g.ownGoals).length
     ? Object.entries(g.ownGoals).filter(([, v]) => Number(v) > 0)
         .map(([id, v]) => `${esc(state.playersById[id]?.name || '—')}${v > 1 ? ` ×${v}` : ''}`).join(', ')
     : '';
-  const ogLine = ogs ? `<p class="hint center og-line" style="margin-top:2px">🙈 Own goal: ${ogs}</p>` : '';
+  const ogLine = ogs ? `<p class="hint center og-line" style="margin-top:2px">${ICON('icon-own-goal', 'inline-ico')} Own goal: ${ogs}</p>` : '';
 
   // Self-rating: shown when the signed-in player was in this game's line-up.
   const played = state.me && logic.gamePlayers(g).includes(state.me.id);
@@ -824,7 +831,7 @@ function weatherBlock(g) {
   ensureWeather(key, gameISO(g));
   const line = weatherLine(key, 'Forecast');
   if (line) return line;
-  return (weatherPending[key] || weatherCache[key] === undefined) ? `<div class="wx">🌦️ Checking the forecast…</div>` : '';
+  return (weatherPending[key] || weatherCache[key] === undefined) ? `<div class="wx">Checking the forecast…</div>` : '';
 }
 
 // One-line weather summary chip. Empty until coords are set and data arrives.
@@ -833,13 +840,14 @@ function weatherLine(key, prefix) {
   if (!w) return '';
   const t = w.tempC != null ? `${Math.round(w.tempC)}°C` : '';
   const flags = weatherFlags(w);
-  const bits = [w.emoji + ' ' + w.label, t].filter(Boolean);
+  const bits = [w.label, t].filter(Boolean);
   if (w.rainProb != null && w.rainProb >= 20) bits.push(`${w.rainProb}% rain`);
   else if (w.precipMm != null && w.precipMm >= 0.2) bits.push(`${w.precipMm.toFixed(1)}mm`);
   if (w.windKph != null && w.windKph >= 30) bits.push(`${Math.round(w.windKph)} km/h wind`);
   const tag = flags.rough ? ` <span class="wx-tag">${flags.cold && flags.wet ? 'cold & wet' : flags.cold ? 'cold' : 'wet'}</span>` : '';
   const lead = prefix ? `<span class="wx-lead">${esc(prefix)}</span> ` : '';
-  return `<div class="wx">${lead}${bits.join(' · ')}${tag}</div>`;
+  const ico = w.icon ? `<img class="wx-ico" src="./assets/${w.icon}.svg" alt="" aria-hidden="true" />` : '';
+  return `<div class="wx">${lead}${ico}${bits.join(' · ')}${tag}</div>`;
 }
 
 // Pull the 11-char YouTube id out of the common URL shapes.
@@ -980,6 +988,7 @@ function youScreen() {
     : `<div class="card"><h2>You</h2><p class="hint">Playing as ${esc(me.name)} on this device.</p><button class="btn-ghost" onclick="forgetMe()">Not you? Switch name</button></div>`;
 
   return `<div class="card hero-you">
+      <img class="you-crest" src="./assets/crest-primary.svg" alt="Tuesday Night Total Football crest" />
       <div class="you-name">${esc(me.name)}</div>
       <p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p>
     </div>${analyticsCard}${perfCard}${statsCard}${notif}${account}`;
@@ -1065,7 +1074,7 @@ function lineupBuilderCard(g) {
       <span class="pchip-name">${esc(p ? p.name : '—')}</span><span class="pchip-ov">${logic.attrOverall(p)}</span></div>`;
   };
   const column = (side, label, cls) => `<div class="build-col ${cls}" ondragover="event.preventDefault()" ondrop="lineupDrop(event,'${side}')">
-      <div class="team-head ${cls}">${label} <span>${lineupDraft[side].length} · ${total(lineupDraft[side])}</span></div>
+      <div class="team-head ${cls}">${bibIcon(cls)}<span class="th-label">${label}</span> <span>${lineupDraft[side].length} · ${total(lineupDraft[side])}</span></div>
       ${lineupDraft[side].map(id => chip(id, side)).join('') || '<div class="build-empty">drop players here</div>'}
     </div>`;
   const diff = Math.abs(total(lineupDraft.bibs) - total(lineupDraft.nonbibs));
@@ -1258,12 +1267,12 @@ function statPlayerRow(g, id) {
 function stattoEditor(g) {
   const b = g.scores?.bibs, n = g.scores?.nonbibs;
   const col = (ids, label, cls) => `<div class="stat-col">
-      <div class="team-head ${cls}">${label}</div>
+      <div class="team-head ${cls}">${bibIcon(cls)}<span class="th-label">${label}</span></div>
       ${(ids || []).map(id => statPlayerRow(g, id)).join('') || '<div class="empty">—</div>'}</div>`;
   // Own-goals sub-panel (near the score): who put it in their own net.
   const ogVal = id => (g.ownGoals && g.ownGoals[id] != null) ? g.ownGoals[id] : '';
   const ogCol = (ids, label, cls) => `<div class="stat-col">
-      <div class="team-head ${cls}">${label}</div>
+      <div class="team-head ${cls}">${bibIcon(cls)}<span class="th-label">${label}</span></div>
       ${(ids || []).map(id => `<div class="goal-row"><span class="goal-name">${esc(state.playersById[id]?.name || '—')}</span>
         <input class="stat-in" id="og-${id}" type="number" min="0" inputmode="numeric" value="${ogVal(id)}" placeholder="0" /></div>`).join('') || '<div class="empty">—</div>'}</div>`;
   const hasOg = g.ownGoals && Object.values(g.ownGoals).some(v => Number(v) > 0);
@@ -1275,7 +1284,7 @@ function stattoEditor(g) {
       <div><label class="field">Bibs</label><input id="ssBibs" type="number" inputmode="numeric" value="${Number.isFinite(b) ? b : ''}" placeholder="0" /></div>
       <div><label class="field">Non-bibs</label><input id="ssNon" type="number" inputmode="numeric" value="${Number.isFinite(n) ? n : ''}" placeholder="0" /></div>
     </div>
-    <button type="button" class="og-toggle" onclick="toggleOgSection()">🙈 Log an own goal</button>
+    <button type="button" class="og-toggle" onclick="toggleOgSection()">${ICON('icon-own-goal', 'inline-ico')} Log an own goal</button>
     <div class="og-section" id="ogSection"${hasOg ? '' : ' hidden'}>
       <p class="hint">Whose own goal? It counts on the scoreline but isn't logged as their goal.</p>
       <div class="teams-grid stat-grid">${ogCol(g.teams?.bibs, 'Bibs', 'bibs')}${ogCol(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
