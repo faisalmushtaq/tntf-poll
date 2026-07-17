@@ -145,7 +145,7 @@ Push needs only the service account (Firebase Cloud Messaging is free). Email
 needs the SMTP secrets. Set up either or both.
 
 ### 6. First run
-- Open the app → **Organiser** → unlock with default PIN **`1234`** → **change it** in Settings.
+- Open the app → **Organiser** → unlock with your organiser PIN → set/rotate it (and the Statto PIN) any time in **Settings**.
 - The roster is pre-seeded from the group; edit it in the Organiser tab.
 - After each game: **Organiser → Mark as played** (banks loyalty, saves the
   result to history), then **Open the game** for next week — which fires the

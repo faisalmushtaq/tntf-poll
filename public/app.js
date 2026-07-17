@@ -294,7 +294,7 @@ function paymentControl(g) {
   if (g.me.status !== 'confirmed' && !g.me.paid) return ''; // only once you're actually in
   const paid = g.me.paid;
   return `<div class="pay-row${paid ? ' paid' : ''}">
-    <span class="pay-label">${paid ? '✅ Payment confirmed — thanks!' : '💸 Have you paid the match fee?'}</span>
+    <span class="pay-label">${paid ? `${ICON('icon-confirmed', 'inline-ico')} Payment confirmed — thanks!` : '💸 Have you paid the match fee?'}</span>
     <button class="btn-ghost pay-btn" onclick="markPaid('${g.id}', ${paid ? 'false' : 'true'})">${paid ? 'Mark unpaid' : "Yes, I've paid"}</button>
   </div>`;
 }
@@ -304,7 +304,7 @@ function paymentsAdmin(g) {
   const paidCount = g.confirmed.filter(r => r.paid).length;
   const rows = g.confirmed.map(r => `<div class="pay-line">
       <span class="pay-name">${esc(r.name)}</span>
-      <button class="pay-toggle${r.paid ? ' ok' : ''}" onclick="togglePaid('${r.playerId}','${g.id}',${r.paid ? 'false' : 'true'})">${r.paid ? '✅ paid' : 'mark paid'}</button>
+      <button class="pay-toggle${r.paid ? ' ok' : ''}" onclick="togglePaid('${r.playerId}','${g.id}',${r.paid ? 'false' : 'true'})">${r.paid ? `${ICON('icon-confirmed', 'inline-ico')} paid` : 'mark paid'}</button>
     </div>`).join('');
   return `<div class="section-title">Payments · ${paidCount}/${g.confirmed.length} paid</div>
     <p class="hint" style="margin-top:-2px">Players tick themselves off — tap here to record cash on the night.</p>
@@ -1099,7 +1099,6 @@ function adminScreen() {
       <p class="hint">Open the weekly game, lock the squad, mark it played, and manage the roster.</p>
       <input id="pinInput" type="password" inputmode="numeric" placeholder="Admin PIN" />
       <button class="btn-primary" onclick="adminLogin()">Unlock</button>
-      <p class="small center mt">Default PIN is 1234 — change it below once in.</p>
     </div>`;
   }
   const g = state.game;
