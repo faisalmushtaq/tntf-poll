@@ -26,7 +26,7 @@ export const firebaseConfig = {
   // For PUSH notifications only. Firebase console → Project settings → Cloud
   // Messaging → Web Push certificates → "Generate key pair" → paste the key.
   // Leave blank if you only want email notifications.
-  vapidKey: ''
+  vapidKey: 'BD8Cvp7s87szvBI-LdX7gWL_RkT1mT_gjoBLgocLCLesILQMLAk2szc0Kbs7sLGufRxD1fe2-csn8XCi25A0KY4'
 };
 
 // One-tap OAuth providers offered on the Join screen. People sign in with one
