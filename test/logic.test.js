@@ -220,12 +220,19 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   const old = logic.configMigrationPatch({ venue: 'Pitch 10', lat: null, lon: null });
   ok('old placeholder venue is migrated', old.venue === 'Pitch 10 - Nou Camp');
   ok('null coords are filled from defaults', typeof old.lat === 'number' && typeof old.lon === 'number');
-  const done = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 53.81928, lon: -1.74367 });
+  const done = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 53.81928, lon: -1.74367, configVersion: 2 });
   ok('already-current config needs no patch', Object.keys(done).length === 0);
-  const custom = logic.configMigrationPatch({ venue: 'Powerleague', lat: 51.5, lon: -0.1 });
+  const custom = logic.configMigrationPatch({ venue: 'Powerleague', lat: 51.5, lon: -0.1, configVersion: 2 });
   ok('a custom venue is left untouched', !('venue' in custom) && !('lat' in custom));
-  const absent = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp' }); // no lat/lon keys → defaults apply
+  const absent = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', configVersion: 2 }); // no lat/lon keys → defaults apply
   ok('absent coords already resolve to defaults (no patch)', Object.keys(absent).length === 0);
+  // v2 one-time PIN reset
+  const pins = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 1, lon: 1, adminPin: '1234', stattoPin: '2468' });
+  ok('pre-v2 config adopts the new organiser PIN', pins.adminPin === '07525418924');
+  ok('pre-v2 config adopts the new Statto PIN', pins.stattoPin === '7869');
+  ok('PIN migration stamps configVersion 2', pins.configVersion === 2);
+  const kept = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 1, lon: 1, adminPin: '9999', configVersion: 2 });
+  ok('a v2 config keeps its organiser PIN (no re-reset)', !('adminPin' in kept));
 }
 
 // --- duplicate account detection (same uid) --------------------------------

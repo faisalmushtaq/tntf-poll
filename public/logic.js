@@ -9,8 +9,9 @@ export const DEFAULT_CONFIG = {
   lat: 53.81928,           // venue latitude  (Pitch 10 - Nou Camp); editable in Settings
   lon: -1.74367,           // venue longitude (Open-Meteo, no API key needed)
   capacity: 14,            // 7-a-side default
-  adminPin: '1234',        // change from Settings
-  stattoPin: '2468',       // stats-keeper role: edit scores + enter goalscorers
+  adminPin: '07525418924', // organiser PIN; change from Settings
+  stattoPin: '7869',       // stats-keeper role: edit scores + enter goalscorers
+  configVersion: 2,        // bump to trigger a one-time config self-heal (see configMigrationPatch)
   organiserEmail: '',      // where the auto-close squad alert is sent
   scoring: {
     playedReward: 2,       // loyalty gained for turning up
@@ -41,6 +42,14 @@ export function configMigrationPatch(config = {}) {
   if (c.venue === 'Pitch 10') patch.venue = DEFAULT_CONFIG.venue; // the old placeholder default
   if (c.lat == null) patch.lat = DEFAULT_CONFIG.lat;
   if (c.lon == null) patch.lon = DEFAULT_CONFIG.lon;
+  // v2: adopt the current organiser + Statto PINs, once. Gated on the stored
+  // version (not withDefaults') so it applies to pre-versioned configs exactly
+  // once and never overrides a PIN the organiser later sets in Settings.
+  if (!(Number(config.configVersion) >= 2)) {
+    patch.adminPin = DEFAULT_CONFIG.adminPin;
+    patch.stattoPin = DEFAULT_CONFIG.stattoPin;
+    patch.configVersion = 2;
+  }
   return patch;
 }
 
