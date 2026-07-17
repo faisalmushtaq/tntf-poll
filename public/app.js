@@ -1108,6 +1108,16 @@ function adminScreen() {
     <div class="card">
       <h2>${esc(g.dateLabel)} — ${esc(g.status)}</h2>
       <p class="hint">${g.confirmed.length}/${g.capacity} confirmed · ${g.waitlist.length} waiting</p>
+      <div class="section-title">Squad size · ${g.capacity % 2 === 0 ? `${g.capacity / 2}-a-side` : `${g.capacity} players`}</div>
+      <p class="hint" style="margin-top:-2px">This week's format. The squad is the top ${g.capacity} by loyalty; the rest are reserves — change it any time and places recalc instantly.</p>
+      <div class="aside-row">
+        ${[5, 6, 7, 8].map(n => `<button type="button" class="aside-btn${g.capacity === n * 2 ? ' on' : ''}" onclick="setCapacity('${g.id}',${n * 2})">${n}-a-side</button>`).join('')}
+      </div>
+      <div class="btn-row mt">
+        <input id="capCustom" type="number" inputmode="numeric" min="2" value="${g.capacity}" />
+        <button class="btn-ghost" onclick="setCapacityCustom('${g.id}')">Set custom</button>
+      </div>
+      <div class="section-title">Registration</div>
       ${g.status === 'open'
         ? `<button class="btn-warn" onclick="admin('lockGame','${g.id}','Squad locked')">Lock squad (stop registration)</button>`
         : `<button class="btn-ghost" onclick="admin('reopenGame','${g.id}','Reopened')">Reopen registration</button>`}
@@ -1125,7 +1135,12 @@ function adminScreen() {
       <h2>No game open</h2>
       <p class="hint">Open this week's game — defaults to the next ${esc(state.config.gameDay)} at ${esc(state.config.kickoff)} at ${esc(state.config.venue || 'the usual venue')}. Change the kickoff/venue only if it differs this week.</p>
       <label class="field">Label</label><input id="gLabel" value="${esc(state.config.gameDay)} game" />
-      <label class="field">Capacity (squad size)</label><input id="gCap" type="number" value="${state.config.capacity}" />
+      <label class="field">Squad size (this week's format)</label>
+      <div class="aside-row">
+        ${[5, 6, 7, 8].map(n => `<button type="button" class="aside-btn open-aside${state.config.capacity === n * 2 ? ' on' : ''}" data-cap="${n * 2}" onclick="pickOpenCap(${n * 2})">${n}-a-side</button>`).join('')}
+      </div>
+      <input id="gCap" type="number" inputmode="numeric" min="2" value="${state.config.capacity}" />
+      <p class="small" style="margin-top:-6px">Total players across both teams (7-a-side = 14, 5-a-side = 10, 8-a-side = 16). You can change it any time after opening.</p>
       <label class="field">Venue</label><input id="gVenue" value="${esc(state.config.venue || '')}" />
       <label class="field">Kickoff (blank = next ${esc(state.config.gameDay)} ${esc(state.config.kickoff)})</label><input id="gKick" type="datetime-local" />
       <button class="btn-primary mt" onclick="openGame()">Open the game</button>
@@ -1623,6 +1638,19 @@ window.admin = async (method, id, ok) => {
   try { await db[method](id); toast(ok || 'Done'); }
   catch (e) { toast(e.message, true); }
 };
+// Fill the open-game capacity field from an a-side quick pick (no save yet).
+window.pickOpenCap = (cap) => {
+  const el = document.getElementById('gCap'); if (el) el.value = cap;
+  document.querySelectorAll('.open-aside').forEach(b => b.classList.toggle('on', Number(b.dataset.cap) === cap));
+};
+// Change a live game's squad size — confirmed/reserves recalc on the re-render.
+window.setCapacity = async (id, cap) => {
+  const n = Number(cap);
+  if (!n || n < 2) return toast('Squad size must be at least 2', true);
+  try { await db.setCapacity(id, n); toast(`Squad size: ${n}${n % 2 === 0 ? ` (${n / 2}-a-side)` : ' players'}`); }
+  catch (e) { toast(e.message, true); }
+};
+window.setCapacityCustom = (id) => window.setCapacity(id, document.getElementById('capCustom')?.value);
 window.openGame = async () => {
   const dateLabel = document.getElementById('gLabel').value.trim();
   const capacity = Number(document.getElementById('gCap').value);

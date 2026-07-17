@@ -21,7 +21,7 @@ also exported as the PWA/app icon.
 | No reward for turning up regularly | **+2 loyalty** every game you play. |
 | Late dropouts go unpunished | **Time-weighted penalty**: free 2+ days out, scaling to −5 last-minute (Tom's point). Shown before you confirm. |
 | People never know if they're in or out | **Email + push notifications** when your status changes, plus a public list everyone can see. |
-| 7-a-side vs 8-a-side | Squad size is configurable per game (default 14). |
+| 5-, 7- or 8-a-side, week to week | Squad size is set per game with one-tap **a-side** presets (or a custom number) — right when you open it *and* live afterwards, so a format change re-picks the squad and reserves instantly. |
 
 ## Screens
 
@@ -52,8 +52,10 @@ hamburger menu on mobile.
   with a badge in the History line-up. Ratings and MOTM awards feed the
   Performances page and your profile.
 - **Rules** — the system explained, with the penalty scale.
-- **Organiser** — PIN-protected: open/lock/complete games, manage the roster,
-  recalculate loyalty, add highlight links, change every setting.
+- **Organiser** — PIN-protected: open/lock/complete games, **set the squad size
+  per game** (5/6/7/8-a-side presets or a custom number, changeable live while
+  the poll's open), manage the roster, recalculate loyalty, add highlight links,
+  change every setting.
 - **Statto** — a separate PIN-protected role for the stats-keeper: correct any
   game's score, log **who scored** (goals + assists up front, the full stat set
   behind a **+ more** toggle), mark **own goals**, give each player a **rating**,

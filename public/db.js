@@ -199,6 +199,7 @@ function createLocalDB() {
     },
     async lockGame(id) { db.games.find(g => g.id === id).status = 'locked'; persist(); },
     async reopenGame(id) { db.games.find(g => g.id === id).status = 'open'; persist(); },
+    async setCapacity(id, capacity) { const g = db.games.find(x => x.id === id); if (g) { g.capacity = Math.max(2, Number(capacity) || 0); persist(); } },
     async completeGame(id, opts = {}) {
       const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
       const ranked = logic.rankSignups(g.signups, db.players, g.capacity);
@@ -476,6 +477,7 @@ async function createFirestoreDB() {
       await setDoc(doc(signupsCol(gameId), playerId), { paid: !!paid, paidAt: paid ? new Date().toISOString() : null }, { merge: true });
     },
     async lockGame(id) { await updateDoc(gameRef(id), { status: 'locked' }); },
+    async setCapacity(id, capacity) { await updateDoc(gameRef(id), { capacity: Math.max(2, Number(capacity) || 0) }); },
     async reopenGame(id) { await updateDoc(gameRef(id), { status: 'open' }); },
     async completeGame(id, opts = {}) {
       const capacity = cache.game?.capacity || cfg().capacity;
