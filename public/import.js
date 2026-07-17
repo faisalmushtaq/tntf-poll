@@ -2,7 +2,7 @@
 // Sheets) into per-game, per-player records, and resolve player names + dates
 // against the roster and fixtures. Pure and framework-free so it's unit-tested.
 
-import { STATS } from './logic.js';
+import { STATS, ATTRS } from './logic.js';
 
 // ---- header aliases -------------------------------------------------------
 // Normalise a header cell to a lookup key: lowercase, drop anything in
@@ -214,6 +214,82 @@ export function resolveImport(parsed, { players = {}, games = [], targetGameId =
       warnings: parsed.warnings || []
     }
   };
+}
+
+// ---- player attribute ratings (Organiser) ---------------------------------
+// A separate importer for the /20 team-balancing ratings (Fitness, Skill,
+// Strength, Speed), keyed to players rather than games.
+const ATTR_ALIASES = {
+  name: ['player', 'name', 'players', 'player name'],
+  fitness: ['fitness', 'fit', 'stamina'],
+  skill: ['skill', 'skl', 'technique', 'ability'],
+  strength: ['strength', 'str', 'power'],
+  speed: ['speed', 'spd', 'pace']
+};
+const ATTR_INDEX = (() => {
+  const idx = {};
+  for (const [key, list] of Object.entries(ATTR_ALIASES)) for (const s of list) idx[normHeader(s)] = key;
+  return idx;
+})();
+
+// Parse a ratings sheet into { rows:[{name, attrs}], columns, warnings }.
+export function parseRatingsSheet(text) {
+  const grid = parseDelimited(text).filter(r => r.some(c => String(c).trim() !== ''));
+  if (!grid.length) return { rows: [], columns: {}, warnings: ['The sheet is empty.'] };
+  const header = grid[0].map(normHeader);
+  const columns = {};
+  header.forEach((h, i) => { const key = ATTR_INDEX[h]; if (key && !(key in columns)) columns[key] = i; });
+  const warnings = [];
+  if (!('name' in columns)) warnings.push('No "Player" column found — needed to match people.');
+  const attrCols = ATTRS.filter(k => k in columns);
+  if (!attrCols.length) warnings.push('No rating columns (Fitness, Skill, Strength, Speed) found.');
+  const rows = [];
+  for (let r = 1; r < grid.length; r++) {
+    const line = grid[r];
+    const cell = key => (columns[key] != null ? String(line[columns[key]] ?? '').trim() : '');
+    const name = cell('name');
+    if (!name) continue;
+    const attrs = {};
+    for (const k of attrCols) {
+      const raw = cell(k);
+      if (raw === '') continue;
+      const n = Number(raw);
+      if (Number.isFinite(n)) attrs[k] = Math.max(0, Math.min(20, n));
+    }
+    rows.push({ name, attrs });
+  }
+  return { rows, columns, warnings };
+}
+
+// Resolve ratings rows against the roster into { byPlayer, summary }.
+export function resolveRatings(parsed, { players = {} } = {}) {
+  const idx = playerIndex(players);
+  const byPlayer = {};
+  const unmatchedNames = new Set();
+  let matched = 0;
+  for (const row of parsed.rows) {
+    if (!Object.keys(row.attrs).length) continue;
+    const pid = matchPlayer(row.name, idx);
+    if (!pid) { unmatchedNames.add(row.name); continue; }
+    byPlayer[pid] = { ...(byPlayer[pid] || {}), ...row.attrs };
+    matched++;
+  }
+  return {
+    byPlayer,
+    summary: {
+      matched, rows: parsed.rows.length,
+      players: Object.keys(byPlayer).length,
+      unmatchedNames: [...unmatchedNames],
+      warnings: parsed.warnings || []
+    }
+  };
+}
+
+// Ready-to-paste ratings template (header + example row).
+export function templateRatings() {
+  const cols = ['Player', ...ATTRS.map(a => a[0].toUpperCase() + a.slice(1))];
+  const example = ['Faisal', '14', '15', '12', '13'];
+  return cols.join('\t') + '\n' + example.join('\t');
 }
 
 // A ready-to-paste template header (+ one example row) covering everything the

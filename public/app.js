@@ -35,7 +35,8 @@ let perfSort = { key: 'g', dir: 'desc' };        // Performances-table sort colu
 let adminUnlocked = false;
 let stattoUnlocked = false;    // stats-keeper role unlocked this session?
 let stattoGameId = null;       // which game the statto is editing
-let importDraft = null;        // { text, targetGameId, resolved } — spreadsheet import preview
+let importDraft = null;        // { text, targetGameId, resolved } — stats import preview
+let ratingsImport = null;      // { text, url, resolved } — player-ratings import preview
 let lineupDraft = null;        // organiser lineupDraft builder state { bibs:[], nonbibs:[] }
 let lineupGameId = null;  // which game `lineupDraft` was built for
 
@@ -254,7 +255,7 @@ function weekScreen() {
       const pen = g.withdrawPenaltyNow;
       const warn = pen > 0
         ? `Withdrawing now costs <b>-${pen} loyalty</b> (${fmtCountdown(g.kickoffAt).replace(' to kickoff', '')} out).`
-        : `Free to withdraw now — more than 48h to kickoff.`;
+        : `Free to withdraw now — no penalty this far ahead.`;
       return `<p class="small mt center">${warn}</p><button class="btn-danger" onclick="withdraw()">Withdraw from this game</button>`;
     }
     return `<button class="btn-primary" onclick="signup()">I'm in for ${esc(g.dateLabel)} &nbsp;→</button>`;
@@ -580,10 +581,7 @@ function rulesScreen() {
       ${s.weatherBonus ? `<li><span>…in adverse weather (cold or wet at kickoff)</span><span class="pts free">+${s.weatherBonus}</span></li>` : ''}
       ${s.coldSeasonBonus ? `<li><span>…during the cold season (${coldLabel})</span><span class="pts free">+${s.coldSeasonBonus}</span></li>` : ''}
       ${s.lateSignupBonusGames ? `<li><span>Step in to fill a gap (sign up within ${s.lateSignupHours ?? 24}h when the squad's short) &amp; play</span><span class="pts free">+${late}</span></li>` : ''}
-      <li><span>Drop out 2+ days before kickoff</span><span class="pts free">0</span></li>
-      <li><span>Drop out the day before</span><span class="pts">-1</span></li>
-      <li><span>Drop out same day</span><span class="pts">-3</span></li>
-      <li><span>Last minute / no-show</span><span class="pts">-5</span></li>
+      ${tiers.map(t => `<li><span>Withdraw — ${esc(t.label)}</span><span class="pts ${t.penalty === 0 ? 'free' : ''}">${t.penalty === 0 ? '0' : '-' + t.penalty}</span></li>`).join('')}
     </ul>
     <p class="small mt">Turning up week after week steadily builds your priority; late dropouts chip it away. Miss a week without signing up and there's no penalty — you just don't earn the +${reward}. The organiser can also nudge scores by hand (e.g. a one-off ringer).</p>
   </div>
@@ -1037,12 +1035,42 @@ function ratingsCard() {
       <div class="rate-ov">${logic.attrOverall(p)}</div>
     </div>`;
   }).join('');
+  const d = ratingsImport || {};
+  const preview = d.resolved ? ratingsPreview(d.resolved) : '';
   return `<div class="card">
     <h2>Player ratings 🔒</h2>
     <p class="hint">Only you (the organiser) see these. Rate each player /20 for Fitness, Skill, Strength, Speed — used to auto-balance the teams. Blank counts as 10.</p>
     <div class="rate-head"><div class="rate-name">Player</div><div>Fit</div><div>Skl</div><div>Str</div><div>Spd</div><div class="rate-ov">Ovr</div></div>
     ${rows}
     <button class="btn-primary mt" onclick="saveRatings()">Save ratings</button>
+    <div class="section-title">Import ratings from a spreadsheet</div>
+    <p class="hint" style="margin-top:-2px">Keep them in a sheet — a <b>Player</b> column plus <b>Fitness, Skill, Strength, Speed</b> (0–20). Paste the Google Sheet link, upload a CSV, or paste the cells; you can still tweak the numbers above afterwards.</p>
+    <div class="btn-row" style="margin-bottom:6px">
+      <button class="btn-ghost" onclick="copyRatingsTemplate()">Copy template</button>
+      <label class="btn btn-ghost file-btn">Upload CSV<input type="file" accept=".csv,.tsv,.txt,text/csv" onchange="ratingsFile(event)" hidden /></label>
+    </div>
+    <label class="field">Google Sheet link</label>
+    <input id="ratUrl" type="url" inputmode="url" value="${esc(d.url || '')}" placeholder="https://docs.google.com/spreadsheets/d/…" />
+    <label class="field">…or paste the sheet (CSV/TSV)</label>
+    <textarea id="ratText" class="hl-input" rows="3" placeholder="Player, Fitness, Skill, Strength, Speed&#10;Faisal, 14, 15, 12, 13">${esc(d.text || '')}</textarea>
+    <div class="btn-row mt">
+      <button class="btn-ghost" onclick="ratingsFetch()">Fetch link</button>
+      <button class="btn-primary" onclick="ratingsPreviewNow()">Preview</button>
+    </div>
+    ${preview}
+  </div>`;
+}
+
+function ratingsPreview(res) {
+  const s = res.summary;
+  const warn = [];
+  if (s.unmatchedNames.length) warn.push(`Couldn’t match ${s.unmatchedNames.length} name${s.unmatchedNames.length === 1 ? '' : 's'}: ${s.unmatchedNames.map(esc).join(', ')}.`);
+  for (const w of s.warnings) warn.push(w);
+  return `<div class="import-preview">
+    <div class="section-title">Preview</div>
+    ${s.players ? `<p class="small">Ready to update ratings for <b>${s.players}</b> player${s.players === 1 ? '' : 's'}.</p>` : '<p class="small">Nothing matched yet.</p>'}
+    ${warn.length ? `<div class="imp-warn">${warn.map(w => `<p>⚠︎ ${w}</p>`).join('')}</div>` : ''}
+    ${s.players ? `<button class="btn-primary mt" onclick="ratingsApply()">Apply to ${s.players} player${s.players === 1 ? '' : 's'}</button>` : ''}
   </div>`;
 }
 
@@ -1093,6 +1121,23 @@ function lineupBuilderCard(g) {
   </div>`;
 }
 
+// Late-cover bonus picker for the completion flow. Auto-detects who stepped in
+// late to fill a gap (from sign-up times), pre-ticked; the organiser can add
+// anyone the system missed or untick a false positive before banking loyalty.
+function lateCoverSection(g) {
+  const s = logic.withDefaults(state.config).scoring;
+  const each = (s.playedReward || 0) * (s.lateSignupBonusGames || 0);
+  if (!each) return '';
+  const auto = logic.lateSignupAwards(lastRaw.signups, lastRaw.playersById, state.config, g.kickoffAt, g.capacity);
+  const rows = (g.confirmed || []).map(r => {
+    const on = auto[r.playerId] != null;
+    return `<label class="late-row"><input type="checkbox" id="late-${r.playerId}"${on ? ' checked' : ''} /><span class="late-name">${esc(r.name)}</span>${on ? '<span class="late-auto">auto</span>' : ''}</label>`;
+  }).join('');
+  return `<div class="section-title">Late-cover bonus · +${each} each</div>
+    <p class="hint" style="margin-top:-2px">Anyone who signed up late to fill a gap (auto-detected from sign-up times, ticked). Tick anyone the system missed, or untick a false positive — they get <b>+${each}</b> when you bank loyalty.</p>
+    <div class="late-list">${rows || '<div class="empty">No confirmed players yet.</div>'}</div>`;
+}
+
 // ---- admin ----------------------------------------------------------------
 function adminScreen() {
   if (!adminUnlocked) {
@@ -1128,6 +1173,7 @@ function adminScreen() {
         <div><label class="field">Bibs</label><input id="scoreBibs" type="number" inputmode="numeric" value="${g.scores && Number.isFinite(g.scores.bibs) ? g.scores.bibs : ''}" placeholder="0" /></div>
         <div><label class="field">Non-bibs</label><input id="scoreNonbibs" type="number" inputmode="numeric" value="${g.scores && Number.isFinite(g.scores.nonbibs) ? g.scores.nonbibs : ''}" placeholder="0" /></div>
       </div>
+      ${lateCoverSection(g)}
       ${highlightsFields(g)}
       <button class="btn-primary mt" onclick="completeGame('${g.id}')">Confirm result → bank loyalty</button>
     </div>` : `
@@ -1260,6 +1306,9 @@ function importCard(games) {
     <p class="hint">Fill in a sheet — one row per player — then paste its <b>Google Sheet link</b> or the data itself. Columns are matched by name, so any layout works: a <b>Player</b> column plus any of ${esc(stats)}… and <b>Rating</b>, <b>MOTM</b>, <b>Own goals</b>. Add a <b>Date</b> column to fill several games at once.</p>
     <div class="btn-row" style="margin-bottom:6px">
       <button class="btn-ghost" onclick="copyTemplate()">Copy template</button>
+      <label class="btn btn-ghost file-btn">Upload CSV<input type="file" accept=".csv,.tsv,.txt,text/csv" onchange="importFile(event)" hidden /></label>
+    </div>
+    <div class="btn-row" style="margin-bottom:6px">
       <button class="btn-ghost" onclick="importPerf()">Load the 2 historic matches</button>
     </div>
     <label class="field">Which game? (for sheets with no Date column)</label>
@@ -1634,6 +1683,68 @@ window.importApply = async () => {
     toast(`Imported ${res.summary.matched} record${res.summary.matched === 1 ? '' : 's'} into ${games} game${games === 1 ? '' : 's'} 📊`);
   } catch (e) { toast(e.message, true); }
 };
+// Read a chosen CSV/TSV file's text (shared by both importers).
+function readFileText(input) {
+  return new Promise((resolve, reject) => {
+    const f = input.files && input.files[0]; if (!f) return reject(new Error('No file'));
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ''));
+    fr.onerror = () => reject(new Error('Could not read file'));
+    fr.readAsText(f);
+  });
+}
+window.importFile = async (ev) => {
+  stashImportInputs();
+  try { importDraft.text = await readFileText(ev.target); resolveImportText(importDraft.text); render(); toast('File loaded — check the preview'); }
+  catch (e) { toast(e.message, true); }
+};
+
+// --- player-ratings import (Organiser) ------------------------------------
+function stashRatingsInputs() {
+  const url = document.getElementById('ratUrl')?.value || '';
+  const text = document.getElementById('ratText')?.value || '';
+  ratingsImport = { ...(ratingsImport || {}), url, text };
+}
+function resolveRatingsText(text) {
+  const parsed = sheet.parseRatingsSheet(text);
+  ratingsImport.resolved = sheet.resolveRatings(parsed, { players: state.playersById });
+}
+window.copyRatingsTemplate = async () => {
+  try { await navigator.clipboard.writeText(sheet.templateRatings()); toast('Ratings template copied 📋'); }
+  catch { stashRatingsInputs(); ratingsImport.text = sheet.templateRatings(); render(); toast('Template dropped into the paste box'); }
+};
+window.ratingsFile = async (ev) => {
+  stashRatingsInputs();
+  try { ratingsImport.text = await readFileText(ev.target); resolveRatingsText(ratingsImport.text); render(); toast('File loaded — check the preview'); }
+  catch (e) { toast(e.message, true); }
+};
+window.ratingsFetch = async () => {
+  stashRatingsInputs();
+  const csvUrl = sheet.toCsvUrl(ratingsImport.url);
+  if (!csvUrl) return toast('That doesn’t look like a Google Sheets link', true);
+  toast('Fetching the sheet…');
+  try {
+    const r = await fetch(csvUrl);
+    if (!r.ok) throw new Error('status ' + r.status);
+    const text = await r.text();
+    if (/^\s*</.test(text)) throw new Error('got a web page, not CSV');
+    ratingsImport.text = text; resolveRatingsText(text); render(); toast('Sheet loaded — check the preview');
+  } catch (e) { render(); toast('Couldn’t read that link — make it “anyone with the link can view”, or paste the data', true); }
+};
+window.ratingsPreviewNow = () => {
+  stashRatingsInputs();
+  if (!ratingsImport.text.trim()) return toast('Paste the sheet, upload a CSV, or fetch a link first', true);
+  try { resolveRatingsText(ratingsImport.text); render(); }
+  catch (e) { toast(e.message, true); }
+};
+window.ratingsApply = async () => {
+  const res = ratingsImport?.resolved; if (!res) return;
+  try {
+    const { players } = await db.applyRatings(res.byPlayer);
+    ratingsImport = null; render();
+    toast(`Updated ratings for ${players} player${players === 1 ? '' : 's'} ⚙️`);
+  } catch (e) { toast(e.message, true); }
+};
 window.admin = async (method, id, ok) => {
   try { await db[method](id); toast(ok || 'Done'); }
   catch (e) { toast(e.message, true); }
@@ -1673,10 +1784,13 @@ window.completeGame = async (id) => {
   const cold = logic.isColdSeason(iso, state.config);
   const { bonus, reasons } = logic.completionBonus(state.config, { adverseWeather: adverse, coldSeason: cold });
   const base = logic.withDefaults(state.config).scoring.playedReward;
-  // Gap-aware last-minute bonus: only the sign-ups that genuinely filled a gap.
-  const awards = g ? logic.lateSignupAwards(lastRaw.signups, lastRaw.playersById, state.config, g.kickoffAt, g.capacity) : {};
-  const lateCount = Object.keys(awards).length;
-  const lateEach = lateCount ? Object.values(awards)[0] : 0;
+  // Late-cover bonus: whoever the organiser has ticked in the completion form
+  // (auto-detected are pre-ticked). Full late award each; empty array = none.
+  const s = logic.withDefaults(state.config).scoring;
+  const lateEach = (s.playedReward || 0) * (s.lateSignupBonusGames || 0);
+  const lateBonusIds = (g ? g.confirmed || [] : []).map(r => r.playerId)
+    .filter(pid => document.getElementById('late-' + pid)?.checked);
+  const lateCount = lateBonusIds.length;
   const lateNote = lateCount > 0 ? ` ${lateCount} player${lateCount === 1 ? '' : 's'} who stepped in late get +${lateEach} each.` : '';
   // Read the entered score (optional but recommended).
   const bibsRaw = document.getElementById('scoreBibs')?.value.trim();
@@ -1690,7 +1804,7 @@ window.completeGame = async (id) => {
     : `The confirmed squad each get +${base}.`) + lateNote + ' Confirm and archive?';
   if (!confirm(msg)) return;
   try {
-    await db.completeGame(id, { bonus, weather, reasons, scores, highlights });
+    await db.completeGame(id, { bonus, weather, reasons, scores, highlights, lateBonusIds });
     toast('Result saved · loyalty banked · archived');
   } catch (e) { toast(e.message, true); }
 };

@@ -399,3 +399,14 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .aside-btn { width: auto; flex: 0 0 auto; padding: 9px 14px; font-size: 14px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--body); }
 .aside-btn.on { background: var(--ink); color: #f6f4ef; border-color: var(--ink); font-weight: 500; }
 .aside-row #capCustom { margin: 0; }
+
+/* ---- File-upload button (styled like a ghost button) ---- */
+.file-btn { display: inline-flex; align-items: center; justify-content: center; text-align: center; cursor: pointer; -webkit-user-select: none; user-select: none; }
+
+/* ---- Late-cover bonus picker (completion) ---- */
+.late-list { margin: 2px 0; }
+.late-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; font-size: 15px; color: var(--ink); border-bottom: 1px solid var(--line-2); cursor: pointer; }
+.late-row:last-child { border-bottom: none; }
+.late-row input[type="checkbox"] { width: 18px; height: 18px; flex: none; margin: 0; accent-color: var(--green); }
+.late-name { flex: 1; }
+.late-auto { flex: none; font-size: 11px; color: var(--green); border: 1px solid #cfdccf; background: var(--green-soft); padding: 0 6px; border-radius: 3px; }

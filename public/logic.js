@@ -11,7 +11,7 @@ export const DEFAULT_CONFIG = {
   capacity: 14,            // 7-a-side default
   adminPin: '07525418924', // organiser PIN; change from Settings
   stattoPin: '7869',       // stats-keeper role: edit scores + enter goalscorers
-  configVersion: 2,        // bump to trigger a one-time config self-heal (see configMigrationPatch)
+  configVersion: 3,        // bump to trigger a one-time config self-heal (see configMigrationPatch)
   organiserEmail: '',      // where the auto-close squad alert is sent
   scoring: {
     playedReward: 2,       // loyalty gained for turning up
@@ -21,13 +21,16 @@ export const DEFAULT_CONFIG = {
     lateSignupBonusGames: 4, // stepping in late (see lateSignupHours) is worth this many games' reward
     lateSignupHours: 24,     // "last minute" = signed up within this many hours of kickoff
     // Time-weighted dropout penalty. The first tier whose `hoursBefore`
-    // cutoff the withdrawal is still outside of applies.
-    // Drop >=48h out -> 0, 24-48h -> 1, 3-24h -> 3, <3h / no-show -> 5.
+    // cutoff the withdrawal is still outside of applies. Cutoffs are hours
+    // before kickoff; for the usual Tue 8pm game that reads as:
+    //   >=27h (before 5pm Mon) free · <27h (after 5pm Mon) -3 ·
+    //   <12h (from 8am) -5 · <6h (from 2pm) -8 · <3h (from 5pm) / no-show -10.
     dropoutTiers: [
-      { hoursBefore: 48, penalty: 0, label: '2+ days before (free)' },
-      { hoursBefore: 24, penalty: 1, label: '1–2 days before' },
-      { hoursBefore: 3,  penalty: 3, label: 'same day' },
-      { hoursBefore: 0,  penalty: 5, label: 'last minute / no-show' }
+      { hoursBefore: 27, penalty: 0,  label: 'before 5pm Monday' },
+      { hoursBefore: 12, penalty: 3,  label: 'after 5pm Monday' },
+      { hoursBefore: 6,  penalty: 5,  label: 'within 12 hours (from 8am)' },
+      { hoursBefore: 3,  penalty: 8,  label: 'within 6 hours' },
+      { hoursBefore: 0,  penalty: 10, label: 'within 3 hours / no-show' }
     ]
   }
 };
@@ -42,14 +45,18 @@ export function configMigrationPatch(config = {}) {
   if (c.venue === 'Pitch 10') patch.venue = DEFAULT_CONFIG.venue; // the old placeholder default
   if (c.lat == null) patch.lat = DEFAULT_CONFIG.lat;
   if (c.lon == null) patch.lon = DEFAULT_CONFIG.lon;
-  // v2: adopt the current organiser + Statto PINs, once. Gated on the stored
-  // version (not withDefaults') so it applies to pre-versioned configs exactly
-  // once and never overrides a PIN the organiser later sets in Settings.
-  if (!(Number(config.configVersion) >= 2)) {
+  // Version-gated one-time self-heals. Gated on the stored version (not
+  // withDefaults') so each applies exactly once and never overrides a value the
+  // organiser later changes in Settings.
+  const v = Number(config.configVersion) || 0;
+  if (v < 2) { // adopt the current organiser + Statto PINs
     patch.adminPin = DEFAULT_CONFIG.adminPin;
     patch.stattoPin = DEFAULT_CONFIG.stattoPin;
-    patch.configVersion = 2;
   }
+  if (v < 3) { // adopt the current dropout-penalty tiers
+    patch.scoring = { ...(patch.scoring || {}), dropoutTiers: DEFAULT_CONFIG.scoring.dropoutTiers };
+  }
+  if (v < 3) patch.configVersion = 3;
   return patch;
 }
 
