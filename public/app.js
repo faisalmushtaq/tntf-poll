@@ -23,6 +23,8 @@ let state = null;     // derived view for rendering
 let history = null;   // completed games (loaded lazily for Stats)
 let tab = 'week';
 let detailId = null;  // which historic game the detail view is showing
+let profileId = null; // which player the public profile view is showing
+let navStack = [];    // view history for the back button: [{tab, detailId, profileId}]
 let menuOpen = false; // mobile top-nav dropdown open?
 let mediaCache = {};  // dateKey -> {videos, clips, note} | null (fetched, none) | undefined (unchecked)
 let mediaPending = {}; // dateKey -> true while its file is loading
@@ -355,7 +357,7 @@ function teamsCard(g) {
       ${ids.map((id, i) => {
         const p = state.playersById[id];
         const me = id === state.me?.id;
-        return `<div class="lu-row${me ? ' me' : ''}"><span class="lu-num">${i + 1}</span><span class="lu-name">${esc(p ? abbrev(p.name) : '—')}${me ? ' <span class="you">you</span>' : ''}</span></div>`;
+        return `<div class="lu-row${me ? ' me' : ''}"><span class="lu-num">${i + 1}</span><span class="lu-name">${p ? playerLink(id, esc(abbrev(p.name))) : '—'}${me ? ' <span class="you">you</span>' : ''}</span></div>`;
       }).join('')}
     </div>`;
   return `<div class="card">
@@ -371,6 +373,12 @@ function abbrev(name) {
   const parts = String(name).trim().split(/\s+/);
   return parts.length < 2 ? name : `${parts[0][0]}. ${parts.slice(1).join(' ')}`;
 }
+// A tappable player name → opens their public profile. `labelHtml` is already
+// escaped/formatted; pass a falsy id to render plain text (no link).
+function playerLink(id, labelHtml) {
+  if (!id) return labelHtml;
+  return `<a class="pname" role="button" tabindex="0" onclick="event.stopPropagation();viewPlayer('${id}')">${labelHtml}</a>`;
+}
 
 // Two-column "Lineups / Substitutes" style list (Guardian match-report look).
 function renderLineup(list, startNum, badgeMode) {
@@ -382,7 +390,7 @@ function renderLineup(list, startNum, badgeMode) {
       ? `<span class="lu-badge amber">${ordinal(idx + 1)}</span>`
       : `<span class="lu-badge" title="loyalty">${p.loyalty}</span>`;
     const you = p.playerId === state.me?.id ? ' <span class="you">you</span>' : '';
-    return `<div class="lu-row${meCls}"><span class="lu-num">${n}</span><span class="lu-name">${esc(abbrev(p.name))}${you}</span>${badge}</div>`;
+    return `<div class="lu-row${meCls}"><span class="lu-num">${n}</span><span class="lu-name">${playerLink(p.playerId, esc(abbrev(p.name)))}${you}</span>${badge}</div>`;
   };
   const left = list.slice(0, half).map((p, i) => row(p, startNum + i, i)).join('');
   const right = list.slice(half).map((p, i) => row(p, startNum + half + i, half + i)).join('');
@@ -492,7 +500,7 @@ function tableScreen() {
     const form = an && an.played ? formGuide(an.form.slice(0, 6)) : '<span class="tdash">—</span>';
     return `<tr class="${me ? 'me' : ''}">
       <td class="c-pos">${i + 1}</td>
-      <td class="c-player"><span class="tp-name">${esc(p.name)}</span>${me ? ' <span class="small">(you)</span>' : ''}</td>
+      <td class="c-player"><span class="tp-name">${playerLink(p.id, esc(p.name))}</span>${me ? ' <span class="small">(you)</span>' : ''}</td>
       <td class="c-num">${played}</td>
       <td class="c-num">${tg}</td>
       <td class="c-num">${win}</td>
@@ -561,7 +569,7 @@ function performancesScreen() {
     const cells = PERF_COLS.map(c => `<td class="c-num${c.key === 'g' ? ' c-goals' : ''}${c.rating ? ' c-rating' : ''}">${perfCell(perf, c)}</td>`).join('');
     return `<tr class="${me ? 'me' : ''}">
       <td class="c-pos">${i + 1}</td>
-      <td class="c-player"><span class="tp-name">${esc(p.name)}</span>${me ? ' <span class="small">(you)</span>' : ''}</td>
+      <td class="c-player"><span class="tp-name">${playerLink(p.id, esc(p.name))}</span>${me ? ' <span class="small">(you)</span>' : ''}</td>
       ${cells}
     </tr>`;
   }).join('');
@@ -734,7 +742,7 @@ function gameDetailScreen() {
   const g = history.find(x => x.id === detailId);
   if (!g) {
     return `<div class="card">
-      <button class="back-link" onclick="go('history')">← All results</button>
+      <button class="back-link" onclick="navBack()">← Back</button>
       <h2>Result not found</h2>
       <p class="hint">That game isn't in the history.</p>
     </div>`;
@@ -753,7 +761,7 @@ function gameDetailScreen() {
         const rating = logic.effectiveRating(g, id);
         return `<div class="lu-row${me ? ' me' : ''}${motm ? ' motm' : ''}">
           <span class="lu-num">${i + 1}</span>
-          <span class="lu-name">${esc(p ? p.name : '—')}${me ? ' <span class="you">you</span>' : ''}${motm ? ' <span class="motm-badge" title="Man of the match">MOTM</span>' : ''}</span>
+          <span class="lu-name">${p ? playerLink(id, esc(p.name)) : '—'}${me ? ' <span class="you">you</span>' : ''}${motm ? ' <span class="motm-badge" title="Man of the match">MOTM</span>' : ''}</span>
           ${rating != null ? `<span class="lu-rating">${starDisplay(rating)}</span>` : ''}
         </div>`;
       }).join('') || '<div class="empty">No line-up recorded.</div>'}
@@ -773,12 +781,12 @@ function gameDetailScreen() {
   const scorers = g.goals && Object.keys(g.goals).length
     ? Object.entries(g.goals).filter(([, v]) => Number(v) > 0)
         .sort((a, b) => b[1] - a[1])
-        .map(([id, v]) => `${esc(state.playersById[id]?.name || '—')}${v > 1 ? ` ×${v}` : ''}`).join(', ')
+        .map(([id, v]) => `${playerLink(id, esc(state.playersById[id]?.name || '—'))}${v > 1 ? ` ×${v}` : ''}`).join(', ')
     : '';
   const scorersLine = scorers ? `<p class="hint center scorers-line" style="margin-top:4px">${ICON('icon-goal', 'inline-ico')} ${scorers}</p>` : '';
   const ogs = g.ownGoals && Object.keys(g.ownGoals).length
     ? Object.entries(g.ownGoals).filter(([, v]) => Number(v) > 0)
-        .map(([id, v]) => `${esc(state.playersById[id]?.name || '—')}${v > 1 ? ` ×${v}` : ''}`).join(', ')
+        .map(([id, v]) => `${playerLink(id, esc(state.playersById[id]?.name || '—'))}${v > 1 ? ` ×${v}` : ''}`).join(', ')
     : '';
   const ogLine = ogs ? `<p class="hint center og-line" style="margin-top:2px">${ICON('icon-own-goal', 'inline-ico')} Own goal: ${ogs}</p>` : '';
 
@@ -792,7 +800,7 @@ function gameDetailScreen() {
     </div>` : '';
 
   return `<div class="card">
-      <button class="back-link" onclick="go('history')">← All results</button>
+      <button class="back-link" onclick="navBack()">← Back</button>
       <h2>${esc(g.dateLabel || gameDateKey(g))}</h2>
       ${scoreline}
       ${scorersLine}
@@ -938,27 +946,85 @@ function mdBlock(text) {
     .map(p => `<p>${mdInline(p.trim()).replace(/\n/g, '<br>')}</p>`).join('');
 }
 
-// ---- you: stats, notifications, account -----------------------------------
+// ---- player stat cards (shared by You + any player's public profile) -------
+// Record: games, attendance, loyalty, dropouts + their game history.
+function recordStatsCard(p, isMe) {
+  const who = isMe ? 'Your record' : `${esc(p.name)}’s record`;
+  const stats = history ? logic.playerStats(p.id, history) : null;
+  if (!stats) return `<div class="card"><h2>${who}</h2><p class="hint">Loading history…</p></div>`;
+  return `<div class="card">
+    <h2>${who}</h2>
+    <div class="statgrid">
+      <div class="stat"><div class="statnum">${stats.played}</div><div class="statlbl">games played</div></div>
+      <div class="stat"><div class="statnum">${stats.attendancePct}%</div><div class="statlbl">attendance</div></div>
+      <div class="stat"><div class="statnum">${p.loyalty}</div><div class="statlbl">loyalty</div></div>
+      <div class="stat"><div class="statnum">${stats.dropouts}</div><div class="statlbl">dropouts</div></div>
+    </div>
+    ${stats.history.length ? `<div class="section-title">History</div><p class="hint" style="margin:-2px 0 2px">Tap a game for the line-ups, score and highlights.</p>${stats.history.map(h =>
+      `<a class="histrow" role="button" tabindex="0" onclick="viewGame('${h.gameId}')"><span>${esc(h.dateLabel || 'Game')}</span><span class="hr-right"><span class="pill ${h.played ? 'in' : h.withdrew ? 'out' : 'wait'}">${h.played ? 'played' : h.withdrew ? 'dropped out' : 'reserve'}</span><span class="hr-chev">›</span></span></a>`).join('')}`
+      : `<p class="hint">No completed games yet${isMe ? ' — your history builds up from here' : ''}.</p>`}
+  </div>`;
+}
+// Form & win/loss record from historic results.
+function formRecordCard(p) {
+  const an = history ? logic.playerAnalytics(p.id, history) : null;
+  if (!an || !an.played) return '';
+  const cs = an.currentStreak;
+  const streakText = cs && cs.type
+    ? (cs.type === 'W' ? `${cs.count}-game win streak 🔥` : cs.type === 'L' ? `${cs.count}-game losing run` : `${cs.count} draws in a row`)
+    : '—';
+  return `<div class="card">
+    <h2>Form &amp; record</h2>
+    <p class="hint">From ${an.played} games with a recorded result. ${an.wins}W · ${an.draws}D · ${an.losses}L.</p>
+    <div class="statgrid">
+      <div class="stat"><div class="statnum">${an.winPct}%</div><div class="statlbl">win rate</div></div>
+      <div class="stat"><div class="statnum">${an.gd > 0 ? '+' : ''}${an.gd}</div><div class="statlbl">goal diff (${an.gf}-${an.ga})</div></div>
+      <div class="stat"><div class="statnum">${an.longestWin}</div><div class="statlbl">best win streak</div></div>
+      <div class="stat"><div class="statnum">${an.longestUnbeaten}</div><div class="statlbl">longest unbeaten</div></div>
+    </div>
+    <div class="section-title">Current run</div>
+    <p style="margin:0 0 10px;font-weight:700">${streakText}</p>
+    <div class="section-title">Form (recent first)</div>
+    ${formGuide(an.form)}
+  </div>`;
+}
+// Individual performance (goals, assists, MOTM, avg rating).
+function performanceStatsCard(p, isMe) {
+  const perf = history ? logic.playerPerformance(p.id, history) : null;
+  if (!perf || !(perf.games || perf.ratingGames || perf.motm)) return '';
+  return `<div class="card">
+    <h2>Performance</h2>
+    <p class="hint">${isMe ? 'Your' : 'Their'} individual record from the games we've logged — goals, assists, ratings and man-of-the-match awards. Kept off the league table.</p>
+    <div class="statgrid">
+      <div class="stat"><div class="statnum">${perf.g}</div><div class="statlbl">goals</div></div>
+      <div class="stat"><div class="statnum">${perf.a}</div><div class="statlbl">assists</div></div>
+      <div class="stat"><div class="statnum">${perf.motm}</div><div class="statlbl">MOTM</div></div>
+      <div class="stat"><div class="statnum">${perf.ratingGames ? perf.rating.toFixed(1) + '★' : '—'}</div><div class="statlbl">avg rating</div></div>
+    </div>
+    <p class="small mt">See the <a role="button" tabindex="0" class="inline-link" onclick="go('performances')">Performances</a> page for everyone's numbers.</p>
+  </div>`;
+}
+
+// ---- any player's public profile ------------------------------------------
+function playerProfileScreen() {
+  const p = profileId ? state.playersById[profileId] : null;
+  if (!p) return `<div class="card"><button class="back-link" onclick="navBack()">← Back</button><h2>Player not found</h2><p class="hint">That player isn't on the roster.</p></div>`;
+  if (history === null) ensureHistory();
+  const isMe = !!state.me && p.id === state.me.id;
+  return `<button class="back-link screen-back" onclick="navBack()">← Back</button>
+    <div class="card hero-you">
+      <img class="you-crest" src="./assets/crest-primary.svg" alt="" aria-hidden="true" />
+      <div class="you-name">${esc(p.name)}${isMe ? ' <span class="small">(you)</span>' : ''}</div>
+      <p class="small">${p.loyalty} loyalty · ${p.gamesPlayed} games</p>
+    </div>${formRecordCard(p)}${performanceStatsCard(p, isMe)}${recordStatsCard(p, isMe)}`;
+}
+
+// ---- you: your profile + notifications + account --------------------------
 function youScreen() {
   if (!state.me) {
     return `<div class="card">${identityPrompt()}</div>`;
   }
   const me = state.me;
-  const stats = history ? logic.playerStats(me.id, history) : null;
-
-  const statsCard = stats ? `
-    <div class="card">
-      <h2>Your record</h2>
-      <div class="statgrid">
-        <div class="stat"><div class="statnum">${stats.played}</div><div class="statlbl">games played</div></div>
-        <div class="stat"><div class="statnum">${stats.attendancePct}%</div><div class="statlbl">attendance</div></div>
-        <div class="stat"><div class="statnum">${me.loyalty}</div><div class="statlbl">loyalty</div></div>
-        <div class="stat"><div class="statnum">${stats.dropouts}</div><div class="statlbl">dropouts</div></div>
-      </div>
-      ${stats.history.length ? `<div class="section-title">History</div><p class="hint" style="margin:-2px 0 2px">Tap a game for the line-ups, score and highlights.</p>${stats.history.map(h =>
-        `<a class="histrow" role="button" tabindex="0" onclick="viewGame('${h.gameId}')"><span>${esc(h.dateLabel || 'Game')}</span><span class="hr-right"><span class="pill ${h.played ? 'in' : h.withdrew ? 'out' : 'wait'}">${h.played ? 'played' : h.withdrew ? 'dropped out' : 'reserve'}</span><span class="hr-chev">›</span></span></a>`).join('')}`
-        : '<p class="hint">No completed games yet — your history builds up from here.</p>'}
-    </div>` : `<div class="card"><h2>Your record</h2><p class="hint">Loading your history…</p></div>`;
 
   // Notifications card
   let notif = '';
@@ -976,44 +1042,6 @@ function youScreen() {
     notif = `<div class="card"><h2>Notifications</h2><p class="hint">Email & push alerts activate once the organiser connects Firebase (see README). For now this device shows in-app alerts when your status changes.</p></div>`;
   }
 
-  // Win/loss analytics from the historic results.
-  const an = history ? logic.playerAnalytics(me.id, history) : null;
-  const cs = an?.currentStreak;
-  const streakText = cs && cs.type
-    ? (cs.type === 'W' ? `${cs.count}-game win streak 🔥` : cs.type === 'L' ? `${cs.count}-game losing run` : `${cs.count} draws in a row`)
-    : '—';
-  const analyticsCard = an && an.played ? `
-    <div class="card">
-      <h2>Form &amp; record</h2>
-      <p class="hint">From ${an.played} games with a recorded result. ${an.wins}W · ${an.draws}D · ${an.losses}L.</p>
-      <div class="statgrid">
-        <div class="stat"><div class="statnum">${an.winPct}%</div><div class="statlbl">win rate</div></div>
-        <div class="stat"><div class="statnum">${an.gd > 0 ? '+' : ''}${an.gd}</div><div class="statlbl">goal diff (${an.gf}-${an.ga})</div></div>
-        <div class="stat"><div class="statnum">${an.longestWin}</div><div class="statlbl">best win streak</div></div>
-        <div class="stat"><div class="statnum">${an.longestUnbeaten}</div><div class="statlbl">longest unbeaten</div></div>
-      </div>
-      <div class="section-title">Current run</div>
-      <p style="margin:0 0 10px;font-weight:700">${streakText}</p>
-      <div class="section-title">Form (recent first)</div>
-      ${formGuide(an.form)}
-    </div>` : (history ? '' : '');
-
-  // Personal performance (goals, assists, rating, MOTM, …) from logged games.
-  const perf = history ? logic.playerPerformance(me.id, history) : null;
-  const hasPerf = perf && (perf.games || perf.ratingGames || perf.motm);
-  const perfCard = hasPerf ? `
-    <div class="card">
-      <h2>Performance</h2>
-      <p class="hint">Your individual record from the games we've logged — goals, assists, ratings and man-of-the-match awards. Kept to your profile, not the league table.</p>
-      <div class="statgrid">
-        <div class="stat"><div class="statnum">${perf.g}</div><div class="statlbl">goals</div></div>
-        <div class="stat"><div class="statnum">${perf.a}</div><div class="statlbl">assists</div></div>
-        <div class="stat"><div class="statnum">${perf.motm}</div><div class="statlbl">MOTM</div></div>
-        <div class="stat"><div class="statnum">${perf.ratingGames ? perf.rating.toFixed(1) + '★' : '—'}</div><div class="statlbl">avg rating</div></div>
-      </div>
-      <p class="small mt">See the <a role="button" tabindex="0" class="inline-link" onclick="go('performances')">Performances</a> page for everyone's numbers — and rate yourself on any past game from its History page.</p>
-    </div>` : '';
-
   const unmerged = me.account && me.gamesPlayed === 0
     ? `<p class="small mt">New account — the organiser will link this to your match history so your games and loyalty show up here.</p>` : '';
   const account = auth?.enabled
@@ -1024,7 +1052,7 @@ function youScreen() {
       <img class="you-crest" src="./assets/crest-primary.svg" alt="Tuesday Night Total Football crest" />
       <div class="you-name">${esc(me.name)}</div>
       <p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p>
-    </div>${analyticsCard}${perfCard}${statsCard}${notif}${account}`;
+    </div>${formRecordCard(me)}${performanceStatsCard(me, true)}${recordStatsCard(me, true)}${notif}${account}`;
 }
 
 // Guardian-style form guide: coloured W/D/L chips, newest first.
@@ -1466,7 +1494,8 @@ function readHighlights(g) {
 // ---- render ---------------------------------------------------------------
 const SCREENS = {
   week: weekScreen, join: joinScreen, history: historyScreen, game: gameDetailScreen,
-  table: tableScreen, performances: performancesScreen, you: youScreen, rules: rulesScreen, admin: adminScreen, statto: stattoScreen
+  table: tableScreen, performances: performancesScreen, profile: playerProfileScreen,
+  you: youScreen, rules: rulesScreen, admin: adminScreen, statto: stattoScreen
 };
 function render() {
   if (!state) return;
@@ -1483,7 +1512,23 @@ async function ensureHistory() {
 }
 
 // ---- actions --------------------------------------------------------------
-window.go = t => { tab = t; menuOpen = false; pendingAction = null; if (t !== 'game') detailId = null; render(); window.scrollTo(0, 0); };
+// Top-nav navigation is a fresh context — clears the back-button history.
+window.go = t => { tab = t; menuOpen = false; pendingAction = null; navStack = []; if (t !== 'game') detailId = null; render(); window.scrollTo(0, 0); };
+// Record the current view before drilling into a game or a player's profile.
+function pushView() { navStack.push({ tab, detailId, profileId }); }
+// Back button: return to wherever we came from (or This week as a fallback).
+window.navBack = () => {
+  const prev = navStack.pop();
+  if (prev) { tab = prev.tab; detailId = prev.detailId; profileId = prev.profileId; }
+  else { tab = 'week'; }
+  menuOpen = false; render(); window.scrollTo(0, 0);
+};
+// Open any player's public profile from wherever their name appears.
+window.viewPlayer = (id) => {
+  if (!id) return;
+  pushView(); profileId = id; tab = 'profile'; menuOpen = false;
+  render(); window.scrollTo(0, 0);
+};
 // Tap a table heading to sort by it; tap the same one again to reverse.
 window.sortTable = (key) => {
   if (tableSort.key === key) tableSort.dir = tableSort.dir === 'asc' ? 'desc' : 'asc';
@@ -1497,7 +1542,7 @@ window.sortPerf = (key) => {
 };
 window.toggleMenu = () => { menuOpen = !menuOpen; render(); };
 window.viewGame = id => {
-  detailId = id; tab = 'game'; menuOpen = false;
+  pushView(); detailId = id; tab = 'game'; menuOpen = false;
   const g = history && history.find(x => x.id === id);
   if (g) loadGameMedia(gameDateKey(g));
   render(); window.scrollTo(0, 0);
