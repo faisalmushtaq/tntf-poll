@@ -27,7 +27,10 @@ also exported as the PWA/app icon.
 ## Screens
 
 A responsive top bar carries the navigation — inline links on the web, a
-hamburger menu on mobile.
+hamburger menu on mobile. **Anyone's name is tappable** — in a line-up, the
+league table, the Performances page or a match report — and opens their public
+profile (form, record and performance), with a **← Back** button that returns
+you exactly where you were.
 
 - **This week** — the live squad (two-column, by loyalty) and the reserves,
   visible to everyone. *I'm in* / *Withdraw* each take a quick **tap-to-confirm**
