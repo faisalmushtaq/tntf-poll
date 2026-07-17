@@ -778,15 +778,18 @@ function gameDetailScreen() {
   const bonusNote = g.weatherBonus > 0
     ? `<p class="hint center wx-bonus">🏅 Tough conditions — everyone who played earned +${g.weatherBonus} bonus loyalty.</p>` : '';
 
+  // "Name ×N" per scorer, abbreviated (S. Rodaina) and kept whole so the line
+  // wraps between scorers, never mid-name.
+  const scorerChip = (id, v) => `<span class="scorer">${playerLink(id, esc(abbrev(state.playersById[id]?.name || '—')))}${v > 1 ? ` <span class="mult">×${v}</span>` : ''}</span>`;
   const scorers = g.goals && Object.keys(g.goals).length
     ? Object.entries(g.goals).filter(([, v]) => Number(v) > 0)
         .sort((a, b) => b[1] - a[1])
-        .map(([id, v]) => `${playerLink(id, esc(state.playersById[id]?.name || '—'))}${v > 1 ? ` ×${v}` : ''}`).join(', ')
+        .map(([id, v]) => scorerChip(id, v)).join(', ')
     : '';
   const scorersLine = scorers ? `<p class="hint center scorers-line" style="margin-top:4px">${ICON('icon-goal', 'inline-ico')} ${scorers}</p>` : '';
   const ogs = g.ownGoals && Object.keys(g.ownGoals).length
     ? Object.entries(g.ownGoals).filter(([, v]) => Number(v) > 0)
-        .map(([id, v]) => `${playerLink(id, esc(state.playersById[id]?.name || '—'))}${v > 1 ? ` ×${v}` : ''}`).join(', ')
+        .map(([id, v]) => scorerChip(id, v)).join(', ')
     : '';
   const ogLine = ogs ? `<p class="hint center og-line" style="margin-top:2px">${ICON('icon-own-goal', 'inline-ico')} Own goal: ${ogs}</p>` : '';
 
