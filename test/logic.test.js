@@ -45,6 +45,17 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('withdrawn players are not ranked', ranked.length === 1 && ranked[0].playerId === 'b');
 }
 
+// --- unavailable ("out") sign-ups are excluded -----------------------------
+{
+  const players = { a: { id: 'a', name: 'A', loyalty: 9 }, b: { id: 'b', name: 'B', loyalty: 1 } };
+  const signups = [
+    { playerId: 'a', status: 'out', outAt: '2026-01-01T09:00:00Z' },
+    { playerId: 'b', status: 'in', joinedAt: '2026-01-01T10:01:00Z' }
+  ];
+  const ranked = logic.rankSignups(signups, players, 14);
+  ok('unavailable players are not ranked (even with high loyalty)', ranked.length === 1 && ranked[0].playerId === 'b');
+}
+
 // --- time-weighted penalty tiers -------------------------------------------
 {
   ok('drop 30h out (before 5pm Mon) → no penalty', logic.penaltyForHours(30).penalty === 0);

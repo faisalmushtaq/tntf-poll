@@ -20,6 +20,7 @@ also exported as the PWA/app icon.
 | First-come-first-served rewards fast tappers, not regulars | When oversubscribed, the squad is the **top N by loyalty score**, not sign-up order. A regular who signs up late still ranks above a casual. |
 | No reward for turning up regularly | **+2 loyalty** every game you play. |
 | Late dropouts go unpunished | **Time-weighted penalty**: free before 5pm Monday, scaling to −10 in the last 3 hours (Tom's point). Shown before you confirm. |
+| Chasing people who already know they're out | One-tap **Can't make it this week** — a no-penalty opt-out that shows on the list, so nobody gets pestered. |
 | People never know if they're in or out | **Email + push notifications** when your status changes, plus a public list everyone can see. |
 | 5-, 7- or 8-a-side, week to week | Squad size is set per game with one-tap **a-side** presets (or a custom number) — right when you open it *and* live afterwards, so a format change re-picks the squad and reserves instantly. |
 
@@ -29,7 +30,9 @@ A responsive top bar carries the navigation — inline links on the web, a
 hamburger menu on mobile.
 
 - **This week** — the live squad (two-column, by loyalty) and the reserves,
-  visible to everyone. One-tap *I'm in* / *Withdraw* with the penalty shown up front.
+  visible to everyone. One-tap *I'm in* / *Withdraw* with the penalty shown up
+  front, plus *Can't make it this week* — a no-penalty way to say you're out so
+  nobody chases you; the out list shows for all to see (and you can undo it).
 - **Join / You** — one nav slot: **Join** (onboarding) when signed out, your
   **You** profile (attendance, games, record, history, notifications, account)
   once you're in.
