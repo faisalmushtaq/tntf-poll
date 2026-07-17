@@ -384,7 +384,10 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .hero-you { text-align: center; }
 .you-crest { width: 88px; height: 88px; display: block; margin: 2px auto 12px; }
 /* Scorers / own-goal lines centre their icon with the text */
-.scorers-line, .og-line { display: flex; align-items: center; justify-content: center; gap: 2px; }
+/* Scorers / own-goal lines: wrap naturally within the card, never mid-name. */
+.scorers-line, .og-line { display: block; text-align: center; line-height: 1.7; overflow-wrap: break-word; }
+.scorer { white-space: nowrap; }
+.scorer .mult { color: var(--muted); }
 
 /* ---- Spreadsheet import (Statto) ---- */
 .import-preview { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 6px; }
