@@ -57,10 +57,18 @@ hamburger menu on mobile.
 - **Statto** — a separate PIN-protected role for the stats-keeper: correct any
   game's score, log **who scored** (goals + assists up front, the full stat set
   behind a **+ more** toggle), mark **own goals**, give each player a **rating**,
-  name the **man of the match** (any number, either team), add **highlight
-  links**, and one-tap **import** the stats spreadsheet. Feeds the Performances
-  page, each player's profile and the History detail. Set the Statto PIN in
-  Organiser → Settings.
+  name the **man of the match** (any number, either team), and add **highlight
+  links**. Feeds the Performances page, each player's profile and the History
+  detail. Set the Statto PIN in Organiser → Settings.
+  - **Import from a spreadsheet.** Keep your stats in a Google Sheet (any
+    layout with a **Player** column plus stat columns — Goals, Assists, Saves,
+    Rating, MOTM, Own goals…). Paste the **share link** (set to *anyone with the
+    link can view*, or *Publish to web → CSV*) or just paste the cells. The
+    importer matches columns by name and players by name, routes rows to
+    fixtures via an optional **Date** column (or a game you pick), shows a
+    **preview** — matched rows, flagged unknown names/dates — then applies.
+    Merges onto whatever's already recorded; a **Copy template** button gives
+    you a starting sheet.
 
 Notifications tell you the moment your spot changes — promoted off the reserves,
 or bumped out — by **email and push** (push works on Android/desktop directly,
@@ -219,6 +227,7 @@ guide. (Files whose names start with `_` are docs, never treated as a game.)
   - `logic.js` — pure maths: ranking, penalties, status-change diff, stats, win/loss analytics (unit-tested).
   - `db.js` — Firestore when configured, `localStorage` otherwise. `seed-data.js` — generated history.
   - `auth.js` — email magic-link sign-in. `messaging.js` — FCM push tokens.
+  - `import.js` — parse a stats spreadsheet (CSV/TSV / Google Sheets) and resolve names + dates to players + fixtures (unit-tested).
   - `app.js` — the responsive UI (top-bar nav, This week / Join / History / Table / You / Rules / Organiser). `firebase-messaging-sw.js` — push service worker.
   - `content/games/` — one editable `<date>.md` per game's highlights (see above).
 - `data/` + `scripts/build-seed.mjs` — historic results and the parser that builds the seed.

@@ -255,6 +255,24 @@ function createLocalDB() {
         g.stats = perf; g.goals = goalsFromStats(perf); n++;
       }
       persist(); return n;
+    },
+    // Apply a resolved spreadsheet import (see import.js). Merges per game:
+    // stats shallow-merge per player (goals recomputed), ratings + own goals
+    // merged, MOTM unioned. Returns { games } actually touched.
+    async applyImport(byGame) {
+      let games = 0;
+      for (const [gid, gm] of Object.entries(byGame || {})) {
+        const g = db.games.find(x => x.id === gid); if (!g) continue;
+        const stats = { ...(g.stats || {}) };
+        for (const [pid, vals] of Object.entries(gm.stats || {})) stats[pid] = { ...(stats[pid] || {}), ...vals };
+        g.stats = stats;
+        g.goals = goalsFromStats(stats);
+        if (Object.keys(gm.stattoRatings || {}).length) g.stattoRatings = { ...(g.stattoRatings || {}), ...gm.stattoRatings };
+        if (Object.keys(gm.ownGoals || {}).length) g.ownGoals = { ...(g.ownGoals || {}), ...gm.ownGoals };
+        if ((gm.motm || []).length) g.motm = [...new Set([...(g.motm || []), ...gm.motm])];
+        games++;
+      }
+      persist(); return { games };
     }
   };
 }
@@ -528,6 +546,24 @@ async function createFirestoreDB() {
         batch.update(gameRef(gid), { stats: perf, goals: goalsFromStats(perf) }); n++;
       }
       await batch.commit(); return n;
+    },
+    // Apply a resolved spreadsheet import (see import.js). Reads each game to
+    // merge onto, then writes back stats (goals recomputed), ratings, own goals
+    // and unioned MOTM. Returns { games } actually touched.
+    async applyImport(byGame) {
+      const batch = writeBatch(dbf); let games = 0;
+      for (const [gid, gm] of Object.entries(byGame || {})) {
+        const snap = await getDoc(gameRef(gid)); if (!snap.exists()) continue;
+        const data = snap.data();
+        const stats = { ...(data.stats || {}) };
+        for (const [pid, vals] of Object.entries(gm.stats || {})) stats[pid] = { ...(stats[pid] || {}), ...vals };
+        const patch = { stats, goals: goalsFromStats(stats) };
+        if (Object.keys(gm.stattoRatings || {}).length) patch.stattoRatings = { ...(data.stattoRatings || {}), ...gm.stattoRatings };
+        if (Object.keys(gm.ownGoals || {}).length) patch.ownGoals = { ...(data.ownGoals || {}), ...gm.ownGoals };
+        if ((gm.motm || []).length) patch.motm = [...new Set([...(data.motm || []), ...gm.motm])];
+        batch.update(gameRef(gid), patch); games++;
+      }
+      await batch.commit(); return { games };
     }
   };
 }

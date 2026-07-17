@@ -4,6 +4,7 @@ import { createAuth } from './auth.js';
 import { enablePush, pushSupported, pushConfigured, isIOS, isStandalone } from './messaging.js';
 import { fetchWeather, weatherFlags } from './weather.js';
 import * as logic from './logic.js';
+import * as sheet from './import.js';
 
 const $app = document.getElementById('app');
 
@@ -34,6 +35,7 @@ let perfSort = { key: 'g', dir: 'desc' };        // Performances-table sort colu
 let adminUnlocked = false;
 let stattoUnlocked = false;    // stats-keeper role unlocked this session?
 let stattoGameId = null;       // which game the statto is editing
+let importDraft = null;        // { text, targetGameId, resolved } — spreadsheet import preview
 let lineupDraft = null;        // organiser lineupDraft builder state { bibs:[], nonbibs:[] }
 let lineupGameId = null;  // which game `lineupDraft` was built for
 
@@ -1226,12 +1228,56 @@ function stattoScreen() {
       <p class="hint">Tap a game to correct the score and log who scored, plus assists and the full stat set, and add highlight links.</p>
       <div class="hist-list">${rows || '<div class="empty">No completed games yet.</div>'}</div>
     </div>
-    <div class="card">
-      <h2>Import spreadsheet stats</h2>
-      <p class="hint">One-tap import of the recorded goals, assists and stats for the two matches we have a spreadsheet for. You can still edit any game afterwards.</p>
-      <button class="btn-ghost" onclick="importPerf()">Import recorded stats</button>
-    </div>
+    ${importCard(games)}
     <div class="card"><button class="btn-ghost" onclick="stattoLogout()">Lock Statto</button></div>`;
+}
+
+// Spreadsheet importer: paste a Google Sheet link (or the data itself), preview
+// what matches the roster + fixtures, then apply. Columns are matched by header
+// name, so any layout with a Player column and stat columns works.
+function importCard(games) {
+  const stats = logic.STATS.map(s => s.label).slice(0, 6).join(', ');
+  const d = importDraft || {};
+  const gameOpts = games.map(g => `<option value="${g.id}"${d.targetGameId === g.id ? ' selected' : ''}>${esc(g.dateLabel || g.date || g.id)}</option>`).join('');
+  const preview = d.resolved ? importPreview(d.resolved) : '';
+  return `<div class="card">
+    <h2>Import from a spreadsheet</h2>
+    <p class="hint">Fill in a sheet — one row per player — then paste its <b>Google Sheet link</b> or the data itself. Columns are matched by name, so any layout works: a <b>Player</b> column plus any of ${esc(stats)}… and <b>Rating</b>, <b>MOTM</b>, <b>Own goals</b>. Add a <b>Date</b> column to fill several games at once.</p>
+    <div class="btn-row" style="margin-bottom:6px">
+      <button class="btn-ghost" onclick="copyTemplate()">Copy template</button>
+      <button class="btn-ghost" onclick="importPerf()">Load the 2 historic matches</button>
+    </div>
+    <label class="field">Which game? (for sheets with no Date column)</label>
+    <select id="impTarget">${gameOpts}</select>
+    <label class="field">Google Sheet link</label>
+    <input id="impUrl" type="url" inputmode="url" value="${esc(d.url || '')}" placeholder="https://docs.google.com/spreadsheets/d/…" />
+    <p class="small" style="margin:2px 0 0">The sheet must be shared so <b>anyone with the link can view</b> (or File → Share → Publish to web → CSV).</p>
+    <label class="field">…or paste the sheet (copy the cells, or CSV/TSV)</label>
+    <textarea id="impText" class="hl-input" rows="4" placeholder="Player, Goals, Assists, Rating, MOTM&#10;Faisal, 2, 1, 4, yes">${esc(d.text || '')}</textarea>
+    <div class="btn-row mt">
+      <button class="btn-ghost" onclick="importFetch()">Fetch link</button>
+      <button class="btn-primary" onclick="importPreviewNow()">Preview</button>
+    </div>
+    ${preview}
+  </div>`;
+}
+
+// Render the preview of a resolved import with an Apply button.
+function importPreview(res) {
+  const s = res.summary;
+  const games = s.games.map(g => `<li><b>${esc(g.label)}</b> — ${g.players} player${g.players === 1 ? '' : 's'}${g.motm ? ` · ${g.motm} MOTM` : ''}</li>`).join('');
+  const warn = [];
+  if (s.needTarget) warn.push('Some rows had no Date and no game was selected.');
+  if (s.unmatchedNames.length) warn.push(`Couldn’t match ${s.unmatchedNames.length} name${s.unmatchedNames.length === 1 ? '' : 's'}: ${s.unmatchedNames.map(esc).join(', ')}. Check the spelling matches the roster.`);
+  if (s.unmatchedDates.length) warn.push(`No fixture for date${s.unmatchedDates.length === 1 ? '' : 's'}: ${s.unmatchedDates.map(esc).join(', ')}.`);
+  for (const w of s.warnings) warn.push(w);
+  const canApply = s.matched > 0 && s.games.length > 0;
+  return `<div class="import-preview">
+    <div class="section-title">Preview</div>
+    ${s.matched ? `<p class="small">Matched <b>${s.matched}</b> row${s.matched === 1 ? '' : 's'} across ${s.games.length} game${s.games.length === 1 ? '' : 's'}:</p><ul class="imp-list">${games}</ul>` : '<p class="small">Nothing matched yet.</p>'}
+    ${warn.length ? `<div class="imp-warn">${warn.map(w => `<p>⚠︎ ${w}</p>`).join('')}</div>` : ''}
+    ${canApply ? `<button class="btn-primary mt" onclick="importApply()">Apply to ${s.games.length} game${s.games.length === 1 ? '' : 's'}</button>` : ''}
+  </div>`;
 }
 
 // Per-player stat entry. Goals + assists are always shown; "+ more" reveals the
@@ -1522,6 +1568,56 @@ window.importPerf = async () => {
   if (!confirm('Import the recorded stats from the spreadsheet into the last two games? This overwrites those games’ current goals & stats.')) return;
   try { const n = await db.importPerf(); history = null; ensureHistory(); render(); toast(`Imported stats for ${n} game${n === 1 ? '' : 's'} 📊`); }
   catch (e) { toast(e.message, true); }
+};
+// --- generic spreadsheet import (import.js) --------------------------------
+// Keep whatever's typed so a re-render (for the preview) doesn't wipe it.
+function stashImportInputs() {
+  const url = document.getElementById('impUrl')?.value || '';
+  const text = document.getElementById('impText')?.value || '';
+  const targetGameId = document.getElementById('impTarget')?.value || null;
+  importDraft = { ...(importDraft || {}), url, text, targetGameId };
+}
+window.copyTemplate = async () => {
+  try { await navigator.clipboard.writeText(sheet.templateText()); toast('Template copied — paste it into a new sheet 📋'); }
+  catch { stashImportInputs(); importDraft.text = sheet.templateText(); render(); toast('Template dropped into the paste box'); }
+};
+function resolveImportText(text) {
+  const parsed = sheet.parseStatsSheet(text);
+  const completed = (history || []).filter(g => g.status === 'completed');
+  const resolved = sheet.resolveImport(parsed, { players: state.playersById, games: completed, targetGameId: importDraft.targetGameId });
+  importDraft.resolved = resolved;
+}
+window.importFetch = async () => {
+  stashImportInputs();
+  const csvUrl = sheet.toCsvUrl(importDraft.url);
+  if (!csvUrl) return toast('That doesn’t look like a Google Sheets link', true);
+  toast('Fetching the sheet…');
+  try {
+    const r = await fetch(csvUrl);
+    if (!r.ok) throw new Error('status ' + r.status);
+    const text = await r.text();
+    if (/^\s*</.test(text)) throw new Error('got a web page, not CSV'); // sign-in/permission page
+    importDraft.text = text;
+    resolveImportText(text);
+    render(); toast('Sheet loaded — check the preview below');
+  } catch (e) {
+    render();
+    toast('Couldn’t read that link — make it “anyone with the link can view”, or paste the data instead', true);
+  }
+};
+window.importPreviewNow = () => {
+  stashImportInputs();
+  if (!importDraft.text.trim()) return toast('Paste the sheet or fetch a link first', true);
+  try { resolveImportText(importDraft.text); render(); }
+  catch (e) { toast(e.message, true); }
+};
+window.importApply = async () => {
+  const res = importDraft?.resolved; if (!res) return;
+  try {
+    const { games } = await db.applyImport(res.byGame);
+    importDraft = null; history = null; ensureHistory(); render();
+    toast(`Imported ${res.summary.matched} record${res.summary.matched === 1 ? '' : 's'} into ${games} game${games === 1 ? '' : 's'} 📊`);
+  } catch (e) { toast(e.message, true); }
 };
 window.admin = async (method, id, ok) => {
   try { await db[method](id); toast(ok || 'Done'); }

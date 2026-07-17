@@ -339,4 +339,52 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('unrated player has 0 rating and 0 rating games', z.rating === 0 && z.ratingGames === 0);
 }
 
+// --- spreadsheet import (import.js) ----------------------------------------
+{
+  const sheet = await import('../public/import.js');
+  const players = {
+    p1: { id: 'p1', name: 'Faisal' },
+    p2: { id: 'p2', name: 'Haris Farooq' },
+    p3: { id: 'p3', name: 'Tom Exon' }
+  };
+  const games = [
+    { id: 'g_2026-07-14', date: '2026-07-14', dateLabel: 'Tue 14 Jul', status: 'completed', stats: { p3: { g: 1, sv: 2 } } },
+    { id: 'g_2026-07-07', date: '2026-07-07', dateLabel: 'Tue 7 Jul', status: 'completed' }
+  ];
+
+  // CSV, single game via target, name matching (full + first name)
+  const csv = 'Player,Goals,Assists,Rating,MOTM,Own goals\nFaisal,2,1,4,yes,\nHaris,0,1,,,1\nGhost,3,0,,,';
+  const parsed = sheet.parseStatsSheet(csv);
+  ok('parses header into columns', parsed.columns.g === 1 && parsed.columns.name === 0 && parsed.columns.motm === 4);
+  const r1 = sheet.resolveImport(parsed, { players, games, targetGameId: 'g_2026-07-14' });
+  ok('matches full and first names', r1.summary.matched === 2);
+  ok('unmatched names are reported', r1.summary.unmatchedNames.length === 1 && r1.summary.unmatchedNames[0] === 'Ghost');
+  ok('goals mapped to the target game', r1.byGame['g_2026-07-14'].stats.p1.g === 2);
+  ok('rating captured', r1.byGame['g_2026-07-14'].stattoRatings.p1 === 4);
+  ok('MOTM captured from truthy cell', r1.byGame['g_2026-07-14'].motm.includes('p1'));
+  ok('own goal captured', r1.byGame['g_2026-07-14'].ownGoals.p2 === 1);
+  ok('blank stat cells are omitted (not zeroed)', !('sv' in r1.byGame['g_2026-07-14'].stats.p1));
+
+  // TSV, multi-game via Date column, header-alias flexibility
+  const tsv = 'Date\tName\tG\tSv\n2026-07-14\tFaisal\t1\t3\n2026-07-07\tTom Exon\t2\t0';
+  const p2 = sheet.parseStatsSheet(tsv);
+  const r2 = sheet.resolveImport(p2, { players, games });
+  ok('date column routes rows to different games', !!r2.byGame['g_2026-07-14'] && !!r2.byGame['g_2026-07-07']);
+  ok('alias "Sv" maps to saves', r2.byGame['g_2026-07-14'].stats.p1.sv === 3);
+  ok('date label match works alongside ISO', r2.summary.games.length === 2);
+
+  // needTarget when no date column and no target
+  const r3 = sheet.resolveImport(sheet.parseStatsSheet('Player,Goals\nFaisal,1'), { players, games });
+  ok('flags needTarget when no date + no target game', r3.summary.needTarget && r3.summary.matched === 0);
+
+  // date + url helpers
+  ok('normDate handles UK dd/mm/yyyy', sheet.normDate('14/07/2026') === '2026-07-14');
+  ok('normDate handles ISO', sheet.normDate('2026-7-7') === '2026-07-07');
+  ok('toCsvUrl builds gviz csv from an edit link',
+    sheet.toCsvUrl('https://docs.google.com/spreadsheets/d/ABC123/edit#gid=42') === 'https://docs.google.com/spreadsheets/d/ABC123/gviz/tq?tqx=out:csv&gid=42');
+  ok('toCsvUrl passes through a published csv link',
+    sheet.toCsvUrl('https://docs.google.com/spreadsheets/d/e/XYZ/pub?output=csv').includes('output=csv'));
+  ok('toCsvUrl rejects non-sheets urls', sheet.toCsvUrl('https://example.com') === null);
+}
+
 console.log(`\n${pass} checks passed ✅`);
