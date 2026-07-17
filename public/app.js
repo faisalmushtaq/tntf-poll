@@ -119,7 +119,7 @@ function buildView() {
 
   let game = null;
   const g = lastRaw.game;
-  if (g && g.status !== 'completed') {
+  if (g && g.status !== 'completed' && g.status !== 'cancelled') {
     const ranked = logic.rankSignups(lastRaw.signups, lastRaw.playersById, g.capacity);
     const mine = playerId ? ranked.find(r => r.playerId === playerId) : null;
     const hrs = logic.hoursUntilKickoff(g.kickoffAt);
@@ -378,6 +378,12 @@ function abbrev(name) {
 function playerLink(id, labelHtml) {
   if (!id) return labelHtml;
   return `<a class="pname" role="button" tabindex="0" onclick="event.stopPropagation();viewPlayer('${id}')">${labelHtml}</a>`;
+}
+// An ISO instant → the local "YYYY-MM-DDTHH:MM" a datetime-local input wants.
+function toLocalInput(iso) {
+  const d = new Date(iso); if (isNaN(d)) return '';
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 // Two-column "Lineups / Substitutes" style list (Guardian match-report look).
@@ -1230,6 +1236,18 @@ function adminScreen() {
       ${g.status === 'open'
         ? `<button class="btn-warn" onclick="admin('lockGame','${g.id}','Squad locked')">Lock squad (stop registration)</button>`
         : `<button class="btn-ghost" onclick="admin('reopenGame','${g.id}','Reopened')">Reopen registration</button>`}
+      <div class="section-title">Reschedule this week</div>
+      <p class="hint" style="margin-top:-2px">Poor turnout, or a one-off change? Shift the day/time or venue — everyone sees it and the countdown and drop-out penalties update to the new kickoff.</p>
+      <label class="field">New kickoff (day &amp; time)</label>
+      <input id="reKick" type="datetime-local" value="${toLocalInput(g.kickoffAt)}" />
+      <label class="field">Venue</label>
+      <input id="reVenue" value="${esc(g.venue || '')}" />
+      <label class="field">Label</label>
+      <input id="reLabel" value="${esc(g.dateLabel || '')}" />
+      <button class="btn-ghost mt" onclick="rescheduleGame('${g.id}')">Update day / time / venue</button>
+      <div class="section-title">Skip this week</div>
+      <p class="hint" style="margin-top:-2px">Christmas break, no pitch, whatever — call it off. The poll closes, This week shows no game, and no loyalty is banked. You can open a fresh game whenever you like.</p>
+      <button class="btn-danger" onclick="cancelWeek('${g.id}')">Call off this week's game</button>
       ${paymentsAdmin(g)}
       <div class="section-title">Enter the result</div>
       <p class="hint" style="margin-top:-2px">Type the final score, then bank loyalty. You can tweak the score and teams (Team builder) right up until you confirm.</p>
@@ -1863,6 +1881,24 @@ window.openGame = async () => {
   const body = { dateLabel, capacity, venue };
   if (kick) body.kickoffAt = new Date(kick).toISOString();
   try { await db.openGame(body); tab = 'week'; render(); toast('Game opened ⚽'); }
+  catch (e) { toast(e.message, true); }
+};
+// Shift the current game's day/time/venue (poor turnout, one-off change, …).
+window.rescheduleGame = async (id) => {
+  const kick = document.getElementById('reKick').value;
+  const venue = document.getElementById('reVenue').value.trim();
+  const dateLabel = document.getElementById('reLabel').value.trim();
+  if (!kick) return toast('Pick a new kickoff date & time', true);
+  try {
+    await db.rescheduleGame(id, { kickoffAt: new Date(kick).toISOString(), venue, dateLabel });
+    delete weatherCache['g-' + id]; delete weatherCache['h-' + id]; // refetch for the new kickoff
+    toast('Kickoff updated ⏰');
+  } catch (e) { toast(e.message, true); }
+};
+// Skip the week — call off an open game (no loyalty banked).
+window.cancelWeek = async (id) => {
+  if (!confirm("Call off this week's game? The poll closes and no loyalty is banked. You can open a fresh game any time.")) return;
+  try { await db.cancelGame(id); tab = 'week'; render(); toast("This week's game called off"); }
   catch (e) { toast(e.message, true); }
 };
 window.completeGame = async (id) => {

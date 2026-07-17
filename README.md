@@ -61,8 +61,10 @@ you exactly where you were.
 - **Rules** — the system explained, with the penalty scale.
 - **Organiser** — PIN-protected: open/lock/complete games, **set the squad size
   per game** (5/6/7/8-a-side presets or a custom number, changeable live while
-  the poll's open), manage the roster, recalculate loyalty, add highlight links,
-  change every setting.
+  the poll's open), **reschedule** the day/time/venue mid-week (the countdown and
+  drop-out penalties follow the new kickoff) or **skip the week** entirely (a
+  Christmas break, no pitch — call it off, no loyalty banked), manage the roster,
+  recalculate loyalty, add highlight links, change every setting.
 - **Statto** — a separate PIN-protected role for the stats-keeper: correct any
   game's score, log **who scored** (goals + assists up front, the full stat set
   behind a **+ more** toggle), mark **own goals**, give each player a **rating**,
