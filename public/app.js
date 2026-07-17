@@ -485,20 +485,29 @@ const PERF_COLS = [
   { key: 'games', label: 'GP', title: 'Games with stats recorded' },
   { key: 'g', label: 'G', title: 'Goals' },
   { key: 'a', label: 'A', title: 'Assists' },
+  { key: 'motm', label: 'MOTM', title: 'Man-of-the-match awards' },
+  { key: 'rating', label: '★', title: 'Average match rating (self + Statto)', rating: true },
   { key: 'sv', label: 'Sv', title: 'Saves' },
   { key: 'sh', label: 'Sh', title: 'Shots' },
   { key: 'sot', label: 'SoT', title: 'Shots on target' },
   { key: 'tkl', label: 'Tkl', title: 'Tackles' },
   { key: 'blk', label: 'Blk', title: 'Blocks' },
   { key: 'pass', label: 'Pass', title: 'Passes' },
-  { key: 'passPct', label: 'Pass%', title: 'Pass completion %', pct: true }
+  { key: 'passPct', label: 'Pass%', title: 'Pass completion %', pct: true },
+  { key: 'og', label: 'OG', title: 'Own goals' }
 ];
+// Display value for a Performances cell.
+function perfCell(perf, c) {
+  if (c.pct) return perf[c.key] + '%';
+  if (c.rating) return perf.ratingGames ? perf.rating.toFixed(1) : '—';
+  return perf[c.key];
+}
 
 function performancesScreen() {
   if (history === null) { ensureHistory(); return `<div class="card"><h2>Performances</h2><p class="hint">Loading…</p></div>`; }
   const { key, dir } = perfSort;
   const entries = state.roster.map(p => ({ p, perf: logic.playerPerformance(p.id, history) }))
-    .filter(e => e.perf.games > 0);
+    .filter(e => e.perf.games > 0 || e.perf.ratingGames > 0 || e.perf.motm > 0 || e.perf.og > 0);
   entries.sort((a, b) => {
     let cmp = key === 'name' ? a.p.name.localeCompare(b.p.name) : (a.perf[key] || 0) - (b.perf[key] || 0);
     cmp = dir === 'asc' ? cmp : -cmp;
@@ -506,7 +515,7 @@ function performancesScreen() {
   });
   const rows = entries.map(({ p, perf }, i) => {
     const me = p.id === state.me?.id;
-    const cells = PERF_COLS.map(c => `<td class="c-num${c.key === 'g' ? ' c-goals' : ''}">${c.pct ? perf[c.key] + '%' : perf[c.key]}</td>`).join('');
+    const cells = PERF_COLS.map(c => `<td class="c-num${c.key === 'g' ? ' c-goals' : ''}${c.rating ? ' c-rating' : ''}">${perfCell(perf, c)}</td>`).join('');
     return `<tr class="${me ? 'me' : ''}">
       <td class="c-pos">${i + 1}</td>
       <td class="c-player"><span class="tp-name">${esc(p.name)}</span>${me ? ' <span class="small">(you)</span>' : ''}</td>
@@ -661,6 +670,25 @@ function historyRow(g) {
   </a>`;
 }
 
+// Read-only 5-star display for a rating (supports halves), with the number.
+function starDisplay(value) {
+  if (value == null) return '';
+  let out = '<span class="stars">';
+  for (let i = 1; i <= 5; i++) {
+    const cls = value >= i ? 'full' : value >= i - 0.5 ? 'half' : '';
+    out += `<span class="star ${cls}">★</span>`;
+  }
+  return out + `</span><span class="rating-num">${Math.round(value * 10) / 10}</span>`;
+}
+// Editable 5-star input. `group` namespaces the DOM ids; a hidden #<group>-val
+// holds the value. `onpick` names a window fn called as onpick(group, n).
+function starInput(group, value, onpick) {
+  const v = Number(value) || 0;
+  let stars = '';
+  for (let i = 1; i <= 5; i++) stars += `<span class="star ${i <= v ? 'on' : ''}" role="button" tabindex="0" onclick="${onpick}('${group}',${i})">★</span>`;
+  return `<span class="star-input" data-star-group="${group}">${stars}</span><input type="hidden" id="${group}-val" value="${v}" />`;
+}
+
 function gameDetailScreen() {
   if (history === null) { ensureHistory(); return `<div class="card"><p class="hint">Loading…</p></div>`; }
   const g = history.find(x => x.id === detailId);
@@ -681,7 +709,13 @@ function gameDetailScreen() {
       ${(ids || []).map((id, i) => {
         const p = state.playersById[id];
         const me = id === state.me?.id;
-        return `<div class="lu-row${me ? ' me' : ''}"><span class="lu-num">${i + 1}</span><span class="lu-name">${esc(p ? p.name : '—')}${me ? ' <span class="you">you</span>' : ''}</span></div>`;
+        const motm = logic.isMotm(g, id);
+        const rating = logic.effectiveRating(g, id);
+        return `<div class="lu-row${me ? ' me' : ''}${motm ? ' motm' : ''}">
+          <span class="lu-num">${i + 1}</span>
+          <span class="lu-name">${esc(p ? p.name : '—')}${me ? ' <span class="you">you</span>' : ''}${motm ? ' <span class="motm-badge" title="Man of the match">MOTM</span>' : ''}</span>
+          ${rating != null ? `<span class="lu-rating">${starDisplay(rating)}</span>` : ''}
+        </div>`;
       }).join('') || '<div class="empty">No line-up recorded.</div>'}
     </div>`;
 
@@ -702,16 +736,32 @@ function gameDetailScreen() {
         .map(([id, v]) => `${esc(state.playersById[id]?.name || '—')}${v > 1 ? ` ×${v}` : ''}`).join(', ')
     : '';
   const scorersLine = scorers ? `<p class="hint center" style="margin-top:4px">⚽ ${scorers}</p>` : '';
+  const ogs = g.ownGoals && Object.keys(g.ownGoals).length
+    ? Object.entries(g.ownGoals).filter(([, v]) => Number(v) > 0)
+        .map(([id, v]) => `${esc(state.playersById[id]?.name || '—')}${v > 1 ? ` ×${v}` : ''}`).join(', ')
+    : '';
+  const ogLine = ogs ? `<p class="hint center og-line" style="margin-top:2px">🙈 Own goal: ${ogs}</p>` : '';
+
+  // Self-rating: shown when the signed-in player was in this game's line-up.
+  const played = state.me && logic.gamePlayers(g).includes(state.me.id);
+  const myRating = state.me && g.selfRatings ? Number(g.selfRatings[state.me.id]) || 0 : 0;
+  const selfCard = played ? `<div class="card rate-self">
+      <h2>Rate your game</h2>
+      <p class="hint">How did you play? Tap a star — tap it again to clear. Saved instantly; edit any time.${g.stattoRatings && g.stattoRatings[state.me.id] ? ' The Statto has also rated you — your match rating is the average of the two.' : ''}</p>
+      <div class="self-stars">${starInput('self-' + g.id, myRating, 'rateSelf')}</div>
+    </div>` : '';
 
   return `<div class="card">
       <button class="back-link" onclick="go('history')">← All results</button>
       <h2>${esc(g.dateLabel || gameDateKey(g))}</h2>
       ${scoreline}
       ${scorersLine}
+      ${ogLine}
       <div class="wx-center">${weatherLine('h-' + g.id)}</div>
       ${bonusNote}
       <div class="teams-grid detail mt">${teamCol(g.teams?.bibs, 'Bibs', 'bibs')}${teamCol(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
     </div>
+    ${selfCard}
     ${mediaCard(g)}`;
 }
 
@@ -907,19 +957,20 @@ function youScreen() {
       ${formGuide(an.form)}
     </div>` : (history ? '' : '');
 
-  // Personal performance (goals, assists, …) from games with stats recorded.
+  // Personal performance (goals, assists, rating, MOTM, …) from logged games.
   const perf = history ? logic.playerPerformance(me.id, history) : null;
-  const perfCard = perf && perf.games ? `
+  const hasPerf = perf && (perf.games || perf.ratingGames || perf.motm);
+  const perfCard = hasPerf ? `
     <div class="card">
       <h2>Performance</h2>
-      <p class="hint">Your match stats from ${perf.games} game${perf.games === 1 ? '' : 's'} with records logged. Kept to your profile — not on the league table.</p>
+      <p class="hint">Your individual record from the games we've logged — goals, assists, ratings and man-of-the-match awards. Kept to your profile, not the league table.</p>
       <div class="statgrid">
         <div class="stat"><div class="statnum">${perf.g}</div><div class="statlbl">goals</div></div>
         <div class="stat"><div class="statnum">${perf.a}</div><div class="statlbl">assists</div></div>
-        <div class="stat"><div class="statnum">${perf.sv}</div><div class="statlbl">saves</div></div>
-        <div class="stat"><div class="statnum">${perf.sh}</div><div class="statlbl">shots</div></div>
+        <div class="stat"><div class="statnum">${perf.motm}</div><div class="statlbl">MOTM</div></div>
+        <div class="stat"><div class="statnum">${perf.ratingGames ? perf.rating.toFixed(1) + '★' : '—'}</div><div class="statlbl">avg rating</div></div>
       </div>
-      <p class="small mt">See the <a role="button" tabindex="0" class="inline-link" onclick="go('performances')">Performances</a> page for everyone's numbers.</p>
+      <p class="small mt">See the <a role="button" tabindex="0" class="inline-link" onclick="go('performances')">Performances</a> page for everyone's numbers — and rate yourself on any past game from its History page.</p>
     </div>` : '';
 
   const unmerged = me.account && me.gamesPlayed === 0
@@ -1188,13 +1239,17 @@ function statPlayerRow(g, id) {
   const input = k => `<input class="stat-in" id="st-${id}-${k}" type="number" min="0" inputmode="numeric" value="${val(k)}" placeholder="0" />`;
   const quick = logic.STATS.filter(s => s.key === 'g' || s.key === 'a');
   const rest = logic.STATS.filter(s => s.key !== 'g' && s.key !== 'a');
+  const motm = logic.isMotm(g, id);
+  const sr = g.stattoRatings ? Number(g.stattoRatings[id]) || 0 : 0;
   return `<div class="stat-player">
     <div class="sp-head">
       <span class="sp-name">${esc(p ? p.name : '—')}</span>
+      <button type="button" class="motm-toggle${motm ? ' on' : ''}" id="motm-${id}" data-on="${motm ? '1' : ''}" onclick="toggleMotm('${id}')" title="Man of the match">★ MOTM</button>
       <span class="sp-quick">${quick.map(s => `<label>${s.short}${input(s.key)}</label>`).join('')}</span>
       <button type="button" class="sp-more" onclick="toggleMore('${id}')">+ more</button>
     </div>
     <div class="sp-rest" id="rest-${id}" hidden>
+      <label class="sp-rate"><span>Your rating</span>${starInput('sr-' + id, sr, 'pickStar')}</label>
       ${rest.map(s => `<label class="sp-stat"><span>${esc(s.label)}</span>${input(s.key)}</label>`).join('')}
     </div>
   </div>`;
@@ -1205,6 +1260,13 @@ function stattoEditor(g) {
   const col = (ids, label, cls) => `<div class="stat-col">
       <div class="team-head ${cls}">${label}</div>
       ${(ids || []).map(id => statPlayerRow(g, id)).join('') || '<div class="empty">—</div>'}</div>`;
+  // Own-goals sub-panel (near the score): who put it in their own net.
+  const ogVal = id => (g.ownGoals && g.ownGoals[id] != null) ? g.ownGoals[id] : '';
+  const ogCol = (ids, label, cls) => `<div class="stat-col">
+      <div class="team-head ${cls}">${label}</div>
+      ${(ids || []).map(id => `<div class="goal-row"><span class="goal-name">${esc(state.playersById[id]?.name || '—')}</span>
+        <input class="stat-in" id="og-${id}" type="number" min="0" inputmode="numeric" value="${ogVal(id)}" placeholder="0" /></div>`).join('') || '<div class="empty">—</div>'}</div>`;
+  const hasOg = g.ownGoals && Object.values(g.ownGoals).some(v => Number(v) > 0);
   return `<div class="card">
     <button class="back-link" onclick="stattoBack()">← All games</button>
     <h2>${esc(g.dateLabel || gameDateKey(g))}</h2>
@@ -1213,8 +1275,13 @@ function stattoEditor(g) {
       <div><label class="field">Bibs</label><input id="ssBibs" type="number" inputmode="numeric" value="${Number.isFinite(b) ? b : ''}" placeholder="0" /></div>
       <div><label class="field">Non-bibs</label><input id="ssNon" type="number" inputmode="numeric" value="${Number.isFinite(n) ? n : ''}" placeholder="0" /></div>
     </div>
-    <div class="section-title">Player stats</div>
-    <p class="hint" style="margin-top:-2px">Goals &amp; assists per player — leave blank for none. Tap <b>+ more</b> for the full set (saves, shots, tackles…) when you've got it.</p>
+    <button type="button" class="og-toggle" onclick="toggleOgSection()">🙈 Log an own goal</button>
+    <div class="og-section" id="ogSection"${hasOg ? '' : ' hidden'}>
+      <p class="hint">Whose own goal? It counts on the scoreline but isn't logged as their goal.</p>
+      <div class="teams-grid stat-grid">${ogCol(g.teams?.bibs, 'Bibs', 'bibs')}${ogCol(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
+    </div>
+    <div class="section-title">Player stats &amp; ratings</div>
+    <p class="hint" style="margin-top:-2px">Goals &amp; assists per player — leave blank for none. Tap <b>★ MOTM</b> to name a man of the match (any number, either team). Tap <b>+ more</b> for your rating and the full stat set.</p>
     <div class="teams-grid stat-grid">${col(g.teams?.bibs, 'Bibs', 'bibs')}${col(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
     ${highlightsFields(g)}
     <button class="btn-primary mt" onclick="saveStattoGame('${g.id}')">Save record</button>
@@ -1385,12 +1452,42 @@ window.stattoLogout = () => { stattoUnlocked = false; stattoGameId = null; rende
 window.selectStattoGame = (id) => { stattoGameId = id; render(); window.scrollTo(0, 0); };
 window.stattoBack = () => { stattoGameId = null; render(); window.scrollTo(0, 0); };
 window.toggleMore = (id) => { const el = document.getElementById('rest-' + id); if (el) el.hidden = !el.hidden; };
+// Toggle a star widget's value (tap the same star again to clear). No re-render,
+// so other unsaved edits on the form are preserved.
+window.pickStar = (group, nn) => {
+  const inp = document.getElementById(group + '-val');
+  const cur = inp ? Number(inp.value) || 0 : 0;
+  const val = cur === nn ? 0 : nn;
+  if (inp) inp.value = val;
+  document.querySelectorAll(`[data-star-group="${group}"] .star`).forEach((el, i) => el.classList.toggle('on', i < val));
+};
+// Toggle a man-of-the-match marker for a player in the Statto editor.
+window.toggleMotm = (id) => {
+  const btn = document.getElementById('motm-' + id); if (!btn) return;
+  const on = !btn.dataset.on;
+  btn.dataset.on = on ? '1' : '';
+  btn.classList.toggle('on', on);
+};
+window.toggleOgSection = () => { const el = document.getElementById('ogSection'); if (el) el.hidden = !el.hidden; };
+// A player rating their own performance from the History detail (0 clears it).
+window.rateSelf = async (group, nn) => {
+  if (!state.me) return toast('Sign in to rate yourself', true);
+  const gameId = group.replace(/^self-/, '');
+  const g = (history || []).find(x => x.id === gameId);
+  const cur = g && g.selfRatings ? Number(g.selfRatings[state.me.id]) || 0 : 0;
+  const val = cur === nn ? 0 : nn;
+  try {
+    await db.setSelfRating(gameId, state.me.id, val);
+    history = null; ensureHistory(); render();
+    toast(val ? `Rated ${val}★` : 'Rating cleared');
+  } catch (e) { toast(e.message, true); }
+};
 window.saveStattoGame = async (id) => {
   const g = (history || []).find(x => x.id === id); if (!g) return;
   const bibs = document.getElementById('ssBibs').value.trim();
   const non = document.getElementById('ssNon').value.trim();
   const scores = (bibs !== '' && non !== '') ? { bibs: Number(bibs), nonbibs: Number(non) } : null;
-  const stats = {}, goals = {};
+  const stats = {}, goals = {}, stattoRatings = {}, ownGoals = {}, motm = [];
   for (const pid of logic.gamePlayers(g)) {
     const obj = {};
     for (const s of logic.STATS) {
@@ -1400,9 +1497,17 @@ window.saveStattoGame = async (id) => {
     }
     if (Object.keys(obj).length) stats[pid] = obj;
     if (obj.g > 0) goals[pid] = obj.g; // keep the goals map in sync for the History view
+    const rEl = document.getElementById(`sr-${pid}-val`);
+    const rv = rEl ? Number(rEl.value) : 0;
+    if (rv > 0) stattoRatings[pid] = rv;
+    const ogEl = document.getElementById(`og-${pid}`);
+    const ov = ogEl ? Number(ogEl.value) : 0;
+    if (ov > 0) ownGoals[pid] = ov;
+    const mEl = document.getElementById(`motm-${pid}`);
+    if (mEl && mEl.dataset.on) motm.push(pid);
   }
   const highlights = readHighlights(g);
-  try { await db.saveGameStats(id, { scores, goals, stats, highlights }); history = null; ensureHistory(); stattoGameId = null; render(); toast('Record saved 📊'); }
+  try { await db.saveGameStats(id, { scores, goals, stats, highlights, stattoRatings, motm, ownGoals }); history = null; ensureHistory(); stattoGameId = null; render(); toast('Record saved 📊'); }
   catch (e) { toast(e.message, true); }
 };
 window.importPerf = async () => {

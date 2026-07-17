@@ -308,4 +308,28 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('playerAnalytics reads personal goals from stats when present', logic.playerAnalytics('x', games).pg === 2);
 }
 
+// --- ratings, MOTM and own goals -------------------------------------------
+{
+  const games = [
+    { id: '1', status: 'completed', date: '2026-03-01', teams: { bibs: ['x'], nonbibs: ['z'] },
+      stats: { x: { g: 1 } }, selfRatings: { x: 4 }, stattoRatings: { x: 2 }, motm: ['x'], ownGoals: { z: 1 } },
+    { id: '2', status: 'completed', date: '2026-03-08', teams: { bibs: ['x'], nonbibs: ['z'] },
+      selfRatings: { x: 5 }, motm: ['x', 'z'] } // no stats entry, self-rating only
+  ];
+  ok('effectiveRating averages self+statto (4,2 → 3)', logic.effectiveRating(games[0], 'x') === 3);
+  ok('effectiveRating uses the lone value when only one side rated', logic.effectiveRating(games[1], 'x') === 5);
+  ok('effectiveRating is null when unrated', logic.effectiveRating(games[0], 'z') === null);
+  ok('isMotm reads the motm array', logic.isMotm(games[0], 'x') && !logic.isMotm(games[0], 'z'));
+  ok('multiple MOTM per game allowed', logic.isMotm(games[1], 'x') && logic.isMotm(games[1], 'z'));
+  const x = logic.playerPerformance('x', games);
+  ok('performance avg rating over rated games ((3+5)/2 = 4)', x.rating === 4 && x.ratingGames === 2);
+  ok('MOTM count across games', x.motm === 2);
+  ok('rating games counted even without a stats entry', x.games === 1 && x.ratingGames === 2);
+  const z = logic.playerPerformance('z', games);
+  ok('own goals summed per player', z.og === 1);
+  ok('own goals are not personal goals', z.g === 0);
+  ok('one MOTM award for z', z.motm === 1);
+  ok('unrated player has 0 rating and 0 rating games', z.rating === 0 && z.ratingGames === 0);
+}
+
 console.log(`\n${pass} checks passed ✅`);

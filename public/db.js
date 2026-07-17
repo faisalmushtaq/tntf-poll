@@ -212,6 +212,7 @@ function createLocalDB() {
       if (opts.weather) g.weather = opts.weather;
       if (Number(opts.bonus) > 0) { g.weatherBonus = Number(opts.bonus); g.bonusReasons = opts.reasons || []; }
       if (opts.highlights !== undefined) g.highlights = opts.highlights;
+      if (opts.ownGoals !== undefined) g.ownGoals = opts.ownGoals;
       if (db.currentGameId === id) db.currentGameId = null; persist();
     },
     async setPlayerEmail(id, email, uid) { const p = db.players[id]; if (!p) throw new Error('Unknown player'); p.email = email || null; if (uid) p.uid = uid; persist(); },
@@ -224,17 +225,28 @@ function createLocalDB() {
     },
     async checkPin(pin) { return String(pin) === String(logic.withDefaults(db.config).adminPin); },
     async checkStattoPin(pin) { const c = logic.withDefaults(db.config); return String(pin) === String(c.stattoPin) || String(pin) === String(c.adminPin); },
-    async saveGameStats(gameId, { scores, goals, stats, highlights }) {
+    async saveGameStats(gameId, { scores, goals, stats, highlights, stattoRatings, motm, ownGoals }) {
       const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
       if (scores) g.scores = { bibs: Number(scores.bibs), nonbibs: Number(scores.nonbibs) };
       if (goals) g.goals = goals;
       if (stats) g.stats = stats;
       if (highlights !== undefined) g.highlights = highlights;
+      if (stattoRatings !== undefined) g.stattoRatings = stattoRatings;
+      if (motm !== undefined) g.motm = motm;
+      if (ownGoals !== undefined) g.ownGoals = ownGoals;
       persist();
     },
     async saveHighlights(gameId, highlights) {
       const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
       g.highlights = highlights; persist();
+    },
+    // A player rating their own performance in a past game (0 clears it).
+    async setSelfRating(gameId, playerId, rating) {
+      const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
+      g.selfRatings = { ...(g.selfRatings || {}) };
+      if (rating > 0) g.selfRatings[playerId] = Number(rating);
+      else delete g.selfRatings[playerId];
+      persist();
     },
     async importPerf() {
       let n = 0;
@@ -461,6 +473,7 @@ async function createFirestoreDB() {
       if (opts.weather) gamePatch.weather = opts.weather;
       if (Number(opts.bonus) > 0) { gamePatch.weatherBonus = Number(opts.bonus); gamePatch.bonusReasons = opts.reasons || []; }
       if (opts.highlights !== undefined) gamePatch.highlights = opts.highlights;
+      if (opts.ownGoals !== undefined) gamePatch.ownGoals = opts.ownGoals;
       batch.update(gameRef(id), gamePatch);
       batch.update(cfgRef, { currentGameId: null });
       await batch.commit();
@@ -491,16 +504,23 @@ async function createFirestoreDB() {
     },
     async checkPin(pin) { return String(pin) === String(cfg().adminPin); },
     async checkStattoPin(pin) { const c = cfg(); return String(pin) === String(c.stattoPin) || String(pin) === String(c.adminPin); },
-    async saveGameStats(gameId, { scores, goals, stats, highlights }) {
+    async saveGameStats(gameId, { scores, goals, stats, highlights, stattoRatings, motm, ownGoals }) {
       const patch = {};
       if (scores) patch.scores = { bibs: Number(scores.bibs), nonbibs: Number(scores.nonbibs) };
       if (goals) patch.goals = goals;
       if (stats) patch.stats = stats;
       if (highlights !== undefined) patch.highlights = highlights;
+      if (stattoRatings !== undefined) patch.stattoRatings = stattoRatings;
+      if (motm !== undefined) patch.motm = motm;
+      if (ownGoals !== undefined) patch.ownGoals = ownGoals;
       if (Object.keys(patch).length) await updateDoc(gameRef(gameId), patch);
     },
     async saveHighlights(gameId, highlights) {
       await updateDoc(gameRef(gameId), { highlights });
+    },
+    // A player rating their own performance in a past game (0 clears it).
+    async setSelfRating(gameId, playerId, rating) {
+      await updateDoc(gameRef(gameId), { [`selfRatings.${playerId}`]: rating > 0 ? Number(rating) : deleteField() });
     },
     async importPerf() {
       const batch = writeBatch(dbf); let n = 0;

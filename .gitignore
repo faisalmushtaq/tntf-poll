@@ -3,3 +3,6 @@ data.json
 *.log
 .DS_Store
 .env
+
+# Session scratch/backups (never commit)
+scratchpad/

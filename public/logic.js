@@ -329,19 +329,47 @@ export const STATS = [
   { key: 'ww', label: 'Hit woodwork', short: 'WW' }
 ];
 
-// Sum a player's stats across all games that have them recorded.
+// A player's rating for one game: the average of their self-rating and the
+// Statto's rating when both exist, otherwise whichever one is present (1–5),
+// or null when neither has been given.
+export function effectiveRating(g, playerId) {
+  if (!g) return null;
+  const self = g.selfRatings && Number(g.selfRatings[playerId]);
+  const statto = g.stattoRatings && Number(g.stattoRatings[playerId]);
+  const vals = [self, statto].filter(v => Number.isFinite(v) && v > 0);
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+}
+
+// Was this player named man of the match in this game?
+export function isMotm(g, playerId) {
+  return Array.isArray(g && g.motm) && g.motm.includes(playerId);
+}
+
+// Sum a player's stats across all games that have them recorded, plus the
+// season-long extras: average rating, man-of-the-match count and own goals.
 export function playerPerformance(playerId, games = []) {
   const t = {}; for (const s of STATS) t[s.key] = 0;
-  let n = 0;
+  let n = 0, ratingSum = 0, ratingGames = 0, motm = 0, og = 0;
   for (const g of games) {
-    if (g.status !== 'completed' || !g.stats || !g.stats[playerId]) continue;
-    n++; const st = g.stats[playerId];
-    for (const s of STATS) t[s.key] += Number(st[s.key]) || 0;
+    if (g.status !== 'completed') continue;
+    if (g.stats && g.stats[playerId]) {
+      n++; const st = g.stats[playerId];
+      for (const s of STATS) t[s.key] += Number(st[s.key]) || 0;
+    }
+    const r = effectiveRating(g, playerId);
+    if (r != null) { ratingSum += r; ratingGames++; }
+    if (isMotm(g, playerId)) motm++;
+    og += (g.ownGoals && Number(g.ownGoals[playerId])) || 0;
   }
   t.games = n;
   t.passPct = t.pass ? Math.round(t.passc / t.pass * 100) : 0;
   t.ppPct = t.pp ? Math.round(t.ppc / t.pp * 100) : 0;
   t.sotPct = t.sh ? Math.round(t.sot / t.sh * 100) : 0;
+  t.ratingGames = ratingGames;
+  t.rating = ratingGames ? Math.round(ratingSum / ratingGames * 10) / 10 : 0;
+  t.motm = motm;
+  t.og = og;
   return t;
 }
 

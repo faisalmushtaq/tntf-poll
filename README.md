@@ -36,18 +36,27 @@ hamburger menu on mobile.
   **not** personal goals, so it never nudges anyone towards chasing individual
   numbers over the team.
 - **Performances** — the individual side, kept separate from the league table.
-  A sortable record of each player's match stats — **goals, assists, saves,
-  shots, tackles, blocks, passes** — from the games we've logged them for.
-  Realistically it's mostly goals each week; the rest fills in when someone's
-  counting. Your own numbers also appear on your **You** profile.
+  A sortable record of each player's match stats — **goals, assists, MOTM
+  awards, average rating, saves, shots, tackles, blocks, passes** and own goals
+  — from the games we've logged them for. Realistically it's mostly goals each
+  week; the rest fills in when someone's counting. Your own numbers also appear
+  on your **You** profile.
+- **Ratings & man of the match** — once a game's played, **rate your own
+  performance** out of 5 stars from that game's History page (edit it any time).
+  The Statto can add a rating too — your match rating is then the average of the
+  two — and name one or more **men of the match** per team, who show in bold
+  with a badge in the History line-up. Ratings and MOTM awards feed the
+  Performances page and your profile.
 - **Rules** — the system explained, with the penalty scale.
 - **Organiser** — PIN-protected: open/lock/complete games, manage the roster,
   recalculate loyalty, add highlight links, change every setting.
 - **Statto** — a separate PIN-protected role for the stats-keeper: correct any
   game's score, log **who scored** (goals + assists up front, the full stat set
-  behind a **+ more** toggle), add **highlight links**, and one-tap **import**
-  the stats spreadsheet. Feeds the Performances page, each player's profile and
-  the History detail. Set the Statto PIN in Organiser → Settings.
+  behind a **+ more** toggle), mark **own goals**, give each player a **rating**,
+  name the **man of the match** (any number, either team), add **highlight
+  links**, and one-tap **import** the stats spreadsheet. Feeds the Performances
+  page, each player's profile and the History detail. Set the Statto PIN in
+  Organiser → Settings.
 
 Notifications tell you the moment your spot changes — promoted off the reserves,
 or bumped out — by **email and push** (push works on Android/desktop directly,
