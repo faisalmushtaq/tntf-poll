@@ -30,6 +30,7 @@ let weatherPending = {};
 let authMode = 'signup'; // email form mode on the Join screen: 'signup' | 'signin'
 let pendingName = null;   // name typed on account creation, used to name the roster record
 let tableSort = { key: 'loyalty', dir: 'desc' }; // League-table sort column + direction
+let perfSort = { key: 'g', dir: 'desc' };        // Performances-table sort column + direction
 let adminUnlocked = false;
 let stattoUnlocked = false;    // stats-keeper role unlocked this session?
 let stattoGameId = null;       // which game the statto is editing
@@ -44,6 +45,7 @@ const NAV = [
   ['you', 'You'],
   ['history', 'History'],
   ['table', 'Table'],
+  ['performances', 'Performances'],
   ['rules', 'Rules'],
   ['admin', 'Organiser'],
   ['statto', 'Statto']
@@ -417,7 +419,6 @@ function tableValue(e, key) {
   switch (key) {
     case 'played': return has ? an.played : (e.p.gamesPlayed || 0);
     case 'gf': return has ? an.gf : 0;
-    case 'pg': return has ? an.pg : 0;
     case 'winPct': return has ? an.winPct : 0;
     case 'loyalty': return e.p.loyalty || 0;
     default: return 0;
@@ -444,7 +445,6 @@ function tableScreen() {
     const me = p.id === state.me?.id;
     const played = an && an.played ? an.played : p.gamesPlayed;
     const tg = an && an.played ? an.gf : '—';
-    const pg = an && an.played ? an.pg : '—';
     const win = an && an.played ? an.winPct + '%' : '—';
     const form = an && an.played ? formGuide(an.form.slice(0, 6)) : '<span class="tdash">—</span>';
     return `<tr class="${me ? 'me' : ''}">
@@ -452,7 +452,6 @@ function tableScreen() {
       <td class="c-player"><span class="tp-name">${esc(p.name)}</span>${me ? ' <span class="small">(you)</span>' : ''}</td>
       <td class="c-num">${played}</td>
       <td class="c-num">${tg}</td>
-      <td class="c-num c-goals">${pg}</td>
       <td class="c-num">${win}</td>
       <td class="c-form">${form}</td>
       <td class="c-pts">${p.loyalty}</td>
@@ -470,14 +469,65 @@ function tableScreen() {
           ${th('name', 'Player', 'c-player')}
           ${th('played', 'GP', 'c-num', 'title="Games played"')}
           ${th('gf', 'TG', 'c-num', 'title="Team goals — goals your team scored in games you played"')}
-          ${th('pg', 'Goals', 'c-num c-goals', 'title="Goals you scored"')}
           ${th('winPct', 'Win%', 'c-num')}
           <th class="c-form">Form</th>
           ${th('loyalty', 'Pts', 'c-pts')}
         </tr></thead>
-        <tbody>${rows || '<tr><td colspan="8" class="empty">No players yet.</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="7" class="empty">No players yet.</td></tr>'}</tbody>
       </table>
     </div>
+  </div>`;
+}
+
+// Columns on the Performances page — priority order (goals first). Each maps to
+// a key on the playerPerformance() total. `pct` marks a percentage column.
+const PERF_COLS = [
+  { key: 'games', label: 'GP', title: 'Games with stats recorded' },
+  { key: 'g', label: 'G', title: 'Goals' },
+  { key: 'a', label: 'A', title: 'Assists' },
+  { key: 'sv', label: 'Sv', title: 'Saves' },
+  { key: 'sh', label: 'Sh', title: 'Shots' },
+  { key: 'sot', label: 'SoT', title: 'Shots on target' },
+  { key: 'tkl', label: 'Tkl', title: 'Tackles' },
+  { key: 'blk', label: 'Blk', title: 'Blocks' },
+  { key: 'pass', label: 'Pass', title: 'Passes' },
+  { key: 'passPct', label: 'Pass%', title: 'Pass completion %', pct: true }
+];
+
+function performancesScreen() {
+  if (history === null) { ensureHistory(); return `<div class="card"><h2>Performances</h2><p class="hint">Loading…</p></div>`; }
+  const { key, dir } = perfSort;
+  const entries = state.roster.map(p => ({ p, perf: logic.playerPerformance(p.id, history) }))
+    .filter(e => e.perf.games > 0);
+  entries.sort((a, b) => {
+    let cmp = key === 'name' ? a.p.name.localeCompare(b.p.name) : (a.perf[key] || 0) - (b.perf[key] || 0);
+    cmp = dir === 'asc' ? cmp : -cmp;
+    return cmp || (b.perf.g - a.perf.g) || a.p.name.localeCompare(b.p.name);
+  });
+  const rows = entries.map(({ p, perf }, i) => {
+    const me = p.id === state.me?.id;
+    const cells = PERF_COLS.map(c => `<td class="c-num${c.key === 'g' ? ' c-goals' : ''}">${c.pct ? perf[c.key] + '%' : perf[c.key]}</td>`).join('');
+    return `<tr class="${me ? 'me' : ''}">
+      <td class="c-pos">${i + 1}</td>
+      <td class="c-player"><span class="tp-name">${esc(p.name)}</span>${me ? ' <span class="small">(you)</span>' : ''}</td>
+      ${cells}
+    </tr>`;
+  }).join('');
+  const arrow = k => key === k ? `<span class="sort-arrow">${dir === 'asc' ? '↑' : '↓'}</span>` : '';
+  const th = (k, label, cls, attrs = '') => `<th class="${cls} sortable${key === k ? ' active' : ''}" ${attrs} onclick="sortPerf('${k}')">${label}${arrow(k)}</th>`;
+  return `<div class="card">
+    <h2>Performances</h2>
+    <p class="hint">Individual match stats — goals, assists and more — from games we've logged them for. Realistically it's mostly goals each week; the rest when someone's counting. <b>Tap a heading to sort.</b> Swipe sideways for every column.</p>
+    ${entries.length ? `<div class="table-scroll">
+      <table class="stats-table">
+        <thead><tr>
+          <th class="c-pos">#</th>
+          ${th('name', 'Player', 'c-player')}
+          ${PERF_COLS.map(c => th(c.key, c.label, 'c-num' + (c.key === 'g' ? ' c-goals' : ''), `title="${c.title}"`)).join('')}
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>` : '<p class="hint">No performance stats recorded yet. The Statto can add them from the Statto page.</p>'}
   </div>`;
 }
 
@@ -599,7 +649,8 @@ function historyRow(g) {
   const res = !hasScore ? '' : b > n ? 'Bibs win' : n > b ? 'Non-bibs win' : 'Draw';
   const size = Math.max(g.teams?.bibs?.length || 0, g.teams?.nonbibs?.length || 0);
   const m = mediaCache[gameDateKey(g)];
-  const hasVid = m && (m.videos?.length || m.clips?.length);
+  const stored = g.highlights;
+  const hasVid = (m && (m.videos?.length || m.clips?.length)) || (stored && (stored.videos?.length || stored.clips?.length));
   return `<a class="hist-row" role="button" tabindex="0" onclick="viewGame('${g.id}')">
     <div class="hist-main">
       <div class="hist-date">${esc(g.dateLabel || gameDateKey(g))}</div>
@@ -664,23 +715,36 @@ function gameDetailScreen() {
     ${mediaCard(g)}`;
 }
 
-// Highlights card for a game, driven by content/games/<date>.md.
+// Highlights card for a game. Two sources, merged: links entered in the app
+// (stored on the game record as g.highlights, added by Statto/Organiser) and a
+// content/games/<date>.md file if one's been committed.
 function mediaCard(g) {
   const key = gameDateKey(g);
-  const m = mediaCache[key];
-  if (m === undefined) { loadGameMedia(key); return `<div class="card"><h2>Highlights</h2><p class="hint">Loading…</p></div>`; }
-  if (!m || (!m.videos?.length && !m.clips?.length && !m.note)) {
+  const file = mediaCache[key];
+  if (file === undefined) { loadGameMedia(key); return `<div class="card"><h2>Highlights</h2><p class="hint">Loading…</p></div>`; }
+  const m = mergeMedia(g.highlights, file);
+  if (!m.videos.length && !m.clips.length && !m.note) {
     return `<div class="card"><h2>Highlights</h2><p class="hint">No highlights uploaded for this game yet.</p></div>`;
   }
   let out = '';
-  if (m.videos?.length) {
+  if (m.videos.length) {
     out += m.videos.map((url, i) => ytEmbed(url, m.videos.length > 1 ? `Highlights · part ${i + 1}` : 'Highlights')).join('');
   }
-  if (m.clips?.length) {
+  if (m.clips.length) {
     out += `<div class="section-title">Clips</div>` + m.clips.map(c => ytEmbed(c.url, c.label || 'Clip')).join('');
   }
   const note = m.note ? `<div class="md-note">${mdBlock(m.note)}</div>` : '';
   return `<div class="card"><h2>Highlights</h2>${note}${out || '<p class="hint">No video links yet.</p>'}</div>`;
+}
+// Combine app-entered highlights with any committed file; drop duplicate videos.
+function mergeMedia(stored, file) {
+  const s = stored || {}, f = file || {};
+  const videos = []; const seen = new Set();
+  for (const url of [...(s.videos || []), ...(f.videos || [])]) {
+    const id = ytId(url) || url;
+    if (seen.has(id)) continue; seen.add(id); videos.push(url);
+  }
+  return { videos, clips: [...(s.clips || []), ...(f.clips || [])], note: s.note || f.note || '' };
 }
 
 // ---- weather (Open-Meteo) --------------------------------------------------
@@ -843,6 +907,21 @@ function youScreen() {
       ${formGuide(an.form)}
     </div>` : (history ? '' : '');
 
+  // Personal performance (goals, assists, …) from games with stats recorded.
+  const perf = history ? logic.playerPerformance(me.id, history) : null;
+  const perfCard = perf && perf.games ? `
+    <div class="card">
+      <h2>Performance</h2>
+      <p class="hint">Your match stats from ${perf.games} game${perf.games === 1 ? '' : 's'} with records logged. Kept to your profile — not on the league table.</p>
+      <div class="statgrid">
+        <div class="stat"><div class="statnum">${perf.g}</div><div class="statlbl">goals</div></div>
+        <div class="stat"><div class="statnum">${perf.a}</div><div class="statlbl">assists</div></div>
+        <div class="stat"><div class="statnum">${perf.sv}</div><div class="statlbl">saves</div></div>
+        <div class="stat"><div class="statnum">${perf.sh}</div><div class="statlbl">shots</div></div>
+      </div>
+      <p class="small mt">See the <a role="button" tabindex="0" class="inline-link" onclick="go('performances')">Performances</a> page for everyone's numbers.</p>
+    </div>` : '';
+
   const unmerged = me.account && me.gamesPlayed === 0
     ? `<p class="small mt">New account — the organiser will link this to your match history so your games and loyalty show up here.</p>` : '';
   const account = auth?.enabled
@@ -852,7 +931,7 @@ function youScreen() {
   return `<div class="card hero-you">
       <div class="you-name">${esc(me.name)}</div>
       <p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p>
-    </div>${analyticsCard}${statsCard}${notif}${account}`;
+    </div>${analyticsCard}${perfCard}${statsCard}${notif}${account}`;
 }
 
 // Guardian-style form guide: coloured W/D/L chips, newest first.
@@ -978,6 +1057,7 @@ function adminScreen() {
         <div><label class="field">Bibs</label><input id="scoreBibs" type="number" inputmode="numeric" value="${g.scores && Number.isFinite(g.scores.bibs) ? g.scores.bibs : ''}" placeholder="0" /></div>
         <div><label class="field">Non-bibs</label><input id="scoreNonbibs" type="number" inputmode="numeric" value="${g.scores && Number.isFinite(g.scores.nonbibs) ? g.scores.nonbibs : ''}" placeholder="0" /></div>
       </div>
+      ${highlightsFields(g)}
       <button class="btn-primary mt" onclick="completeGame('${g.id}')">Confirm result → bank loyalty</button>
     </div>` : `
     <div class="card">
@@ -1084,23 +1164,47 @@ function stattoScreen() {
   }).join('');
   return `<div class="card">
       <h2>Match records 📊</h2>
-      <p class="hint">Tap a game to correct the score and log who scored.</p>
+      <p class="hint">Tap a game to correct the score and log who scored, plus assists and the full stat set, and add highlight links.</p>
       <div class="hist-list">${rows || '<div class="empty">No completed games yet.</div>'}</div>
+    </div>
+    <div class="card">
+      <h2>Import spreadsheet stats</h2>
+      <p class="hint">One-tap import of the recorded goals, assists and stats for the two matches we have a spreadsheet for. You can still edit any game afterwards.</p>
+      <button class="btn-ghost" onclick="importPerf()">Import recorded stats</button>
     </div>
     <div class="card"><button class="btn-ghost" onclick="stattoLogout()">Lock Statto</button></div>`;
 }
 
+// Per-player stat entry. Goals + assists are always shown; "+ more" reveals the
+// rest (saves, shots, tackles…). Realistically only goals get filled most weeks.
+function statPlayerRow(g, id) {
+  const p = state.playersById[id];
+  const st = (g.stats && g.stats[id]) || {};
+  // Goals fall back to the legacy goals map so existing records pre-fill.
+  const val = k => {
+    if (k === 'g' && st.g == null && g.goals && g.goals[id] != null) return g.goals[id];
+    return st[k] != null ? st[k] : '';
+  };
+  const input = k => `<input class="stat-in" id="st-${id}-${k}" type="number" min="0" inputmode="numeric" value="${val(k)}" placeholder="0" />`;
+  const quick = logic.STATS.filter(s => s.key === 'g' || s.key === 'a');
+  const rest = logic.STATS.filter(s => s.key !== 'g' && s.key !== 'a');
+  return `<div class="stat-player">
+    <div class="sp-head">
+      <span class="sp-name">${esc(p ? p.name : '—')}</span>
+      <span class="sp-quick">${quick.map(s => `<label>${s.short}${input(s.key)}</label>`).join('')}</span>
+      <button type="button" class="sp-more" onclick="toggleMore('${id}')">+ more</button>
+    </div>
+    <div class="sp-rest" id="rest-${id}" hidden>
+      ${rest.map(s => `<label class="sp-stat"><span>${esc(s.label)}</span>${input(s.key)}</label>`).join('')}
+    </div>
+  </div>`;
+}
+
 function stattoEditor(g) {
   const b = g.scores?.bibs, n = g.scores?.nonbibs;
-  const goalInput = id => {
-    const p = state.playersById[id];
-    const val = g.goals && g.goals[id] != null ? g.goals[id] : '';
-    return `<div class="goal-row"><span class="goal-name">${esc(p ? p.name : '—')}</span>
-      <input class="goal-in" id="sg-${id}" type="number" min="0" inputmode="numeric" value="${val}" placeholder="0" /></div>`;
-  };
-  const col = (ids, label, cls) => `<div class="team-col">
+  const col = (ids, label, cls) => `<div class="stat-col">
       <div class="team-head ${cls}">${label}</div>
-      ${(ids || []).map(goalInput).join('') || '<div class="empty">—</div>'}</div>`;
+      ${(ids || []).map(id => statPlayerRow(g, id)).join('') || '<div class="empty">—</div>'}</div>`;
   return `<div class="card">
     <button class="back-link" onclick="stattoBack()">← All games</button>
     <h2>${esc(g.dateLabel || gameDateKey(g))}</h2>
@@ -1109,17 +1213,42 @@ function stattoEditor(g) {
       <div><label class="field">Bibs</label><input id="ssBibs" type="number" inputmode="numeric" value="${Number.isFinite(b) ? b : ''}" placeholder="0" /></div>
       <div><label class="field">Non-bibs</label><input id="ssNon" type="number" inputmode="numeric" value="${Number.isFinite(n) ? n : ''}" placeholder="0" /></div>
     </div>
-    <div class="section-title">Goalscorers</div>
-    <p class="hint" style="margin-top:-2px">How many each player scored — leave blank if none.</p>
-    <div class="teams-grid">${col(g.teams?.bibs, 'Bibs', 'bibs')}${col(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
+    <div class="section-title">Player stats</div>
+    <p class="hint" style="margin-top:-2px">Goals &amp; assists per player — leave blank for none. Tap <b>+ more</b> for the full set (saves, shots, tackles…) when you've got it.</p>
+    <div class="teams-grid stat-grid">${col(g.teams?.bibs, 'Bibs', 'bibs')}${col(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
+    ${highlightsFields(g)}
     <button class="btn-primary mt" onclick="saveStattoGame('${g.id}')">Save record</button>
   </div>`;
+}
+
+// Highlights entry (YouTube links + a note), shared by Statto and Organiser.
+function highlightsFields(g) {
+  const h = g.highlights || {};
+  return `<div class="section-title">Highlights</div>
+    <p class="hint" style="margin-top:-2px">Paste YouTube links, one per line — they appear on the game's History page.</p>
+    <textarea id="hlVids" class="hl-input" rows="2" placeholder="https://youtu.be/…">${esc((h.videos || []).join('\n'))}</textarea>
+    <label class="field">Match note (optional)</label>
+    <textarea id="hlNote" class="hl-input" rows="2" placeholder="End-to-end stuff — Bibs edged it late on.">${esc(h.note || '')}</textarea>`;
+}
+// Read the highlights fields back into a record, preserving any committed clips.
+function readHighlights(g) {
+  const vEl = document.getElementById('hlVids');
+  const nEl = document.getElementById('hlNote');
+  if (!vEl && !nEl) return undefined; // fields not on screen — don't touch
+  const videos = vEl ? vEl.value.split('\n').map(s => s.trim()).filter(Boolean) : ((g.highlights || {}).videos || []);
+  const note = nEl ? nEl.value.trim() : ((g.highlights || {}).note || '');
+  const clips = (g.highlights || {}).clips || [];
+  const out = {};
+  if (videos.length) out.videos = videos;
+  if (clips.length) out.clips = clips;
+  if (note) out.note = note;
+  return Object.keys(out).length ? out : null;
 }
 
 // ---- render ---------------------------------------------------------------
 const SCREENS = {
   week: weekScreen, join: joinScreen, history: historyScreen, game: gameDetailScreen,
-  table: tableScreen, you: youScreen, rules: rulesScreen, admin: adminScreen, statto: stattoScreen
+  table: tableScreen, performances: performancesScreen, you: youScreen, rules: rulesScreen, admin: adminScreen, statto: stattoScreen
 };
 function render() {
   if (!state) return;
@@ -1141,6 +1270,11 @@ window.go = t => { tab = t; menuOpen = false; if (t !== 'game') detailId = null;
 window.sortTable = (key) => {
   if (tableSort.key === key) tableSort.dir = tableSort.dir === 'asc' ? 'desc' : 'asc';
   else tableSort = { key, dir: key === 'name' ? 'asc' : 'desc' };
+  render();
+};
+window.sortPerf = (key) => {
+  if (perfSort.key === key) perfSort.dir = perfSort.dir === 'asc' ? 'desc' : 'asc';
+  else perfSort = { key, dir: key === 'name' ? 'asc' : 'desc' };
   render();
 };
 window.toggleMenu = () => { menuOpen = !menuOpen; render(); };
@@ -1250,18 +1384,30 @@ window.stattoLogin = async () => {
 window.stattoLogout = () => { stattoUnlocked = false; stattoGameId = null; render(); toast('Statto locked'); };
 window.selectStattoGame = (id) => { stattoGameId = id; render(); window.scrollTo(0, 0); };
 window.stattoBack = () => { stattoGameId = null; render(); window.scrollTo(0, 0); };
+window.toggleMore = (id) => { const el = document.getElementById('rest-' + id); if (el) el.hidden = !el.hidden; };
 window.saveStattoGame = async (id) => {
   const g = (history || []).find(x => x.id === id); if (!g) return;
   const bibs = document.getElementById('ssBibs').value.trim();
   const non = document.getElementById('ssNon').value.trim();
   const scores = (bibs !== '' && non !== '') ? { bibs: Number(bibs), nonbibs: Number(non) } : null;
-  const goals = {};
+  const stats = {}, goals = {};
   for (const pid of logic.gamePlayers(g)) {
-    const el = document.getElementById('sg-' + pid);
-    const v = el ? Number(el.value) : 0;
-    if (v > 0) goals[pid] = v;
+    const obj = {};
+    for (const s of logic.STATS) {
+      const el = document.getElementById(`st-${pid}-${s.key}`);
+      const v = el ? Number(el.value) : 0;
+      if (v > 0) obj[s.key] = v;
+    }
+    if (Object.keys(obj).length) stats[pid] = obj;
+    if (obj.g > 0) goals[pid] = obj.g; // keep the goals map in sync for the History view
   }
-  try { await db.saveGameStats(id, { scores, goals }); history = null; ensureHistory(); stattoGameId = null; render(); toast('Record saved 📊'); }
+  const highlights = readHighlights(g);
+  try { await db.saveGameStats(id, { scores, goals, stats, highlights }); history = null; ensureHistory(); stattoGameId = null; render(); toast('Record saved 📊'); }
+  catch (e) { toast(e.message, true); }
+};
+window.importPerf = async () => {
+  if (!confirm('Import the recorded stats from the spreadsheet into the last two games? This overwrites those games’ current goals & stats.')) return;
+  try { const n = await db.importPerf(); history = null; ensureHistory(); render(); toast(`Imported stats for ${n} game${n === 1 ? '' : 's'} 📊`); }
   catch (e) { toast(e.message, true); }
 };
 window.admin = async (method, id, ok) => {
@@ -1300,13 +1446,14 @@ window.completeGame = async (id) => {
   const nonbibsRaw = document.getElementById('scoreNonbibs')?.value.trim();
   const hasScore = bibsRaw !== '' && bibsRaw != null && nonbibsRaw !== '' && nonbibsRaw != null;
   const scores = hasScore ? { bibs: Number(bibsRaw), nonbibs: Number(nonbibsRaw) } : null;
+  const highlights = readHighlights(g || {});
   const scoreNote = scores ? `Final score Bibs ${scores.bibs}–${scores.nonbibs} Non-bibs. ` : 'No score entered (you can add it later). ';
   const msg = scoreNote + (bonus > 0
     ? `Everyone in the squad gets +${base + bonus} (+${base} for playing, +${bonus} for ${reasons.map(r => r.replace(/ \+\d+$/, '')).join(' & ')}).`
     : `The confirmed squad each get +${base}.`) + lateNote + ' Confirm and archive?';
   if (!confirm(msg)) return;
   try {
-    await db.completeGame(id, { bonus, weather, reasons, scores });
+    await db.completeGame(id, { bonus, weather, reasons, scores, highlights });
     toast('Result saved · loyalty banked · archived');
   } catch (e) { toast(e.message, true); }
 };

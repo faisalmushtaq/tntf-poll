@@ -276,7 +276,7 @@ export function playerAnalytics(playerId, games = []) {
       if (!side) return null;
       const other = side === 'bibs' ? 'nonbibs' : 'bibs';
       const gf = g.scores[side], ga = g.scores[other];
-      const pg = (g.goals && Number(g.goals[playerId])) || 0; // personal goals this game
+      const pg = (g.stats && g.stats[playerId] && Number(g.stats[playerId].g)) || (g.goals && Number(g.goals[playerId])) || 0; // personal goals this game
       return { date: g.date, dateLabel: g.dateLabel, gf, ga, pg, outcome: gf > ga ? 'W' : gf < ga ? 'L' : 'D' };
     })
     .filter(Boolean)
@@ -309,6 +309,40 @@ export function playerAnalytics(playerId, games = []) {
     form: rel.slice(-6).reverse().map(r => r.outcome),   // newest first
     log: rel.slice().reverse()
   };
+}
+
+// Per-player match performance stats, in priority order (goals first). Stored
+// per game as game.stats[playerId] = { g, a, sv, ... }. Realistically only the
+// early ones (goals, assists) get filled in each week; the rest when we have it.
+export const STATS = [
+  { key: 'g', label: 'Goals', short: 'G' },
+  { key: 'a', label: 'Assists', short: 'A' },
+  { key: 'sv', label: 'Saves', short: 'Sv' },
+  { key: 'sh', label: 'Shots', short: 'Sh' },
+  { key: 'sot', label: 'On target', short: 'SoT' },
+  { key: 'tkl', label: 'Tackles', short: 'Tkl' },
+  { key: 'blk', label: 'Blocks', short: 'Blk' },
+  { key: 'pass', label: 'Passes', short: 'Pass' },
+  { key: 'passc', label: 'Passes completed', short: 'Pass✓' },
+  { key: 'pp', label: 'Progressive passes', short: 'PP' },
+  { key: 'ppc', label: 'Prog. passes completed', short: 'PP✓' },
+  { key: 'ww', label: 'Hit woodwork', short: 'WW' }
+];
+
+// Sum a player's stats across all games that have them recorded.
+export function playerPerformance(playerId, games = []) {
+  const t = {}; for (const s of STATS) t[s.key] = 0;
+  let n = 0;
+  for (const g of games) {
+    if (g.status !== 'completed' || !g.stats || !g.stats[playerId]) continue;
+    n++; const st = g.stats[playerId];
+    for (const s of STATS) t[s.key] += Number(st[s.key]) || 0;
+  }
+  t.games = n;
+  t.passPct = t.pass ? Math.round(t.passc / t.pass * 100) : 0;
+  t.ppPct = t.pp ? Math.round(t.ppc / t.pp * 100) : 0;
+  t.sotPct = t.sh ? Math.round(t.sot / t.sh * 100) : 0;
+  return t;
 }
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
