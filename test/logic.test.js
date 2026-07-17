@@ -47,11 +47,13 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
 
 // --- time-weighted penalty tiers -------------------------------------------
 {
-  ok('drop 72h out → no penalty', logic.penaltyForHours(72).penalty === 0);
-  ok('drop 36h out → -1', logic.penaltyForHours(36).penalty === 1);
-  ok('drop 5h out → -3', logic.penaltyForHours(5).penalty === 3);
-  ok('drop 1h out → -5', logic.penaltyForHours(1).penalty === 5);
-  ok('no-show (already kicked off) → -5', logic.penaltyForHours(-2).penalty === 5);
+  ok('drop 30h out (before 5pm Mon) → no penalty', logic.penaltyForHours(30).penalty === 0);
+  ok('exactly 27h out (5pm Mon) → still free', logic.penaltyForHours(27).penalty === 0);
+  ok('drop 20h out (after 5pm Mon) → -3', logic.penaltyForHours(20).penalty === 3);
+  ok('drop 10h out (within 12h) → -5', logic.penaltyForHours(10).penalty === 5);
+  ok('drop 5h out (within 6h) → -8', logic.penaltyForHours(5).penalty === 8);
+  ok('drop 2h out (within 3h) → -10', logic.penaltyForHours(2).penalty === 10);
+  ok('no-show (already kicked off) → -10', logic.penaltyForHours(-2).penalty === 10);
 }
 
 // --- next kickoff lands on the configured game-day --------------------------
@@ -220,19 +222,23 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   const old = logic.configMigrationPatch({ venue: 'Pitch 10', lat: null, lon: null });
   ok('old placeholder venue is migrated', old.venue === 'Pitch 10 - Nou Camp');
   ok('null coords are filled from defaults', typeof old.lat === 'number' && typeof old.lon === 'number');
-  const done = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 53.81928, lon: -1.74367, configVersion: 2 });
+  const done = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 53.81928, lon: -1.74367, configVersion: 3 });
   ok('already-current config needs no patch', Object.keys(done).length === 0);
-  const custom = logic.configMigrationPatch({ venue: 'Powerleague', lat: 51.5, lon: -0.1, configVersion: 2 });
+  const custom = logic.configMigrationPatch({ venue: 'Powerleague', lat: 51.5, lon: -0.1, configVersion: 3 });
   ok('a custom venue is left untouched', !('venue' in custom) && !('lat' in custom));
-  const absent = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', configVersion: 2 }); // no lat/lon keys → defaults apply
+  const absent = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', configVersion: 3 }); // no lat/lon keys → defaults apply
   ok('absent coords already resolve to defaults (no patch)', Object.keys(absent).length === 0);
-  // v2 one-time PIN reset
+  // v2 one-time PIN reset + v3 tier reset for a pre-versioned config
   const pins = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 1, lon: 1, adminPin: '1234', stattoPin: '2468' });
   ok('pre-v2 config adopts the new organiser PIN', pins.adminPin === '07525418924');
   ok('pre-v2 config adopts the new Statto PIN', pins.stattoPin === '7869');
-  ok('PIN migration stamps configVersion 2', pins.configVersion === 2);
-  const kept = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 1, lon: 1, adminPin: '9999', configVersion: 2 });
-  ok('a v2 config keeps its organiser PIN (no re-reset)', !('adminPin' in kept));
+  ok('migration stamps configVersion 3', pins.configVersion === 3);
+  ok('pre-v3 config adopts the new penalty tiers', pins.scoring.dropoutTiers.some(t => t.penalty === 10));
+  const kept = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 1, lon: 1, adminPin: '9999', configVersion: 3 });
+  ok('a current config keeps its organiser PIN (no re-reset)', !('adminPin' in kept));
+  // a v2 config (PINs done) still gets the v3 tier bump, but not the PINs again
+  const v2 = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 1, lon: 1, adminPin: '9999', configVersion: 2 });
+  ok('v2 config gets tiers but not PINs', !('adminPin' in v2) && !!v2.scoring && v2.configVersion === 3);
 }
 
 // --- duplicate account detection (same uid) --------------------------------
@@ -385,6 +391,17 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('toCsvUrl passes through a published csv link',
     sheet.toCsvUrl('https://docs.google.com/spreadsheets/d/e/XYZ/pub?output=csv').includes('output=csv'));
   ok('toCsvUrl rejects non-sheets urls', sheet.toCsvUrl('https://example.com') === null);
+
+  // player attribute ratings import
+  const rp = sheet.parseRatingsSheet('Player,Fitness,Skill,Strength,Speed\nFaisal,14,15,12,13\nHaris,,18,,\nGhost,10,10,10,10');
+  ok('ratings header parsed', rp.columns.fitness === 1 && rp.columns.speed === 4);
+  const rr = sheet.resolveRatings(rp, { players });
+  ok('ratings matched to players', rr.summary.players === 2);
+  ok('full attrs captured', rr.byPlayer.p1.fitness === 14 && rr.byPlayer.p1.speed === 13);
+  ok('blank rating cells omitted', rr.byPlayer.p2 && !('fitness' in rr.byPlayer.p2) && rr.byPlayer.p2.skill === 18);
+  ok('unknown rated player reported', rr.summary.unmatchedNames.includes('Ghost'));
+  ok('ratings clamp to 0–20', sheet.parseRatingsSheet('Player,Skill\nFaisal,99').rows[0].attrs.skill === 20);
+  ok('alias Fit/Str/Spd/Skl map', (() => { const c = sheet.parseRatingsSheet('Player,Fit,Skl,Str,Spd\nX,1,2,3,4').columns; return c.fitness === 1 && c.skill === 2 && c.strength === 3 && c.speed === 4; })());
 }
 
 console.log(`\n${pass} checks passed ✅`);

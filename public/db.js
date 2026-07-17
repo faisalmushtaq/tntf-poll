@@ -203,8 +203,17 @@ function createLocalDB() {
     async completeGame(id, opts = {}) {
       const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
       const ranked = logic.rankSignups(g.signups, db.players, g.capacity);
-      const flat = logic.withDefaults(db.config).scoring.playedReward + (Number(opts.bonus) || 0);
-      const awards = logic.lateSignupAwards(g.signups, db.players, db.config, g.kickoffAt, g.capacity);
+      const sc = logic.withDefaults(db.config).scoring;
+      const flat = sc.playedReward + (Number(opts.bonus) || 0);
+      // Late-cover: an explicit list from the organiser (each gets the full late
+      // award), else the auto gap-aware detection.
+      let awards;
+      if (Array.isArray(opts.lateBonusIds)) {
+        const each = (sc.playedReward || 0) * (sc.lateSignupBonusGames || 0);
+        awards = {}; for (const pid of opts.lateBonusIds) awards[pid] = each;
+      } else {
+        awards = logic.lateSignupAwards(g.signups, db.players, db.config, g.kickoffAt, g.capacity);
+      }
       for (const r of ranked) if (r.status === 'confirmed') {
         db.players[r.playerId].loyalty += flat + (awards[r.playerId] || 0); db.players[r.playerId].gamesPlayed += 1;
       }
@@ -274,6 +283,16 @@ function createLocalDB() {
         games++;
       }
       persist(); return { games };
+    },
+    // Apply imported player attribute ratings (Fitness/Skill/Strength/Speed),
+    // merged onto each player's existing attrs. Returns { players } touched.
+    async applyRatings(byPlayer) {
+      let players = 0;
+      for (const [pid, attrs] of Object.entries(byPlayer || {})) {
+        const p = db.players[pid]; if (!p) continue;
+        p.attrs = { ...(p.attrs || {}), ...attrs }; players++;
+      }
+      persist(); return { players };
     }
   };
 }
@@ -482,8 +501,15 @@ async function createFirestoreDB() {
     async completeGame(id, opts = {}) {
       const capacity = cache.game?.capacity || cfg().capacity;
       const ranked = logic.rankSignups(cache.signups, cache.players, capacity);
-      const flat = cfg().scoring.playedReward + (Number(opts.bonus) || 0);
-      const awards = logic.lateSignupAwards(cache.signups, cache.players, cache.config, cache.game?.kickoffAt, capacity);
+      const sc = cfg().scoring;
+      const flat = sc.playedReward + (Number(opts.bonus) || 0);
+      let awards;
+      if (Array.isArray(opts.lateBonusIds)) {
+        const each = (sc.playedReward || 0) * (sc.lateSignupBonusGames || 0);
+        awards = {}; for (const pid of opts.lateBonusIds) awards[pid] = each;
+      } else {
+        awards = logic.lateSignupAwards(cache.signups, cache.players, cache.config, cache.game?.kickoffAt, capacity);
+      }
       const batch = writeBatch(dbf);
       for (const r of ranked) if (r.status === 'confirmed') {
         batch.update(doc(playersCol, r.playerId), { loyalty: increment(flat + (awards[r.playerId] || 0)), gamesPlayed: increment(1) });
@@ -566,6 +592,17 @@ async function createFirestoreDB() {
         batch.update(gameRef(gid), patch); games++;
       }
       await batch.commit(); return { games };
+    },
+    // Apply imported player attribute ratings, merged via dotted field paths so
+    // existing attrs are preserved without a read. Returns { players } touched.
+    async applyRatings(byPlayer) {
+      const batch = writeBatch(dbf); let players = 0;
+      for (const [pid, attrs] of Object.entries(byPlayer || {})) {
+        const patch = {};
+        for (const [k, v] of Object.entries(attrs)) patch[`attrs.${k}`] = v;
+        if (Object.keys(patch).length) { batch.update(doc(playersCol, pid), patch); players++; }
+      }
+      await batch.commit(); return { players };
     }
   };
 }

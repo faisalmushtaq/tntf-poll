@@ -19,7 +19,7 @@ also exported as the PWA/app icon.
 | The poll appears at random times; people on the pitch or driving miss out | The organiser opens the game at a **consistent time**; there's a real window, not a race. |
 | First-come-first-served rewards fast tappers, not regulars | When oversubscribed, the squad is the **top N by loyalty score**, not sign-up order. A regular who signs up late still ranks above a casual. |
 | No reward for turning up regularly | **+2 loyalty** every game you play. |
-| Late dropouts go unpunished | **Time-weighted penalty**: free 2+ days out, scaling to −5 last-minute (Tom's point). Shown before you confirm. |
+| Late dropouts go unpunished | **Time-weighted penalty**: free before 5pm Monday, scaling to −10 in the last 3 hours (Tom's point). Shown before you confirm. |
 | People never know if they're in or out | **Email + push notifications** when your status changes, plus a public list everyone can see. |
 | 5-, 7- or 8-a-side, week to week | Squad size is set per game with one-tap **a-side** presets (or a custom number) — right when you open it *and* live afterwards, so a format change re-picks the squad and reserves instantly. |
 
@@ -240,7 +240,7 @@ guide. (Files whose names start with `_` are docs, never treated as a game.)
 - **Play a game:** `+2`.
 - **Bad conditions:** `+1` adverse weather (cold/wet) · `+1` cold season (Nov–Mar) — stack on top of playing.
 - **Step in to fill a gap:** signing up within 24h of kickoff **and playing** is worth `4 games` (`+8`) — but only when the squad was short of players who signed up in good time (capped at the number of gaps). No reward for just signing up late to a full squad.
-- **Withdraw:** `2+ days before` free · `1–2 days` −1 · `same day` −3 · `last minute / no-show` −5.
+- **Withdraw:** `before 5pm Mon` free · `after 5pm Mon` −3 · `within 12h (from 8am)` −5 · `within 6h` −8 · `within 3h / no-show` −10. (Editable in Settings; times shown assume the Tue 8pm game.)
 - **Selection:** active sign-ups by loyalty (desc), ties broken by sign-up time. Top `capacity` confirmed, rest reserves.
 - **Table order:** by loyalty; ties broken by lowest win %, then fewest goals, then name.
 - **Result:** the organiser enters the final score when marking a game as played (editable, along with the teams, right up until confirming); it's stored on the match record and drives win/loss analytics.
