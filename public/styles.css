@@ -393,3 +393,9 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .imp-warn { margin: 8px 0 2px; padding: 10px 12px; background: var(--amber-soft); border: 1px solid #ddcca0; font-size: 13px; color: var(--body); }
 .imp-warn p { margin: 0 0 4px; }
 .imp-warn p:last-child { margin-bottom: 0; }
+
+/* ---- Squad-size (a-side) picker ---- */
+.aside-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.aside-btn { width: auto; flex: 0 0 auto; padding: 9px 14px; font-size: 14px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--body); }
+.aside-btn.on { background: var(--ink); color: #f6f4ef; border-color: var(--ink); font-weight: 500; }
+.aside-row #capCustom { margin: 0; }
