@@ -222,8 +222,10 @@ function createLocalDB() {
     },
     async cancelGame(id) {
       const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
-      g.status = 'cancelled';
-      if (db.currentGameId === id) db.currentGameId = null;
+      // Keep it as currentGameId (marked cancelled) so the notifier can announce
+      // it; buildView treats a cancelled game as "no game". Opening a fresh game
+      // moves currentGameId on.
+      g.status = 'cancelled'; g.cancelledAt = new Date().toISOString();
       persist();
     },
     async completeGame(id, opts = {}) {
@@ -537,10 +539,9 @@ async function createFirestoreDB() {
       if (Object.keys(patch).length) await updateDoc(gameRef(id), patch);
     },
     async cancelGame(id) {
-      const batch = writeBatch(dbf);
-      batch.update(gameRef(id), { status: 'cancelled' });
-      batch.update(cfgRef, { currentGameId: null });
-      await batch.commit();
+      // Leave currentGameId pointing here (marked cancelled) so the notifier can
+      // announce it once; the app treats a cancelled game as "no game".
+      await updateDoc(gameRef(id), { status: 'cancelled', cancelledAt: new Date().toISOString() });
     },
     async reopenGame(id) { await updateDoc(gameRef(id), { status: 'open' }); },
     async completeGame(id, opts = {}) {

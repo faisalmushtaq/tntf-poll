@@ -83,7 +83,9 @@ you exactly where you were.
 
 Notifications tell you the moment your spot changes — promoted off the reserves,
 or bumped out — by **email and push** (push works on Android/desktop directly,
-and on iPhone once you add the app to your Home Screen).
+and on iPhone once you add the app to your Home Screen). The whole group is also
+alerted when a game **opens**, is **rescheduled** (moved day/time/venue), or is
+**called off** for the week.
 
 ---
 

@@ -1457,15 +1457,17 @@ function statPlayerRow(g, id) {
 
 function stattoEditor(g) {
   const b = g.scores?.bibs, n = g.scores?.nonbibs;
-  const col = (ids, label, cls) => `<div class="stat-col">
-      <div class="team-head ${cls}">${bibIcon(cls)}<span class="th-label">${label}</span></div>
-      ${(ids || []).map(id => statPlayerRow(g, id)).join('') || '<div class="empty">—</div>'}</div>`;
+  // Single full-width column, grouped by team — so a player's "+ more" panel
+  // pushes the rows below it down instead of overlapping the other column.
+  const teamStats = (ids, label, cls) => `
+      <div class="team-head ${cls} stat-team-head">${bibIcon(cls)}<span class="th-label">${label}</span></div>
+      ${(ids || []).map(id => statPlayerRow(g, id)).join('') || '<div class="empty">—</div>'}`;
   // Own-goals sub-panel (near the score): who put it in their own net.
   const ogVal = id => (g.ownGoals && g.ownGoals[id] != null) ? g.ownGoals[id] : '';
-  const ogCol = (ids, label, cls) => `<div class="stat-col">
-      <div class="team-head ${cls}">${bibIcon(cls)}<span class="th-label">${label}</span></div>
+  const ogTeam = (ids, label, cls) => `
+      <div class="team-head ${cls} stat-team-head">${bibIcon(cls)}<span class="th-label">${label}</span></div>
       ${(ids || []).map(id => `<div class="goal-row"><span class="goal-name">${esc(state.playersById[id]?.name || '—')}</span>
-        <input class="stat-in" id="og-${id}" type="number" min="0" inputmode="numeric" value="${ogVal(id)}" placeholder="0" /></div>`).join('') || '<div class="empty">—</div>'}</div>`;
+        <input class="stat-in" id="og-${id}" type="number" min="0" inputmode="numeric" value="${ogVal(id)}" placeholder="0" /></div>`).join('') || '<div class="empty">—</div>'}`;
   const hasOg = g.ownGoals && Object.values(g.ownGoals).some(v => Number(v) > 0);
   return `<div class="card">
     <button class="back-link" onclick="stattoBack()">← All games</button>
@@ -1478,11 +1480,11 @@ function stattoEditor(g) {
     <button type="button" class="og-toggle" onclick="toggleOgSection()">${ICON('icon-own-goal', 'inline-ico')} Log an own goal</button>
     <div class="og-section" id="ogSection"${hasOg ? '' : ' hidden'}>
       <p class="hint">Whose own goal? It counts on the scoreline but isn't logged as their goal.</p>
-      <div class="teams-grid stat-grid">${ogCol(g.teams?.bibs, 'Bibs', 'bibs')}${ogCol(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
+      <div class="stat-list">${ogTeam(g.teams?.bibs, 'Bibs', 'bibs')}${ogTeam(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
     </div>
     <div class="section-title">Player stats &amp; ratings</div>
     <p class="hint" style="margin-top:-2px">Goals &amp; assists per player — leave blank for none. Tap <b>★ MOTM</b> to name a man of the match (any number, either team). Tap <b>+ more</b> for your rating and the full stat set.</p>
-    <div class="teams-grid stat-grid">${col(g.teams?.bibs, 'Bibs', 'bibs')}${col(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
+    <div class="stat-list">${teamStats(g.teams?.bibs, 'Bibs', 'bibs')}${teamStats(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
     ${highlightsFields(g)}
     <button class="btn-primary mt" onclick="saveStattoGame('${g.id}')">Save record</button>
   </div>`;
