@@ -85,6 +85,17 @@ body {
 .center { text-align: center; }
 .mt { margin-top: 12px; }
 
+/* ---- Announcement review card ---- */
+.ann-card { border-color: var(--green); box-shadow: inset 3px 0 0 var(--green); }
+.ann-preview { background: var(--green-soft); border: 1px solid #cfdccf; border-radius: 6px; padding: 14px 16px; margin: 4px 0 4px; }
+.ann-preview .ann-h { font-weight: 600; color: var(--ink); margin-bottom: 4px; }
+.ann-preview p { margin: 0; color: var(--ink); font-size: 15.5px; line-height: 1.5; }
+.ann-list { display: flex; flex-direction: column; }
+.ann-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line-2); cursor: pointer; }
+.ann-row input { width: auto; margin: 0; }
+.ann-row .ann-name { font-weight: 500; color: var(--ink); }
+.ann-row .ann-contact { margin-left: auto; color: var(--muted); font-size: 13px; }
+
 /* ---- Buttons (pill — like Alljoined's) ---- */
 button, .btn { font: inherit; font-family: var(--serif); border: none; border-radius: 999px; padding: 14px 22px; font-weight: 500; font-size: 16px; cursor: pointer; width: 100%; transition: transform .06s ease, background .15s, opacity .15s; }
 button:active { transform: scale(.99); }

@@ -21,6 +21,12 @@ service cloud.firestore {
     match /meta/notify {
       allow read, write: if false; // Admin SDK only
     }
+    // The staged "poll's open" announcement. The app reads it and the organiser
+    // edits it (trim recipients, send now, hold); the notifier sends it.
+    match /meta/announcement {
+      allow read: if true;
+      allow write: if true;
+    }
 
     // Roster. Loyalty lives here; open so the app can award/deduct points.
     match /players/{playerId} {

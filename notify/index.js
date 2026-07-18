@@ -135,10 +135,15 @@ async function main() {
     await db.doc('meta/config').set({ currentGameId: newRef.id }, { merge: true });
     autoOpenedKickoff = plan.kickoffAt;
     gameId = newRef.id;
-    game = (await newRef.get()).data();
-    console.log(`Auto-opened poll for ${plan.dateLabel} (kickoff ${plan.kickoffAt}).`);
-    // Fall through: notify.lastGameId !== gameId → the new-game roster email.
+    game = { id: newRef.id, ...(await newRef.get()).data() };
+    // Stage the "poll's open" announcement for organiser review. It auto-sends
+    // once the grace window (config.announceGraceMinutes) elapses.
+    await db.doc('meta/announcement').set(logic.buildAnnouncement(game, Object.values(players), config));
+    console.log(`Auto-opened poll for ${plan.dateLabel} (kickoff ${plan.kickoffAt}). Announcement staged.`);
   }
+
+  // Send (or drop) the pending "poll's open" announcement, held for review.
+  await processAnnouncement(gameId, game, players);
 
   // No open game → reset the marker so the next open triggers a fresh alert.
   if (!gameId) { await notifyRef.set({ lastGameId: null, statuses: {}, autoOpenedKickoff }, { merge: true }); console.log('No open game.'); return; }
@@ -186,16 +191,12 @@ async function main() {
   const ranked = logic.rankSignups(signups, players, game.capacity);
   const curr = logic.statusMap(ranked);
 
-  const whenStr = game.kickoffAt ? new Date(game.kickoffAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : game.dateLabel;
   const events = [];
   if (notify.lastGameId !== gameId) {
-    // A new game just opened → tell the whole roster once.
-    console.log(`New game opened: ${game.dateLabel}. Notifying roster.`);
-    const bodyHtml = `<p style="margin:0 0 10px">The poll for <strong>${escapeHtml(game.dateLabel)}</strong> is open${game.venue ? ` at ${escapeHtml(game.venue)}` : ''}.</p>`
-      + `<p style="margin:0 0 4px">Kick-off ${escapeHtml(whenStr)}. Get your name in to claim a spot.</p>`;
-    for (const p of Object.values(players)) {
-      events.push({ playerId: p.id, title: `⚽ ${CLUB_NAME} — poll's open for ${game.dateLabel}`, heading: `Poll's open — ${game.dateLabel}`, body: `This week's game (${game.dateLabel}) is open — get your name in.`, bodyHtml });
-    }
+    // A new game just opened → the "poll's open" broadcast is handled by the
+    // pending announcement (held for organiser review), not blasted here. Just
+    // set the status baseline so we don't misfire promoted/bumped alerts.
+    console.log(`New game opened: ${game.dateLabel}. Broadcast deferred to the pending announcement.`);
   } else {
     for (const c of logic.diffStatuses(notify.statuses || {}, curr)) {
       if (c.kind === 'promoted') events.push({ playerId: c.playerId, title: "You're IN ✅", heading: "You're in the squad", body: `A spot opened up — you're in the squad for ${game.dateLabel}.`, bodyHtml: `<p style="margin:0">A spot opened up — you're <strong>in the squad</strong> for ${escapeHtml(game.dateLabel)}.</p>` });
@@ -230,6 +231,44 @@ async function main() {
 
   await notifyRef.set({ lastGameId: gameId, statuses: curr, autoLockedGameId, autoOpenedKickoff, kickoffAt: game.kickoffAt || null, venue: game.venue || '', updatedAt: new Date().toISOString() });
   console.log('Done.');
+}
+
+// Send the staged "poll's open" announcement once its grace window elapses (or
+// the organiser sent it early), to the recipients they didn't deselect. If the
+// game it was for is gone (cancelled/completed/replaced), drop it unsent.
+async function processAnnouncement(gameId, game, players) {
+  const ref = db.doc('meta/announcement');
+  const snap = await ref.get();
+  const ann = snap.exists ? snap.data() : null;
+  if (!ann || ann.status !== 'pending') return;
+
+  const active = game && game.status !== 'completed' && game.status !== 'cancelled' && ann.gameId === gameId;
+  if (!active) {
+    await ref.set({ status: 'cancelled', reason: 'stale', resolvedAt: new Date().toISOString() }, { merge: true });
+    console.log('Announcement dropped — its game is no longer the active open poll.');
+    return;
+  }
+  if (!logic.announcementReady(ann, new Date())) {
+    console.log(`Announcement held — grace window until ${ann.sendAfter}.`);
+    return;
+  }
+
+  const audience = logic.announcementAudience(ann);
+  const whenStr = ann.kickoffAt ? new Date(ann.kickoffAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : ann.dateLabel;
+  const bodyHtml = `<p style="margin:0 0 10px">The poll for <strong>${escapeHtml(ann.dateLabel)}</strong> is open${ann.venue ? ` at ${escapeHtml(ann.venue)}` : ''}.</p>`
+    + `<p style="margin:0 0 4px">Kick-off ${escapeHtml(whenStr)}. Get your name in to claim a spot.</p>`;
+  console.log(`Sending "poll's open" announcement to ${audience.length} recipient(s).`);
+  for (const r of audience) {
+    const p = players[r.id] || { id: r.id, name: r.name, email: r.email };
+    await send(p, {
+      title: `⚽ ${CLUB_NAME} — poll's open for ${ann.dateLabel}`,
+      heading: `Poll's open — ${ann.dateLabel}`,
+      body: `This week's game (${ann.dateLabel}) is open — get your name in.`,
+      bodyHtml
+    });
+  }
+  await ref.set({ status: 'sent', sentAt: new Date().toISOString(), sentCount: audience.length }, { merge: true });
+  console.log('Announcement sent.');
 }
 
 // The auto-close moment: 17:00 on the day before kickoff (e.g. Monday 5pm for
