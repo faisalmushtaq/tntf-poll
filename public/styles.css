@@ -234,6 +234,13 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .scoreline .sl-dash { font-size: 24px; color: var(--muted); }
 .teams-grid.detail .team-head .tscore { font-size: 15px; font-weight: 600; color: var(--ink); }
 .teams-grid.detail .lu-name { white-space: normal; }
+/* Detail line-up: stack the name and its rating so the stars aren't squashed
+   next to the name in the narrow column. */
+.lu-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.lu-body .lu-name { flex: 0 0 auto; }
+.teams-grid.detail .lu-row { align-items: flex-start; }
+.teams-grid.detail .lu-num { padding-top: 1px; }
+.teams-grid.detail .lu-rating .rating-num { margin-left: 4px; }
 
 /* ---- Video embeds ---- */
 .video { margin: 14px 0 0; }

@@ -767,8 +767,10 @@ function gameDetailScreen() {
         const rating = logic.effectiveRating(g, id);
         return `<div class="lu-row${me ? ' me' : ''}${motm ? ' motm' : ''}">
           <span class="lu-num">${i + 1}</span>
-          <span class="lu-name">${p ? playerLink(id, esc(p.name)) : '—'}${me ? ' <span class="you">you</span>' : ''}${motm ? ' <span class="motm-badge" title="Man of the match">MOTM</span>' : ''}</span>
-          ${rating != null ? `<span class="lu-rating">${starDisplay(rating)}</span>` : ''}
+          <div class="lu-body">
+            <span class="lu-name">${p ? playerLink(id, esc(p.name)) : '—'}${me ? ' <span class="you">you</span>' : ''}${motm ? ' <span class="motm-badge" title="Man of the match">MOTM</span>' : ''}</span>
+            ${rating != null ? `<span class="lu-rating">${starDisplay(rating)}</span>` : ''}
+          </div>
         </div>`;
       }).join('') || '<div class="empty">No line-up recorded.</div>'}
     </div>`;
