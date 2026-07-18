@@ -8,6 +8,7 @@ import nodemailer from 'nodemailer';
 import * as logic from '../public/logic.js';
 
 const APP_URL = process.env.APP_URL || '';
+let CLUB_NAME = 'Tuesday Night Total Football'; // set from config in main()
 
 // --- Firebase Admin (service account from a GitHub secret) ------------------
 // If the notifier isn't configured yet, skip cleanly (exit 0) so the scheduled
@@ -32,16 +33,54 @@ if (process.env.SMTP_HOST) {
   });
 }
 
+// --- Editorial-theme email --------------------------------------------------
+// Matches the website: warm near-white paper, ink serif text, a green accent
+// rule and a dark pill "Open" button. `bodyHtml` is the pre-formatted inner
+// HTML (paragraphs, lists) for the message body.
+function emailHtml({ clubName, heading, bodyHtml }) {
+  const paper = '#fbfaf8', ink = '#171614', muted = '#9a9488', line = '#e2ddd1', green = '#4a795d';
+  const serif = "'Newsreader', Georgia, 'Times New Roman', serif";
+  const crest = APP_URL ? `${APP_URL.replace(/\/$/, '')}/icon-192.png` : '';
+  const button = APP_URL
+    ? `<tr><td style="padding:22px 0 4px"><a href="${APP_URL}" style="display:inline-block;background:${ink};color:#f6f4ef;font:600 16px/1 ${serif};padding:13px 26px;border-radius:999px;text-decoration:none">Open the app &rarr;</a></td></tr>`
+    : '';
+  return `<!doctype html><html><body style="margin:0;background:${paper}">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${paper}">
+    <tr><td align="center" style="padding:28px 16px">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:${paper};border:1px solid ${line};border-radius:14px">
+        <tr><td style="padding:22px 30px 16px;border-bottom:1px solid ${line}">
+          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            ${crest ? `<td style="padding-right:11px" valign="middle"><img src="${crest}" width="30" height="30" alt="" style="display:block;border-radius:7px"></td>` : ''}
+            <td valign="middle" style="font:600 17px/1.1 ${serif};color:${ink};letter-spacing:-.01em">${clubName}</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:26px 30px 30px">
+          <div style="font:600 25px/1.15 ${serif};color:${ink};letter-spacing:-.005em;margin:0 0 10px">${heading}</div>
+          <div style="width:34px;height:3px;background:${green};border-radius:2px;margin:0 0 16px"></div>
+          <div style="font:400 17px/1.55 ${serif};color:${ink}">${bodyHtml}</div>
+          <table role="presentation" cellpadding="0" cellspacing="0">${button}</table>
+        </td></tr>
+        <tr><td style="padding:14px 30px 22px;border-top:1px solid ${line};font:400 13px/1.5 ${serif};color:${muted}">
+          You get this because you're on the ${clubName} team sheet.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table></body></html>`;
+}
+
+const escapeHtml = (s) => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
 async function send(player, ev) {
   if (!player) return;
   if (transport && player.email) {
     try {
+      const bodyHtml = (ev.bodyHtml || `<p style="margin:0">${escapeHtml(ev.body)}</p>`);
       await transport.sendMail({
         from: process.env.MAIL_FROM || process.env.SMTP_USER,
         to: player.email,
         subject: ev.title,
         text: `${ev.body}${APP_URL ? `\n\nOpen the app: ${APP_URL}` : ''}`,
-        html: `<p style="font-size:16px">${ev.body}</p>${APP_URL ? `<p><a href="${APP_URL}" style="background:#ffe500;color:#052962;padding:10px 18px;border-radius:999px;text-decoration:none;font-weight:700">Open the app →</a></p>` : ''}`
+        html: emailHtml({ clubName: CLUB_NAME, heading: ev.heading || ev.title, bodyHtml })
       });
       console.log(`  email → ${player.email}: ${ev.title}`);
     } catch (e) { console.error('  email failed', player.email, e.message); }
@@ -66,7 +105,8 @@ async function send(player, ev) {
 async function main() {
   const cfgSnap = await db.doc('meta/config').get();
   const config = logic.withDefaults(cfgSnap.exists ? cfgSnap.data() : {});
-  const gameId = cfgSnap.exists ? cfgSnap.data().currentGameId : null;
+  CLUB_NAME = config.clubName || CLUB_NAME;
+  let gameId = cfgSnap.exists ? cfgSnap.data().currentGameId : null;
 
   const playersSnap = await db.collection('players').get();
   const players = {};
@@ -74,14 +114,37 @@ async function main() {
 
   const notifyRef = db.doc('meta/notify');
   const notify = (await notifyRef.get()).data() || { lastGameId: null, statuses: {} };
+  let autoOpenedKickoff = notify.autoOpenedKickoff || null;
+
+  // Read the current game (if any) up front — the auto-opener needs to know
+  // whether last week's game is settled before it puts out a fresh poll.
+  let gameSnap = gameId ? await db.doc(`games/${gameId}`).get() : null;
+  let game = gameSnap && gameSnap.exists ? gameSnap.data() : null;
+
+  // Auto-open: on the configured day/time (default Friday 10am), once last
+  // week's game is settled (completed or cancelled), put out the next poll and
+  // announce it. Guarded so it can't fire twice or re-open a cancelled week.
+  const plan = logic.autoOpenPlan(config, game, new Date(), autoOpenedKickoff);
+  if (plan) {
+    const newRef = db.collection('games').doc();
+    await newRef.set({
+      status: 'open', dateLabel: plan.dateLabel, kickoffAt: plan.kickoffAt,
+      capacity: Number(config.capacity) || 14, venue: config.venue || '',
+      autoOpened: true, createdAt: new Date().toISOString()
+    });
+    await db.doc('meta/config').set({ currentGameId: newRef.id }, { merge: true });
+    autoOpenedKickoff = plan.kickoffAt;
+    gameId = newRef.id;
+    game = (await newRef.get()).data();
+    console.log(`Auto-opened poll for ${plan.dateLabel} (kickoff ${plan.kickoffAt}).`);
+    // Fall through: notify.lastGameId !== gameId → the new-game roster email.
+  }
 
   // No open game → reset the marker so the next open triggers a fresh alert.
-  if (!gameId) { await notifyRef.set({ lastGameId: null, statuses: {} }); console.log('No open game.'); return; }
+  if (!gameId) { await notifyRef.set({ lastGameId: null, statuses: {}, autoOpenedKickoff }, { merge: true }); console.log('No open game.'); return; }
 
-  const gameSnap = await db.doc(`games/${gameId}`).get();
-  const game = gameSnap.exists ? gameSnap.data() : null;
   if (!game || game.status === 'completed') {
-    await notifyRef.set({ lastGameId: gameId, statuses: {} }, { merge: true });
+    await notifyRef.set({ lastGameId: gameId, statuses: {}, autoOpenedKickoff }, { merge: true });
     console.log('Game not active.'); return;
   }
 
@@ -90,10 +153,15 @@ async function main() {
     if (notify.noticeGameId !== gameId) {
       console.log(`Game cancelled: ${game.dateLabel}. Notifying roster.`);
       for (const p of Object.values(players)) {
-        await send(p, { title: `${config.clubName} — no game this week`, body: `This week's game (${game.dateLabel}) has been called off. No game this week — check the app for the next one.` });
+        await send(p, {
+          title: `${CLUB_NAME} — no game this week`,
+          heading: 'No game this week',
+          body: `This week's game (${game.dateLabel}) has been called off. No game this week — check the app for the next one.`,
+          bodyHtml: `<p style="margin:0 0 10px">This week's game (<strong>${escapeHtml(game.dateLabel)}</strong>) has been called off.</p><p style="margin:0">No game this week — we'll be back in the app for the next one.</p>`
+        });
       }
     }
-    await notifyRef.set({ lastGameId: gameId, statuses: {}, noticeGameId: gameId });
+    await notifyRef.set({ lastGameId: gameId, statuses: {}, noticeGameId: gameId, autoOpenedKickoff }, { merge: true });
     console.log('Done (cancelled).'); return;
   }
 
@@ -104,7 +172,12 @@ async function main() {
     const whenStr = new Date(game.kickoffAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
     console.log(`Game rescheduled: now ${whenStr}. Notifying roster.`);
     for (const p of Object.values(players)) {
-      await send(p, { title: `${config.clubName} — game moved`, body: `This week's game has moved: now ${whenStr}${game.venue ? ` at ${game.venue}` : ''}.` });
+      await send(p, {
+        title: `${CLUB_NAME} — game moved`,
+        heading: 'The game has moved',
+        body: `This week's game has moved: now ${whenStr}${game.venue ? ` at ${game.venue}` : ''}.`,
+        bodyHtml: `<p style="margin:0">This week's game has moved to <strong>${escapeHtml(whenStr)}</strong>${game.venue ? ` at ${escapeHtml(game.venue)}` : ''}.</p>`
+      });
     }
   }
 
@@ -113,17 +186,20 @@ async function main() {
   const ranked = logic.rankSignups(signups, players, game.capacity);
   const curr = logic.statusMap(ranked);
 
+  const whenStr = game.kickoffAt ? new Date(game.kickoffAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : game.dateLabel;
   const events = [];
   if (notify.lastGameId !== gameId) {
     // A new game just opened → tell the whole roster once.
     console.log(`New game opened: ${game.dateLabel}. Notifying roster.`);
+    const bodyHtml = `<p style="margin:0 0 10px">The poll for <strong>${escapeHtml(game.dateLabel)}</strong> is open${game.venue ? ` at ${escapeHtml(game.venue)}` : ''}.</p>`
+      + `<p style="margin:0 0 4px">Kick-off ${escapeHtml(whenStr)}. Get your name in to claim a spot.</p>`;
     for (const p of Object.values(players)) {
-      events.push({ playerId: p.id, title: `⚽ ${config.clubName}`, body: `This week's game (${game.dateLabel}) is open — get your name in.` });
+      events.push({ playerId: p.id, title: `⚽ ${CLUB_NAME} — poll's open for ${game.dateLabel}`, heading: `Poll's open — ${game.dateLabel}`, body: `This week's game (${game.dateLabel}) is open — get your name in.`, bodyHtml });
     }
   } else {
     for (const c of logic.diffStatuses(notify.statuses || {}, curr)) {
-      if (c.kind === 'promoted') events.push({ playerId: c.playerId, title: "You're IN ✅", body: `A spot opened up — you're in the squad for ${game.dateLabel}.` });
-      else events.push({ playerId: c.playerId, title: 'Bumped to the reserves', body: `You've dropped to the reserves for ${game.dateLabel}. You'll move up if someone drops.` });
+      if (c.kind === 'promoted') events.push({ playerId: c.playerId, title: "You're IN ✅", heading: "You're in the squad", body: `A spot opened up — you're in the squad for ${game.dateLabel}.`, bodyHtml: `<p style="margin:0">A spot opened up — you're <strong>in the squad</strong> for ${escapeHtml(game.dateLabel)}.</p>` });
+      else events.push({ playerId: c.playerId, title: 'Bumped to the reserves', heading: 'Bumped to the reserves', body: `You've dropped to the reserves for ${game.dateLabel}. You'll move up if someone drops.`, bodyHtml: `<p style="margin:0">You've dropped to the <strong>reserves</strong> for ${escapeHtml(game.dateLabel)}. You'll move up if someone drops out.</p>` });
     }
     console.log(`${events.length} status change(s) to notify.`);
   }
@@ -142,7 +218,17 @@ async function main() {
     await sendSquadAlert(config, game, confirmed, ranked.filter(r => r.status === 'waitlist'), players);
   }
 
-  await notifyRef.set({ lastGameId: gameId, statuses: curr, autoLockedGameId, kickoffAt: game.kickoffAt || null, venue: game.venue || '', updatedAt: new Date().toISOString() });
+  // Close the poll once the game has kicked off — no more sign-ups mid-match.
+  if (logic.pastKickoff(game, new Date()) && game.status === 'open') {
+    console.log('Kick-off passed — locking registration.');
+    await db.doc(`games/${gameId}`).update({ status: 'locked', lockedAt: new Date().toISOString(), autoLocked: true });
+    if (autoLockedGameId !== gameId) {
+      autoLockedGameId = gameId;
+      await sendSquadAlert(config, game, confirmed, ranked.filter(r => r.status === 'waitlist'), players);
+    }
+  }
+
+  await notifyRef.set({ lastGameId: gameId, statuses: curr, autoLockedGameId, autoOpenedKickoff, kickoffAt: game.kickoffAt || null, venue: game.venue || '', updatedAt: new Date().toISOString() });
   console.log('Done.');
 }
 
@@ -164,12 +250,19 @@ async function sendSquadAlert(config, game, confirmed, reserves, players) {
 
   if (transport && config.organiserEmail) {
     try {
+      const olItem = 'margin:0;padding:2px 0;font:400 16px/1.5 \'Newsreader\',Georgia,serif;color:#171614';
+      const squadHtml = confirmed.map((r, i) => `<li style="${olItem}">${i + 1}. ${escapeHtml(r.name)}</li>`).join('');
+      const benchHtml = reserves.length
+        ? `<p style="margin:16px 0 4px;font:600 16px/1.4 'Newsreader',Georgia,serif;color:#9a9488">Reserves</p><ol style="margin:0;padding:0;list-style:none">${reserves.map((r, i) => `<li style="${olItem}">${i + 1}. ${escapeHtml(r.name)}</li>`).join('')}</ol>`
+        : '';
+      const bodyHtml = `<p style="margin:0 0 12px">The squad for <strong>${escapeHtml(game.dateLabel)}</strong>${game.venue ? ` at ${escapeHtml(game.venue)}` : ''} is locked (${confirmed.length}/${game.capacity}).</p>`
+        + `<ol style="margin:0;padding:0;list-style:none">${squadHtml}</ol>${benchHtml}`;
       await transport.sendMail({
         from: process.env.MAIL_FROM || process.env.SMTP_USER,
         to: config.organiserEmail,
         subject: ev.title,
         text: `${body}${APP_URL ? `\n\n${APP_URL}` : ''}`,
-        html: `<h3>${ev.title}</h3><pre style="font:15px/1.5 system-ui">${body}</pre>${APP_URL ? `<p><a href="${APP_URL}">Open the app →</a></p>` : ''}`
+        html: emailHtml({ clubName: CLUB_NAME, heading: `Squad locked — ${game.dateLabel}`, bodyHtml })
       });
       console.log(`  squad alert emailed to organiser ${config.organiserEmail}`);
     } catch (e) { console.error('  organiser email failed', e.message); }

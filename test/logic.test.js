@@ -76,6 +76,54 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('next kickoff is in the future', next > from);
 }
 
+// --- auto-open: most-recent weekly moment ----------------------------------
+{
+  // Saturday 18 Jul 2026, 14:00 — most recent Friday 10:00 is the day before.
+  const now = new Date('2026-07-18T14:00:00');
+  const m = logic.mostRecentWeekly('Friday', '10:00', now);
+  ok('mostRecentWeekly lands on a Friday', m.getDay() === 5);
+  ok('mostRecentWeekly is at 10:00', m.getHours() === 10 && m.getMinutes() === 0);
+  ok('mostRecentWeekly is in the past', m <= now);
+  // Friday 09:00 — the 10:00 slot has not arrived yet, so go back a full week.
+  const early = new Date('2026-07-17T09:00:00'); // a Friday
+  const m2 = logic.mostRecentWeekly('Friday', '10:00', early);
+  ok('before the slot on the day itself → previous week', m2 < early && m2.getDay() === 5);
+  // Friday 10:00 exactly counts as now.
+  const onTime = new Date('2026-07-17T10:00:00');
+  const m3 = logic.mostRecentWeekly('Friday', '10:00', onTime);
+  ok('exactly on the slot counts as today', m3.getTime() === onTime.getTime());
+}
+
+// --- auto-open: whether to open a new poll ---------------------------------
+{
+  const cfg = logic.withDefaults({ gameDay: 'Tuesday', kickoff: '20:00', pollOpenDay: 'Friday', pollOpenTime: '10:00' });
+  const now = new Date('2026-07-18T14:00:00'); // Saturday, after Fri 10:00 open
+  const plan = logic.autoOpenPlan(cfg, { status: 'completed' }, now, null);
+  ok('opens once last game completed', plan && new Date(plan.kickoffAt).getDay() === 2);
+  ok('open plan carries a date label', plan && typeof plan.dateLabel === 'string' && plan.dateLabel.length > 0);
+  ok('blocks while last game still open', logic.autoOpenPlan(cfg, { status: 'open' }, now, null) === null);
+  ok('blocks while last game locked', logic.autoOpenPlan(cfg, { status: 'locked' }, now, null) === null);
+  ok('opens after cancelled game (older kickoff)', logic.autoOpenPlan(cfg, { status: 'cancelled', kickoffAt: '2026-07-14T19:00:00Z' }, now, null) !== null);
+  // A game cancelled for THIS week has the same kickoff the poll would target — don't re-open it.
+  ok('does NOT re-open the same week a game was cancelled', logic.autoOpenPlan(cfg, { status: 'cancelled', kickoffAt: plan.kickoffAt }, now, null) === null);
+  ok('opens with no previous game', logic.autoOpenPlan(cfg, null, now, null) !== null);
+  ok('does not re-open the same week twice', logic.autoOpenPlan(cfg, { status: 'completed' }, now, plan.kickoffAt) === null);
+  // Before the Friday 10:00 slot the most-recent open moment is a week ago,
+  // whose kickoff has already passed — so nothing new opens until the slot lands.
+  const beforeOpen = new Date('2026-07-17T09:00:00'); // Fri 09:00, slot not reached
+  ok('does not open before the poll-open slot arrives', logic.autoOpenPlan(cfg, { status: 'completed' }, beforeOpen, null) === null);
+}
+
+// --- past kickoff: registration closes after the game starts ---------------
+{
+  const now = new Date('2026-07-21T21:00:00'); // an hour into a Tue 20:00 kickoff
+  ok('open game past kickoff → close', logic.pastKickoff({ status: 'open', kickoffAt: '2026-07-21T19:00:00Z' }, now));
+  ok('locked game past kickoff → close', logic.pastKickoff({ status: 'locked', kickoffAt: '2026-07-21T19:00:00Z' }, now));
+  ok('future kickoff → leave open', !logic.pastKickoff({ status: 'open', kickoffAt: '2026-07-28T19:00:00Z' }, now));
+  ok('completed game → not reclosed', !logic.pastKickoff({ status: 'completed', kickoffAt: '2026-07-21T19:00:00Z' }, now));
+  ok('game with no kickoff → ignored', !logic.pastKickoff({ status: 'open' }, now));
+}
+
 // --- notification diff: who changed status because of others ---------------
 {
   const prev = { a: 'confirmed', b: 'confirmed', c: 'waitlist', d: 'waitlist' };

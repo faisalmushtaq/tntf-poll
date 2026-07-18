@@ -12,6 +12,8 @@ export const DEFAULT_CONFIG = {
   adminPin: '07525418924', // organiser PIN; change from Settings
   stattoPin: '7869',       // stats-keeper role: edit scores + enter goalscorers
   configVersion: 3,        // bump to trigger a one-time config self-heal (see configMigrationPatch)
+  pollOpenDay: 'Friday',   // the notifier auto-opens the next poll on this day…
+  pollOpenTime: '10:00',   // …at this time (once last week's result is recorded)
   organiserEmail: '',      // where the auto-close squad alert is sent
   scoring: {
     playedReward: 2,       // loyalty gained for turning up
@@ -406,6 +408,43 @@ export function nextKickoffISO(config = DEFAULT_CONFIG, now = new Date()) {
 export function nextGameLabel(config = DEFAULT_CONFIG, now = new Date()) {
   const d = new Date(nextKickoffISO(config, now));
   return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
+}
+
+// The most recent occurrence of `dayName` at HH:MM at or before `now`.
+export function mostRecentWeekly(dayName, time, now = new Date()) {
+  const dow = DAYS.indexOf(dayName);
+  const [hh, mm] = String(time || '00:00').split(':').map(Number);
+  const d = new Date(now);
+  d.setHours(hh || 0, mm || 0, 0, 0);
+  let back = (now.getDay() - (dow < 0 ? 5 : dow) + 7) % 7;
+  if (back === 0 && d > now) back = 7;
+  d.setDate(d.getDate() - back);
+  return d;
+}
+
+// Decide whether the notifier should auto-open a new poll right now.
+// Returns { kickoffAt, dateLabel } when it should, or null when it should not.
+// Guard: never opens while last week's game is still open/locked (unresolved) —
+// the organiser needs to record the result first, which banks loyalty. Once the
+// previous game is completed or cancelled, opening becomes safe.
+export function autoOpenPlan(config, currentGame, now = new Date(), alreadyOpenedKickoff = null) {
+  const c = withDefaults(config);
+  if (currentGame && currentGame.status !== 'completed' && currentGame.status !== 'cancelled') return null;
+  const openMoment = mostRecentWeekly(c.pollOpenDay, c.pollOpenTime, now);
+  const kickoffAt = nextKickoffISO(c, openMoment);
+  if (alreadyOpenedKickoff === kickoffAt) return null; // already opened this week's poll
+  if (new Date(kickoffAt) <= now) return null;         // kickoff already passed — nothing to open
+  // Never re-open for a kickoff at or before the game we just had (e.g. don't
+  // re-open the same week a game was cancelled — wait for next week's slot).
+  if (currentGame && currentGame.kickoffAt && new Date(kickoffAt) <= new Date(currentGame.kickoffAt)) return null;
+  return { kickoffAt, dateLabel: nextGameLabel(c, openMoment) };
+}
+
+// True once an open/locked game's kickoff time has passed — registration should
+// close ("the poll closes after the game starts").
+export function pastKickoff(game, now = new Date()) {
+  return !!(game && game.kickoffAt && new Date(game.kickoffAt) <= now
+    && game.status !== 'completed' && game.status !== 'cancelled');
 }
 
 // Seed roster from the group so the app is usable on day one.
