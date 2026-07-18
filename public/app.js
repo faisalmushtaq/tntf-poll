@@ -256,7 +256,7 @@ function weekScreen() {
   else if (g.me) mine = g.me.status === 'confirmed'
     ? `<div class="mine-banner in">${ICON('icon-confirmed', 'inline-ico')} You're IN — squad place #${g.me.rank} of ${g.capacity}</div>`
     : `<div class="mine-banner wait">⏳ You're ${ordinal(g.me.rank - g.capacity)} reserve. You'll move up if someone in the squad drops.</div>`;
-  else if (g.iAmOut) mine = `<div class="mine-banner out">You've said you can't make it this week — no problem, you won't be chased.</div>`;
+  else if (g.iAmOut) mine = `<div class="mine-banner cant">You've said you can't make it this week — no problem, you won't be chased.</div>`;
   else mine = `<div class="mine-banner out">You haven't registered for this game yet.</div>`;
 
   const actionBtn = () => {

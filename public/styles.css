@@ -146,6 +146,7 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .mine-banner.in { background: var(--green-soft); color: var(--green); border-color: #cfdccf; }
 .mine-banner.wait { background: var(--amber-soft); color: var(--amber); border-color: #ddcca0; }
 .mine-banner.out { background: transparent; color: var(--muted); }
+.mine-banner.cant { background: var(--danger-soft); color: var(--danger); border-color: #dcbfb5; }
 
 /* ---- Lineup (squad two-column) ---- */
 .lu-head { font-size: 16px; font-weight: 500; color: var(--ink); margin: 20px 0 6px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
