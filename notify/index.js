@@ -85,6 +85,29 @@ async function main() {
     console.log('Game not active.'); return;
   }
 
+  // Game called off → tell the whole roster once, then go quiet.
+  if (game.status === 'cancelled') {
+    if (notify.noticeGameId !== gameId) {
+      console.log(`Game cancelled: ${game.dateLabel}. Notifying roster.`);
+      for (const p of Object.values(players)) {
+        await send(p, { title: `${config.clubName} — no game this week`, body: `This week's game (${game.dateLabel}) has been called off. No game this week — check the app for the next one.` });
+      }
+    }
+    await notifyRef.set({ lastGameId: gameId, statuses: {}, noticeGameId: gameId });
+    console.log('Done (cancelled).'); return;
+  }
+
+  // Rescheduled (same game, kickoff or venue moved) → tell the roster once.
+  if (notify.lastGameId === gameId &&
+      ((notify.kickoffAt && notify.kickoffAt !== game.kickoffAt) ||
+       (notify.venue != null && notify.venue !== (game.venue || '')))) {
+    const whenStr = new Date(game.kickoffAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+    console.log(`Game rescheduled: now ${whenStr}. Notifying roster.`);
+    for (const p of Object.values(players)) {
+      await send(p, { title: `${config.clubName} — game moved`, body: `This week's game has moved: now ${whenStr}${game.venue ? ` at ${game.venue}` : ''}.` });
+    }
+  }
+
   const susSnap = await db.collection(`games/${gameId}/signups`).get();
   const signups = susSnap.docs.map(d => ({ playerId: d.id, ...d.data() }));
   const ranked = logic.rankSignups(signups, players, game.capacity);
@@ -119,7 +142,7 @@ async function main() {
     await sendSquadAlert(config, game, confirmed, ranked.filter(r => r.status === 'waitlist'), players);
   }
 
-  await notifyRef.set({ lastGameId: gameId, statuses: curr, autoLockedGameId, updatedAt: new Date().toISOString() });
+  await notifyRef.set({ lastGameId: gameId, statuses: curr, autoLockedGameId, kickoffAt: game.kickoffAt || null, venue: game.venue || '', updatedAt: new Date().toISOString() });
   console.log('Done.');
 }
 

@@ -288,22 +288,23 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .goal-row:last-child { border-bottom: none; }
 .goal-name { font-size: 15px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .goal-in { width: 52px; flex: none; margin: 0; padding: 8px 2px; text-align: center; border: 1px solid var(--line); border-radius: 0; font-size: 15px; }
-/* ---- Statto: per-player stat entry ---- */
-.stat-grid { gap: 12px; }
-.stat-col { min-width: 0; }
-.stat-player { border-bottom: 1px solid var(--line-2); padding: 8px 0; }
+/* ---- Statto: per-player stat entry (single full-width column) ---- */
+.stat-list { display: block; }
+.stat-team-head { margin-top: 14px; }
+.stat-player { border-bottom: 1px solid var(--line-2); padding: 11px 0; }
 .stat-player:last-child { border-bottom: none; }
-.sp-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.sp-name { font-size: 15px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 100%; }
-.sp-quick { display: flex; gap: 8px; align-items: center; }
-.sp-quick label { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); margin: 0; }
-.stat-in { width: 44px; flex: none; margin: 0; padding: 6px 2px; text-align: center; border: 1px solid var(--line); border-radius: 0; font-size: 15px; font-variant-numeric: tabular-nums; }
-.sp-more { flex: none; margin-left: auto; background: none; border: none; color: var(--muted); font-size: 12px; padding: 4px 6px; cursor: pointer; text-decoration: underline; }
+.sp-head { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
+.sp-name { font-size: 16px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 130px; min-width: 0; }
+.sp-quick { display: flex; gap: 12px; align-items: center; }
+.sp-quick label { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--muted); margin: 0; }
+.stat-in { width: 50px; flex: none; margin: 0; padding: 8px 4px; text-align: center; border: 1px solid var(--line); border-radius: 0; font-size: 15px; font-variant-numeric: tabular-nums; }
+.sp-more { flex: none; margin-left: auto; background: none; border: none; color: var(--muted); font-size: 13px; padding: 4px 6px; cursor: pointer; text-decoration: underline; }
 .sp-more:hover { color: var(--ink); }
-.sp-rest { margin-top: 8px; padding: 8px 0 2px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; border-top: 1px dashed var(--line); }
+.sp-rest { margin-top: 10px; padding: 10px 0 2px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; border-top: 1px dashed var(--line); }
 .sp-rest[hidden] { display: none; }
-.sp-stat { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; color: var(--muted); margin: 0; }
-.sp-rate { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; color: var(--muted); margin: 0 0 2px; }
+.sp-stat { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; font-size: 13px; color: var(--muted); margin: 0; }
+.sp-stat span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-rate { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); margin: 0 0 4px; }
 .hl-input { width: 100%; margin: 4px 0 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 0; font: inherit; font-size: 14px; resize: vertical; box-sizing: border-box; }
 
 /* ---- Man of the match toggle (Statto) ---- */
@@ -379,7 +380,7 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .bib-ico { width: 22px; height: 22px; flex: none; vertical-align: middle; }
 .team-head { align-items: center; gap: 7px; }
 .team-head .th-label { font-size: inherit; color: inherit; margin-right: auto; }
-.build-col .team-head .bib-ico, .stat-col .team-head .bib-ico { width: 20px; height: 20px; }
+.build-col .team-head .bib-ico, .stat-team-head .bib-ico { width: 20px; height: 20px; }
 /* Crest on the You profile */
 .hero-you { text-align: center; }
 .you-crest { width: 88px; height: 88px; display: block; margin: 2px auto 12px; }
