@@ -36,6 +36,7 @@ jobs:
       - name: Run notifier
         working-directory: notify
         env:
+          TZ: Europe/London   # so kickoff/poll-open times are read in UK time
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           APP_URL: ${{ secrets.APP_URL }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}

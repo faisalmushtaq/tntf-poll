@@ -85,7 +85,14 @@ Notifications tell you the moment your spot changes — promoted off the reserve
 or bumped out — by **email and push** (push works on Android/desktop directly,
 and on iPhone once you add the app to your Home Screen). The whole group is also
 alerted when a game **opens**, is **rescheduled** (moved day/time/venue), or is
-**called off** for the week.
+**called off** for the week. Emails are styled to match the site.
+
+**The poll opens itself.** Set a day and time in **Organiser → Settings**
+(defaults to **Friday 10am**) and the notifier puts the next poll out at that
+moment and emails everyone — as long as last week's result is already in (so
+mark the game as played first; that's what banks loyalty). The previous poll
+**closes automatically once its game kicks off**. You can still open a game by
+hand any time.
 
 ---
 
@@ -163,14 +170,20 @@ in **Settings → Secrets and variables → Actions**:
 | `SMTP_HOST`,`SMTP_PORT`,`SMTP_USER`,`SMTP_PASS`,`MAIL_FROM` | any SMTP account (e.g. a Gmail address + an [app password](https://support.google.com/accounts/answer/185833)) | email only |
 
 Push needs only the service account (Firebase Cloud Messaging is free). Email
-needs the SMTP secrets. Set up either or both.
+needs the SMTP secrets — **to send the "poll's open" announcement emails you
+must set `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`MAIL_FROM`** (a Gmail
+address + app password works). Set up either or both. The same Action also
+opens the weekly poll on schedule, so leaving it on is what makes auto-open
+work.
 
 ### 6. First run
 - Open the app → **Organiser** → unlock with your organiser PIN → set/rotate it (and the Statto PIN) any time in **Settings**.
 - The roster is pre-seeded from the group; edit it in the Organiser tab.
 - After each game: **Organiser → Mark as played** (banks loyalty, saves the
-  result to history), then **Open the game** for next week — which fires the
-  "poll is open" notification to everyone.
+  result to history). The next poll then opens itself at the configured
+  day/time (Friday 10am by default) and emails everyone — or hit **Open the
+  game** to put it out early. Either way, the "poll is open" notification goes
+  to the whole group.
 
 ---
 

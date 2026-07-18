@@ -1327,6 +1327,12 @@ function adminScreen() {
       <label class="field">Game day</label>
       <select id="cDay">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `<option ${d === state.config.gameDay ? 'selected' : ''}>${d}</option>`).join('')}</select>
       <label class="field">Kickoff (HH:MM)</label><input id="cKick" value="${esc(state.config.kickoff)}" />
+      <label class="field">Poll opens automatically on</label>
+      <div class="btn-row">
+        <select id="cOpenDay">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `<option ${d === (state.config.pollOpenDay || 'Friday') ? 'selected' : ''}>${d}</option>`).join('')}</select>
+        <input id="cOpenTime" value="${esc(state.config.pollOpenTime || '10:00')}" placeholder="HH:MM" />
+      </div>
+      <p class="small">The robot puts the next poll out at this day and time and emails everyone — as long as last week's result is in. The previous poll closes automatically once that game kicks off.</p>
       <label class="field">Default squad size</label><input id="cCap" type="number" value="${state.config.capacity}" />
       <label class="field">Loyalty per game played</label><input id="cReward" type="number" value="${state.config.scoring.playedReward}" />
       <label class="field">Bonus for adverse weather (cold/wet)</label><input id="cWx" type="number" value="${state.config.scoring.weatherBonus ?? 1}" />
@@ -2071,6 +2077,8 @@ window.saveConfig = async () => {
     lon: lonRaw === '' ? null : Number(lonRaw),
     gameDay: document.getElementById('cDay').value,
     kickoff: document.getElementById('cKick').value.trim(),
+    pollOpenDay: document.getElementById('cOpenDay').value,
+    pollOpenTime: document.getElementById('cOpenTime').value.trim(),
     capacity: Number(document.getElementById('cCap').value),
     organiserEmail: document.getElementById('cOrg').value.trim(),
     scoring: {
