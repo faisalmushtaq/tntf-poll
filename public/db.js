@@ -53,10 +53,10 @@ function repointPlayer(g, dropId, keepId) {
 }
 
 // Shared shape emitted to subscribers.
-function assemble(config, playersById, game, signups) {
+function assemble(config, playersById, game, signups, announcement) {
   const roster = Object.values(playersById)
     .sort((a, b) => b.loyalty - a.loyalty || a.name.localeCompare(b.name));
-  return { config: logic.withDefaults(config), playersById, roster, game: game || null, signups: signups || [] };
+  return { config: logic.withDefaults(config), playersById, roster, game: game || null, signups: signups || [], announcement: announcement || null };
 }
 
 export async function createDB() {
@@ -82,7 +82,7 @@ function createLocalDB() {
   function currentGame() { return db.games.find(g => g.id === db.currentGameId) || null; }
   function emit() {
     const g = currentGame();
-    const payload = assemble(db.config, db.players, g, g ? g.signups : []);
+    const payload = assemble(db.config, db.players, g, g ? g.signups : [], db.announcement);
     listeners.forEach(l => l(payload));
   }
   // cross-tab sync
@@ -171,7 +171,14 @@ function createLocalDB() {
         venue: venue || db.config.venue || '',
         signups: [], createdAt: new Date().toISOString()
       };
-      db.games.push(game); db.currentGameId = game.id; persist(); return game.id;
+      db.games.push(game); db.currentGameId = game.id;
+      // Stage the "poll's open" announcement for organiser review (see notifier).
+      db.announcement = logic.buildAnnouncement(game, Object.values(db.players), db.config);
+      persist(); return game.id;
+    },
+    async updateAnnouncement(patch) {
+      if (!db.announcement) return;
+      db.announcement = { ...db.announcement, ...patch }; persist();
     },
     async signup(playerId, gameId) {
       const g = db.games.find(x => x.id === gameId);
@@ -338,6 +345,7 @@ async function createFirestoreDB() {
   const app = await getFirebaseApp();
   const dbf = getFirestore(app);
   const cfgRef = doc(dbf, 'meta', 'config');
+  const announceRef = doc(dbf, 'meta', 'announcement');
   const playersCol = collection(dbf, 'players');
   const gameRef = id => doc(dbf, 'games', id);
   const signupsCol = id => collection(dbf, 'games', id, 'signups');
@@ -356,10 +364,11 @@ async function createFirestoreDB() {
     }
   }
 
-  // Live cache assembled from three snapshots (config, players, current game+signups).
-  const cache = { config: {}, players: {}, game: null, signups: [] };
+  // Live cache assembled from snapshots (config, players, current game+signups,
+  // the pending announcement).
+  const cache = { config: {}, players: {}, game: null, signups: [], announcement: null };
   const listeners = new Set();
-  const emit = () => { const p = assemble(cache.config, cache.players, cache.game, cache.signups); listeners.forEach(l => l(p)); };
+  const emit = () => { const p = assemble(cache.config, cache.players, cache.game, cache.signups, cache.announcement); listeners.forEach(l => l(p)); };
 
   let unsubGame = null, unsubSignups = null;
   function watchGame(id) {
@@ -388,6 +397,7 @@ async function createFirestoreDB() {
     const m = {}; qs.docs.forEach(d => { m[d.id] = { id: d.id, ...d.data() }; }); cache.players = m; emit();
     seenPlayers();
   });
+  onSnapshot(announceRef, s => { cache.announcement = s.exists() ? s.data() : null; emit(); });
   // Normally both fire in well under a second; the timeout just prevents a
   // blank app if a snapshot is unusually slow (e.g. a cold offline start).
   const timeout = new Promise(r => setTimeout(r, 12000));
@@ -492,17 +502,23 @@ async function createFirestoreDB() {
 
     async openGame({ dateLabel, kickoffAt, capacity, venue }) {
       const id = uuid();
-      await setDoc(gameRef(id), {
-        status: 'open',
+      const game = {
+        id, status: 'open',
         dateLabel: dateLabel || logic.nextGameLabel(cfg()),
         kickoffAt: kickoffAt || logic.nextKickoffISO(cfg()),
         capacity: Number(capacity) || cfg().capacity,
         venue: venue || cfg().venue || '',
         createdAt: new Date().toISOString()
-      });
+      };
+      const { id: _omit, ...doc0 } = game;
+      await setDoc(gameRef(id), doc0);
       await updateDoc(cfgRef, { currentGameId: id });
+      // Stage the "poll's open" announcement for organiser review; the notifier
+      // sends it once the grace window elapses (or when the organiser sends it).
+      await setDoc(announceRef, logic.buildAnnouncement(game, Object.values(cache.players), cfg()));
       return id;
     },
+    async updateAnnouncement(patch) { await setDoc(announceRef, patch, { merge: true }); },
     async signup(playerId, gameId) {
       const g = cache.game;
       if (!g || g.id !== gameId) throw new Error('No game');

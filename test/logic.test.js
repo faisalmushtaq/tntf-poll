@@ -114,6 +114,27 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('does not open before the poll-open slot arrives', logic.autoOpenPlan(cfg, { status: 'completed' }, beforeOpen, null) === null);
 }
 
+// --- announcement: staged, reviewable, auto-sends after grace --------------
+{
+  const cfg = logic.withDefaults({ announceGraceMinutes: 60 });
+  const now = new Date('2026-07-17T10:00:00');
+  const game = { id: 'g9', dateLabel: 'Tuesday 21 Jul', kickoffAt: '2026-07-21T19:00:00Z', venue: 'Pitch 10' };
+  const roster = [{ id: 'a', name: 'Al', email: 'al@x.com' }, { id: 'b', name: 'Bo', email: null }, { id: 'c', name: 'Cy', email: 'cy@x.com' }];
+  const ann = logic.buildAnnouncement(game, roster, cfg, now);
+  ok('announcement targets the game', ann.gameId === 'g9' && ann.dateLabel === 'Tuesday 21 Jul');
+  ok('announcement snapshots recipients', ann.recipients.length === 3 && ann.recipients[1].email === null);
+  ok('announcement starts pending', ann.status === 'pending' && ann.excludedIds.length === 0);
+  ok('sendAfter is now + grace', new Date(ann.sendAfter).getTime() === now.getTime() + 60 * 60000);
+  ok('not ready during the grace window', !logic.announcementReady(ann, now));
+  ok('ready once the window elapses', logic.announcementReady(ann, new Date(now.getTime() + 61 * 60000)));
+  ok('cancelled announcements never send', !logic.announcementReady({ ...ann, status: 'cancelled' }, new Date(now.getTime() + 999 * 60000)));
+  ok('audience is everyone by default', logic.announcementAudience(ann).length === 3);
+  ok('deselected recipients are dropped', logic.announcementAudience({ ...ann, excludedIds: ['b'] }).map(r => r.id).join() === 'a,c');
+  // zero grace = send on the next check
+  const now0 = logic.buildAnnouncement(game, roster, logic.withDefaults({ announceGraceMinutes: 0 }), now);
+  ok('zero grace is immediately ready', logic.announcementReady(now0, now));
+}
+
 // --- past kickoff: registration closes after the game starts ---------------
 {
   const now = new Date('2026-07-21T21:00:00'); // an hour into a Tue 20:00 kickoff

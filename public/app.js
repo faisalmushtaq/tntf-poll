@@ -145,7 +145,7 @@ function buildView() {
     };
   }
   const alert = game ? statusAlert(game, playerId) : null;
-  state = { config: lastRaw.config, me, roster: lastRaw.roster, playersById: lastRaw.playersById, game, alert };
+  state = { config: lastRaw.config, me, roster: lastRaw.roster, playersById: lastRaw.playersById, game, alert, announcement: lastRaw.announcement || null };
 }
 
 // Detect when my confirmed/reserve status changed since I last looked (works
@@ -1210,6 +1210,52 @@ function lateCoverSection(g) {
     <div class="late-list">${rows || '<div class="empty">No confirmed players yet.</div>'}</div>`;
 }
 
+// The staged "poll's open" announcement, awaiting the organiser's review before
+// it emails/pushes the group. Shows the message, who it's going to (deselect
+// anyone), a countdown to auto-send, and Send-now / Hold buttons.
+function announceCard() {
+  const a = state.announcement;
+  if (!a || a.status !== 'pending') return '';
+  // Only for the poll that's currently open.
+  if (!state.game || a.gameId !== state.game.id) return '';
+
+  const excluded = new Set(a.excludedIds || []);
+  const recipients = (a.recipients || []).map(r => ({ ...r, on: !excluded.has(r.id) }));
+  const going = recipients.filter(r => r.on).length;
+  const ready = logic.announcementReady(a, new Date());
+
+  const rows = recipients.map(r => `
+    <label class="ann-row">
+      <input type="checkbox" ${r.on ? 'checked' : ''} onchange="announceToggle('${r.id}')" />
+      <span class="ann-name">${esc(r.name)}</span>
+      <span class="ann-contact">${r.email ? esc(r.email) : 'push / in-app only'}</span>
+    </label>`).join('');
+
+  const when = new Date(a.sendAfter);
+  const mins = Math.round((when.getTime() - Date.now()) / 60000);
+  const countdown = ready
+    ? 'Going out on the next check (within a few minutes)…'
+    : `Auto-sends in <b>${mins < 1 ? 'under a minute' : mins === 1 ? '1 minute' : `${mins} minutes`}</b> unless you send or hold it.`;
+
+  const whenStr = a.kickoffAt ? new Date(a.kickoffAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : a.dateLabel;
+
+  return `<div class="card ann-card">
+      <h2>📣 Announcement — review before it sends</h2>
+      <p class="hint" style="margin-top:-2px">${countdown}</p>
+      <div class="ann-preview">
+        <div class="ann-h">Poll's open — ${esc(a.dateLabel)}</div>
+        <p>The poll for <b>${esc(a.dateLabel)}</b> is open${a.venue ? ` at ${esc(a.venue)}` : ''}. Kick-off ${esc(whenStr)}. Get your name in to claim a spot.</p>
+      </div>
+      <div class="section-title">Going to ${going} of ${recipients.length}</div>
+      <p class="hint" style="margin-top:-2px">Untick anyone you don't want this to reach.</p>
+      <div class="ann-list">${rows}</div>
+      <div class="btn-row mt">
+        <button class="btn-primary" ${ready ? 'disabled' : ''} onclick="announceSendNow()">Send now</button>
+        <button class="btn-danger" onclick="announceCancel()">Hold — don't send</button>
+      </div>
+    </div>`;
+}
+
 // ---- admin ----------------------------------------------------------------
 function adminScreen() {
   if (!adminUnlocked) {
@@ -1289,7 +1335,8 @@ function adminScreen() {
 
   const mergeOptions = state.roster.map(p => `<option value="${p.id}">${esc(p.name)} (${p.gamesPlayed})</option>`).join('');
 
-  return `${gameCard}
+  return `${announceCard()}
+    ${gameCard}
     ${g ? lineupBuilderCard(g) : ''}
     ${accountsCard()}
     <div class="card">
@@ -1332,7 +1379,8 @@ function adminScreen() {
         <select id="cOpenDay">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `<option ${d === (state.config.pollOpenDay || 'Friday') ? 'selected' : ''}>${d}</option>`).join('')}</select>
         <input id="cOpenTime" value="${esc(state.config.pollOpenTime || '10:00')}" placeholder="HH:MM" />
       </div>
-      <p class="small">The robot puts the next poll out at this day and time and emails everyone — as long as last week's result is in. The previous poll closes automatically once that game kicks off.</p>
+      <label class="field">Minutes to review the announcement before it auto-sends</label><input id="cGrace" type="number" min="0" value="${state.config.announceGraceMinutes ?? 60}" />
+      <p class="small">The robot puts the next poll out at this day and time — as long as last week's result is in. The announcement waits here in Organiser for you to review (who it's going to) and Send or Hold; if untouched it auto-sends after the review window above. The previous poll closes automatically once that game kicks off.</p>
       <label class="field">Default squad size</label><input id="cCap" type="number" value="${state.config.capacity}" />
       <label class="field">Loyalty per game played</label><input id="cReward" type="number" value="${state.config.scoring.playedReward}" />
       <label class="field">Bonus for adverse weather (cold/wet)</label><input id="cWx" type="number" value="${state.config.scoring.weatherBonus ?? 1}" />
@@ -1890,7 +1938,9 @@ window.openGame = async () => {
   const kick = document.getElementById('gKick').value;
   const body = { dateLabel, capacity, venue };
   if (kick) body.kickoffAt = new Date(kick).toISOString();
-  try { await db.openGame(body); tab = 'week'; render(); toast('Game opened ⚽'); }
+  // Stay on Organiser so the announcement review card (who it's going to,
+  // countdown to auto-send) is right in front of the organiser.
+  try { await db.openGame(body); render(); toast('Game opened ⚽ — review the announcement below'); }
   catch (e) { toast(e.message, true); }
 };
 // Shift the current game's day/time/venue (poor turnout, one-off change, …).
@@ -2079,6 +2129,7 @@ window.saveConfig = async () => {
     kickoff: document.getElementById('cKick').value.trim(),
     pollOpenDay: document.getElementById('cOpenDay').value,
     pollOpenTime: document.getElementById('cOpenTime').value.trim(),
+    announceGraceMinutes: Number(document.getElementById('cGrace').value),
     capacity: Number(document.getElementById('cCap').value),
     organiserEmail: document.getElementById('cOrg').value.trim(),
     scoring: {
@@ -2093,6 +2144,26 @@ window.saveConfig = async () => {
   const spin = document.getElementById('cStatto').value.trim();
   if (spin) patch.stattoPin = spin;
   try { weatherCache = {}; await db.updateConfig(patch); render(); toast('Settings saved'); }
+  catch (e) { toast(e.message, true); }
+};
+
+// --- announcement review controls (organiser) ------------------------------
+window.announceToggle = async (id) => {
+  const a = state.announcement; if (!a) return;
+  const ex = new Set(a.excludedIds || []);
+  ex.has(id) ? ex.delete(id) : ex.add(id);
+  try { await db.updateAnnouncement({ excludedIds: [...ex] }); }
+  catch (e) { toast(e.message, true); }
+};
+window.announceSendNow = async () => {
+  try {
+    await db.updateAnnouncement({ sendAfter: new Date().toISOString() });
+    toast(db.mode === 'cloud' ? 'Sending — goes out within a few minutes' : 'Marked to send');
+  } catch (e) { toast(e.message, true); }
+};
+window.announceCancel = async () => {
+  if (!confirm("Hold this announcement? Nobody will be emailed or notified about this poll.")) return;
+  try { await db.updateAnnouncement({ status: 'cancelled', resolvedAt: new Date().toISOString() }); toast('Held — no announcement sent'); }
   catch (e) { toast(e.message, true); }
 };
 

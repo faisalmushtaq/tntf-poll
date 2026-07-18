@@ -89,10 +89,16 @@ alerted when a game **opens**, is **rescheduled** (moved day/time/venue), or is
 
 **The poll opens itself.** Set a day and time in **Organiser → Settings**
 (defaults to **Friday 10am**) and the notifier puts the next poll out at that
-moment and emails everyone — as long as last week's result is already in (so
-mark the game as played first; that's what banks loyalty). The previous poll
-**closes automatically once its game kicks off**. You can still open a game by
-hand any time.
+moment — as long as last week's result is already in (so mark the game as played
+first; that's what banks loyalty). The previous poll **closes automatically once
+its game kicks off**. You can still open a game by hand any time.
+
+**You approve the announcement before it goes out.** Opening a poll (by hand or
+on schedule) doesn't email anyone straight away — it stages the "poll's open"
+announcement in **Organiser** for review. You see the exact message and the full
+recipient list, can untick anyone, then **Send now** or **Hold** it. If you don't
+touch it, it **auto-sends once a grace window elapses** (default 60 minutes, set
+in Settings). Per-person "you're in / bumped" alerts still fire instantly.
 
 ---
 

@@ -14,6 +14,7 @@ export const DEFAULT_CONFIG = {
   configVersion: 3,        // bump to trigger a one-time config self-heal (see configMigrationPatch)
   pollOpenDay: 'Friday',   // the notifier auto-opens the next poll on this day…
   pollOpenTime: '10:00',   // …at this time (once last week's result is recorded)
+  announceGraceMinutes: 60, // review window before the "poll's open" email auto-sends
   organiserEmail: '',      // where the auto-close squad alert is sent
   scoring: {
     playedReward: 2,       // loyalty gained for turning up
@@ -445,6 +446,42 @@ export function autoOpenPlan(config, currentGame, now = new Date(), alreadyOpene
 export function pastKickoff(game, now = new Date()) {
   return !!(game && game.kickoffAt && new Date(game.kickoffAt) <= now
     && game.status !== 'completed' && game.status !== 'cancelled');
+}
+
+// --- the "poll's open" announcement, held for organiser review --------------
+// When a poll opens we don't email everyone straight away. We stage the blast
+// as a pending announcement the organiser can preview (message + who it's going
+// to), trim recipients, send early, or cancel. If untouched it auto-sends once
+// the grace window elapses.
+export function buildAnnouncement(game = {}, recipients = [], config = {}, now = new Date()) {
+  const c = withDefaults(config);
+  const grace = Number(c.announceGraceMinutes);
+  const mins = Number.isFinite(grace) && grace >= 0 ? grace : 60;
+  return {
+    kind: 'poll-open',
+    gameId: game.id || null,
+    dateLabel: game.dateLabel || '',
+    kickoffAt: game.kickoffAt || null,
+    venue: game.venue || '',
+    recipients: recipients.map(r => ({ id: r.id, name: r.name, email: r.email || null })),
+    excludedIds: [],
+    graceMinutes: mins,
+    sendAfter: new Date(now.getTime() + mins * 60000).toISOString(),
+    status: 'pending',
+    createdAt: now.toISOString()
+  };
+}
+
+// A pending announcement is due to send once its grace window has elapsed.
+export function announcementReady(ann, now = new Date()) {
+  return !!(ann && ann.status === 'pending' && ann.sendAfter && new Date(ann.sendAfter) <= now);
+}
+
+// The recipients an announcement will actually reach (roster minus the ones the
+// organiser deselected).
+export function announcementAudience(ann) {
+  const ex = new Set((ann && ann.excludedIds) || []);
+  return ((ann && ann.recipients) || []).filter(r => !ex.has(r.id));
 }
 
 // Seed roster from the group so the app is usable on day one.
