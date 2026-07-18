@@ -540,10 +540,10 @@ function tableScreen() {
 // a key on the playerPerformance() total. `pct` marks a percentage column.
 const PERF_COLS = [
   { key: 'games', label: 'GP', title: 'Games with stats recorded' },
+  { key: 'motm', label: 'MotM', title: 'Man-of-the-match awards' },
+  { key: 'rating', label: '★', title: 'Average match rating (self + Statto)', rating: true },
   { key: 'g', label: 'G', title: 'Goals' },
   { key: 'a', label: 'A', title: 'Assists' },
-  { key: 'motm', label: 'MOTM', title: 'Man-of-the-match awards' },
-  { key: 'rating', label: '★', title: 'Average match rating (self + Statto)', rating: true },
   { key: 'sv', label: 'Sv', title: 'Saves' },
   { key: 'sh', label: 'Sh', title: 'Shots' },
   { key: 'sot', label: 'SoT', title: 'Shots on target' },
