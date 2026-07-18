@@ -59,6 +59,21 @@ function assemble(config, playersById, game, signups, announcement) {
   return { config: logic.withDefaults(config), playersById, roster, game: game || null, signups: signups || [], announcement: announcement || null };
 }
 
+// Stage a line-up announcement to the players who are on the team sheet, with
+// each side's names resolved for the message. Used by both backends.
+function buildLineupAnnouncement(game, playersById, config) {
+  const nameOf = id => (playersById[id] && playersById[id].name) || 'Player';
+  const teams = game.teams || { bibs: [], nonbibs: [] };
+  const bibIds = teams.bibs || [], nonbibIds = teams.nonbibs || [];
+  const playingIds = [...new Set([...bibIds, ...nonbibIds])];
+  const recipients = playingIds.map(id => playersById[id]).filter(Boolean);
+  return logic.buildAnnouncement('lineup', {
+    game: { id: game.id, dateLabel: game.dateLabel, kickoffAt: game.kickoffAt, venue: game.venue },
+    recipients, config,
+    teams: { bibs: bibIds.map(nameOf), nonbibs: nonbibIds.map(nameOf) }
+  });
+}
+
 export async function createDB() {
   return FIREBASE_ENABLED ? createFirestoreDB() : createLocalDB();
 }
@@ -173,12 +188,17 @@ function createLocalDB() {
       };
       db.games.push(game); db.currentGameId = game.id;
       // Stage the "poll's open" announcement for organiser review (see notifier).
-      db.announcement = logic.buildAnnouncement(game, Object.values(db.players), db.config);
+      db.announcement = logic.buildAnnouncement('poll-open', { game, recipients: Object.values(db.players), config: db.config });
       persist(); return game.id;
     },
     async updateAnnouncement(patch) {
       if (!db.announcement) return;
       db.announcement = { ...db.announcement, ...patch }; persist();
+    },
+    async announceLineup(id) {
+      const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
+      db.announcement = buildLineupAnnouncement(g, db.players, db.config);
+      persist();
     },
     async signup(playerId, gameId) {
       const g = db.games.find(x => x.id === gameId);
@@ -225,6 +245,8 @@ function createLocalDB() {
       if (kickoffAt) g.kickoffAt = kickoffAt;
       if (dateLabel != null && dateLabel !== '') g.dateLabel = dateLabel;
       if (venue != null) g.venue = venue;
+      // Stage a "game moved" announcement for review before it reaches the group.
+      db.announcement = logic.buildAnnouncement('reschedule', { game: g, recipients: Object.values(db.players), config: db.config });
       persist();
     },
     async cancelGame(id) {
@@ -233,6 +255,8 @@ function createLocalDB() {
       // it; buildView treats a cancelled game as "no game". Opening a fresh game
       // moves currentGameId on.
       g.status = 'cancelled'; g.cancelledAt = new Date().toISOString();
+      // Stage a "no game this week" announcement for review before it goes out.
+      db.announcement = logic.buildAnnouncement('cancellation', { game: g, recipients: Object.values(db.players), config: db.config });
       persist();
     },
     async completeGame(id, opts = {}) {
@@ -515,7 +539,7 @@ async function createFirestoreDB() {
       await updateDoc(cfgRef, { currentGameId: id });
       // Stage the "poll's open" announcement for organiser review; the notifier
       // sends it once the grace window elapses (or when the organiser sends it).
-      await setDoc(announceRef, logic.buildAnnouncement(game, Object.values(cache.players), cfg()));
+      await setDoc(announceRef, logic.buildAnnouncement('poll-open', { game, recipients: Object.values(cache.players), config: cfg() }));
       return id;
     },
     async updateAnnouncement(patch) { await setDoc(announceRef, patch, { merge: true }); },
@@ -553,11 +577,21 @@ async function createFirestoreDB() {
       if (dateLabel != null && dateLabel !== '') patch.dateLabel = dateLabel;
       if (venue != null) patch.venue = venue;
       if (Object.keys(patch).length) await updateDoc(gameRef(id), patch);
+      // Stage a "game moved" announcement for review before it reaches the group.
+      const g = { ...(cache.game || {}), id, ...patch };
+      await setDoc(announceRef, logic.buildAnnouncement('reschedule', { game: g, recipients: Object.values(cache.players), config: cfg() }));
     },
     async cancelGame(id) {
-      // Leave currentGameId pointing here (marked cancelled) so the notifier can
-      // announce it once; the app treats a cancelled game as "no game".
+      // Leave currentGameId pointing here (marked cancelled) so the app treats a
+      // cancelled game as "no game"; opening a fresh game moves the pointer on.
       await updateDoc(gameRef(id), { status: 'cancelled', cancelledAt: new Date().toISOString() });
+      // Stage a "no game this week" announcement for review before it goes out.
+      const g = { ...(cache.game || {}), id, status: 'cancelled' };
+      await setDoc(announceRef, logic.buildAnnouncement('cancellation', { game: g, recipients: Object.values(cache.players), config: cfg() }));
+    },
+    async announceLineup(id) {
+      const g = cache.game && cache.game.id === id ? cache.game : { ...(cache.game || {}), id };
+      await setDoc(announceRef, buildLineupAnnouncement(g, cache.players, cfg()));
     },
     async reopenGame(id) { await updateDoc(gameRef(id), { status: 'open' }); },
     async completeGame(id, opts = {}) {
