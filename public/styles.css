@@ -142,7 +142,7 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .hero .capbar { height: 4px; border-radius: 0; background: var(--line); overflow: hidden; margin: 14px 0 2px; }
 .hero .capbar > span { display: block; height: 100%; background: var(--ink); }
 
-.mine-banner { margin-top: 16px; padding: 13px 15px; border: 1px solid var(--line); font-weight: 500; font-size: 15px; }
+.mine-banner { margin: 16px 0 16px; padding: 13px 15px; border: 1px solid var(--line); font-weight: 500; font-size: 15px; }
 .mine-banner.in { background: var(--green-soft); color: var(--green); border-color: #cfdccf; }
 .mine-banner.wait { background: var(--amber-soft); color: var(--amber); border-color: #ddcca0; }
 .mine-banner.out { background: transparent; color: var(--muted); }
