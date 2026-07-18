@@ -138,7 +138,7 @@ async function main() {
     game = { id: newRef.id, ...(await newRef.get()).data() };
     // Stage the "poll's open" announcement for organiser review. It auto-sends
     // once the grace window (config.announceGraceMinutes) elapses.
-    await db.doc('meta/announcement').set(logic.buildAnnouncement(game, Object.values(players), config));
+    await db.doc('meta/announcement').set(logic.buildAnnouncement('poll-open', { game, recipients: Object.values(players), config }));
     console.log(`Auto-opened poll for ${plan.dateLabel} (kickoff ${plan.kickoffAt}). Announcement staged.`);
   }
 
@@ -153,38 +153,14 @@ async function main() {
     console.log('Game not active.'); return;
   }
 
-  // Game called off → tell the whole roster once, then go quiet.
+  // Game called off → the "no game this week" broadcast is a staged
+  // announcement (handled above by processAnnouncement); just go quiet here.
   if (game.status === 'cancelled') {
-    if (notify.noticeGameId !== gameId) {
-      console.log(`Game cancelled: ${game.dateLabel}. Notifying roster.`);
-      for (const p of Object.values(players)) {
-        await send(p, {
-          title: `${CLUB_NAME} — no game this week`,
-          heading: 'No game this week',
-          body: `This week's game (${game.dateLabel}) has been called off. No game this week — check the app for the next one.`,
-          bodyHtml: `<p style="margin:0 0 10px">This week's game (<strong>${escapeHtml(game.dateLabel)}</strong>) has been called off.</p><p style="margin:0">No game this week — we'll be back in the app for the next one.</p>`
-        });
-      }
-    }
     await notifyRef.set({ lastGameId: gameId, statuses: {}, noticeGameId: gameId, autoOpenedKickoff }, { merge: true });
     console.log('Done (cancelled).'); return;
   }
-
-  // Rescheduled (same game, kickoff or venue moved) → tell the roster once.
-  if (notify.lastGameId === gameId &&
-      ((notify.kickoffAt && notify.kickoffAt !== game.kickoffAt) ||
-       (notify.venue != null && notify.venue !== (game.venue || '')))) {
-    const whenStr = new Date(game.kickoffAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
-    console.log(`Game rescheduled: now ${whenStr}. Notifying roster.`);
-    for (const p of Object.values(players)) {
-      await send(p, {
-        title: `${CLUB_NAME} — game moved`,
-        heading: 'The game has moved',
-        body: `This week's game has moved: now ${whenStr}${game.venue ? ` at ${game.venue}` : ''}.`,
-        bodyHtml: `<p style="margin:0">This week's game has moved to <strong>${escapeHtml(whenStr)}</strong>${game.venue ? ` at ${escapeHtml(game.venue)}` : ''}.</p>`
-      });
-    }
-  }
+  // "Game moved" (reschedule) and "line-up" broadcasts are also staged
+  // announcements the organiser reviews — processAnnouncement sends them.
 
   const susSnap = await db.collection(`games/${gameId}/signups`).get();
   const signups = susSnap.docs.map(d => ({ playerId: d.id, ...d.data() }));
@@ -233,39 +209,34 @@ async function main() {
   console.log('Done.');
 }
 
-// Send the staged "poll's open" announcement once its grace window elapses (or
-// the organiser sent it early), to the recipients they didn't deselect. If the
-// game it was for is gone (cancelled/completed/replaced), drop it unsent.
+// Send a staged group announcement (poll's open, game moved, no game this week,
+// or the line-up) once its grace window elapses — or the organiser sent it
+// early — to the recipients they didn't deselect. If the game it was for is no
+// longer in the matching state, drop it unsent.
 async function processAnnouncement(gameId, game, players) {
   const ref = db.doc('meta/announcement');
   const snap = await ref.get();
   const ann = snap.exists ? snap.data() : null;
   if (!ann || ann.status !== 'pending') return;
 
-  const active = game && game.status !== 'completed' && game.status !== 'cancelled' && ann.gameId === gameId;
-  if (!active) {
+  if (!logic.announcementValid(ann, game, gameId)) {
     await ref.set({ status: 'cancelled', reason: 'stale', resolvedAt: new Date().toISOString() }, { merge: true });
-    console.log('Announcement dropped — its game is no longer the active open poll.');
+    console.log(`Announcement (${ann.kind}) dropped — its game is no longer in the matching state.`);
     return;
   }
   if (!logic.announcementReady(ann, new Date())) {
-    console.log(`Announcement held — grace window until ${ann.sendAfter}.`);
+    console.log(`Announcement (${ann.kind}) held — grace window until ${ann.sendAfter}.`);
     return;
   }
 
+  const content = logic.announcementContent(ann, CLUB_NAME);
+  const bodyHtml = content.paragraphs.map(p => `<p style="margin:0 0 10px">${escapeHtml(p)}</p>`).join('');
+  const body = content.paragraphs.join('\n\n');
   const audience = logic.announcementAudience(ann);
-  const whenStr = ann.kickoffAt ? new Date(ann.kickoffAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : ann.dateLabel;
-  const bodyHtml = `<p style="margin:0 0 10px">The poll for <strong>${escapeHtml(ann.dateLabel)}</strong> is open${ann.venue ? ` at ${escapeHtml(ann.venue)}` : ''}.</p>`
-    + `<p style="margin:0 0 4px">Kick-off ${escapeHtml(whenStr)}. Get your name in to claim a spot.</p>`;
-  console.log(`Sending "poll's open" announcement to ${audience.length} recipient(s).`);
+  console.log(`Sending "${ann.kind}" announcement to ${audience.length} recipient(s).`);
   for (const r of audience) {
     const p = players[r.id] || { id: r.id, name: r.name, email: r.email };
-    await send(p, {
-      title: `⚽ ${CLUB_NAME} — poll's open for ${ann.dateLabel}`,
-      heading: `Poll's open — ${ann.dateLabel}`,
-      body: `This week's game (${ann.dateLabel}) is open — get your name in.`,
-      bodyHtml
-    });
+    await send(p, { title: content.subject, heading: content.heading, body, bodyHtml });
   }
   await ref.set({ status: 'sent', sentAt: new Date().toISOString(), sentCount: audience.length }, { merge: true });
   console.log('Announcement sent.');

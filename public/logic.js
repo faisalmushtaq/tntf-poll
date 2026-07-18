@@ -448,21 +448,24 @@ export function pastKickoff(game, now = new Date()) {
     && game.status !== 'completed' && game.status !== 'cancelled');
 }
 
-// --- the "poll's open" announcement, held for organiser review --------------
-// When a poll opens we don't email everyone straight away. We stage the blast
-// as a pending announcement the organiser can preview (message + who it's going
-// to), trim recipients, send early, or cancel. If untouched it auto-sends once
-// the grace window elapses.
-export function buildAnnouncement(game = {}, recipients = [], config = {}, now = new Date()) {
+// --- group announcements, held for organiser review -------------------------
+// Broadcasts to the group (poll opening, a time/venue change, a cancellation,
+// the line-up) aren't emailed straight away. We stage each as a pending
+// announcement the organiser previews (message + who it's going to), trims,
+// sends early, or holds. If untouched it auto-sends once the grace window
+// elapses. `kind` is one of: 'poll-open' | 'reschedule' | 'cancellation' |
+// 'lineup'. `teams` (line-up only) is { bibs: [names], nonbibs: [names] }.
+export function buildAnnouncement(kind, { game = {}, recipients = [], config = {}, teams = null } = {}, now = new Date()) {
   const c = withDefaults(config);
   const grace = Number(c.announceGraceMinutes);
   const mins = Number.isFinite(grace) && grace >= 0 ? grace : 60;
   return {
-    kind: 'poll-open',
+    kind: kind || 'poll-open',
     gameId: game.id || null,
     dateLabel: game.dateLabel || '',
     kickoffAt: game.kickoffAt || null,
     venue: game.venue || '',
+    teams: teams || null,
     recipients: recipients.map(r => ({ id: r.id, name: r.name, email: r.email || null })),
     excludedIds: [],
     graceMinutes: mins,
@@ -472,9 +475,48 @@ export function buildAnnouncement(game = {}, recipients = [], config = {}, now =
   };
 }
 
+// The message for an announcement, by kind. Returns { subject, heading,
+// paragraphs } — rendered as an email by the notifier and as an in-app preview
+// by the organiser, so the wording lives in exactly one place.
+export function announcementContent(ann = {}, clubName = 'the club') {
+  const when = ann.kickoffAt
+    ? new Date(ann.kickoffAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+    : (ann.dateLabel || 'this week');
+  const label = ann.dateLabel || 'this week';
+  const at = ann.venue ? ` at ${ann.venue}` : '';
+  switch (ann.kind) {
+    case 'reschedule':
+      return { subject: `${clubName} — game moved`, heading: 'The game has moved',
+        paragraphs: [`This week's game has moved to ${when}${at}.`] };
+    case 'cancellation':
+      return { subject: `${clubName} — no game this week`, heading: 'No game this week',
+        paragraphs: [`This week's game (${label}) has been called off.`, `No game this week — we'll be back in the app for the next one.`] };
+    case 'lineup': {
+      const t = ann.teams || {};
+      const bibs = (t.bibs || []).join(', ') || '—';
+      const nonbibs = (t.nonbibs || []).join(', ') || '—';
+      return { subject: `${clubName} — line-up for ${label}`, heading: `Line-up — ${label}`,
+        paragraphs: [`Here's the line-up for ${label}${at}, kick-off ${when}.`, `Bibs: ${bibs}`, `Non-bibs: ${nonbibs}`] };
+    }
+    case 'poll-open':
+    default:
+      return { subject: `⚽ ${clubName} — poll's open for ${label}`, heading: `Poll's open — ${label}`,
+        paragraphs: [`The poll for ${label} is open${at}.`, `Kick-off ${when}. Get your name in to claim a spot.`] };
+  }
+}
+
 // A pending announcement is due to send once its grace window has elapsed.
 export function announcementReady(ann, now = new Date()) {
   return !!(ann && ann.status === 'pending' && ann.sendAfter && new Date(ann.sendAfter) <= now);
+}
+
+// Whether a staged announcement still matches the game it was for (so we don't
+// send a stale one). Cancellations are valid against the cancelled game;
+// everything else against the live open/locked poll.
+export function announcementValid(ann, game, currentGameId) {
+  if (!ann || !game || ann.gameId !== currentGameId) return false;
+  if (ann.kind === 'cancellation') return game.status === 'cancelled';
+  return game.status === 'open' || game.status === 'locked';
 }
 
 // The recipients an announcement will actually reach (roster minus the ones the

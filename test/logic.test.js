@@ -120,8 +120,9 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   const now = new Date('2026-07-17T10:00:00');
   const game = { id: 'g9', dateLabel: 'Tuesday 21 Jul', kickoffAt: '2026-07-21T19:00:00Z', venue: 'Pitch 10' };
   const roster = [{ id: 'a', name: 'Al', email: 'al@x.com' }, { id: 'b', name: 'Bo', email: null }, { id: 'c', name: 'Cy', email: 'cy@x.com' }];
-  const ann = logic.buildAnnouncement(game, roster, cfg, now);
+  const ann = logic.buildAnnouncement('poll-open', { game, recipients: roster, config: cfg }, now);
   ok('announcement targets the game', ann.gameId === 'g9' && ann.dateLabel === 'Tuesday 21 Jul');
+  ok('announcement carries its kind', ann.kind === 'poll-open');
   ok('announcement snapshots recipients', ann.recipients.length === 3 && ann.recipients[1].email === null);
   ok('announcement starts pending', ann.status === 'pending' && ann.excludedIds.length === 0);
   ok('sendAfter is now + grace', new Date(ann.sendAfter).getTime() === now.getTime() + 60 * 60000);
@@ -131,8 +132,30 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('audience is everyone by default', logic.announcementAudience(ann).length === 3);
   ok('deselected recipients are dropped', logic.announcementAudience({ ...ann, excludedIds: ['b'] }).map(r => r.id).join() === 'a,c');
   // zero grace = send on the next check
-  const now0 = logic.buildAnnouncement(game, roster, logic.withDefaults({ announceGraceMinutes: 0 }), now);
+  const now0 = logic.buildAnnouncement('poll-open', { game, recipients: roster, config: logic.withDefaults({ announceGraceMinutes: 0 }) }, now);
   ok('zero grace is immediately ready', logic.announcementReady(now0, now));
+
+  // --- content per kind + staleness ---
+  const openGame = { id: 'g9', status: 'open' };
+  const cancelGame = { id: 'g9', status: 'cancelled' };
+  ok('poll-open valid vs open game', logic.announcementValid(ann, openGame, 'g9'));
+  ok('poll-open invalid vs cancelled game', !logic.announcementValid(ann, cancelGame, 'g9'));
+  ok('poll-open invalid vs a different game', !logic.announcementValid(ann, openGame, 'other'));
+
+  const resc = logic.buildAnnouncement('reschedule', { game, recipients: roster, config: cfg }, now);
+  const rc = logic.announcementContent(resc, 'TNTF');
+  ok('reschedule content reads as moved', rc.heading === 'The game has moved' && /moved to/.test(rc.paragraphs[0]));
+
+  const canc = logic.buildAnnouncement('cancellation', { game: cancelGame, recipients: roster, config: cfg }, now);
+  ok('cancellation valid vs cancelled game', logic.announcementValid(canc, cancelGame, 'g9'));
+  ok('cancellation invalid vs open game', !logic.announcementValid(canc, openGame, 'g9'));
+  const cc = logic.announcementContent(canc, 'TNTF');
+  ok('cancellation content reads as no game', cc.heading === 'No game this week' && /called off/.test(cc.paragraphs[0]));
+
+  const line = logic.buildAnnouncement('lineup', { game, recipients: roster, config: cfg, teams: { bibs: ['Al', 'Bo'], nonbibs: ['Cy'] } }, now);
+  const lc = logic.announcementContent(line, 'TNTF');
+  ok('lineup content lists both sides', /Bibs: Al, Bo/.test(lc.paragraphs[1]) && /Non-bibs: Cy/.test(lc.paragraphs[2]));
+  ok('lineup subject names the date', /line-up for Tuesday 21 Jul/.test(lc.subject));
 }
 
 // --- past kickoff: registration closes after the game starts ---------------

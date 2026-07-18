@@ -1190,6 +1190,8 @@ function lineupBuilderCard(g) {
       <button class="btn-ghost" onclick="saveLineup(false)">Save draft</button>
       <button class="btn-primary" onclick="saveLineup(true)">Publish to This Week</button>
     </div>
+    ${g.teamsFinalised ? `<button class="btn-ghost mt" onclick="announceLineup('${g.id}')">📣 Email the line-up to the squad</button>
+      <p class="small" style="margin-top:6px">Stages a line-up announcement for review — you approve who it goes to before it sends.</p>` : ''}
   </div>`;
 }
 
@@ -1210,14 +1212,13 @@ function lateCoverSection(g) {
     <div class="late-list">${rows || '<div class="empty">No confirmed players yet.</div>'}</div>`;
 }
 
-// The staged "poll's open" announcement, awaiting the organiser's review before
-// it emails/pushes the group. Shows the message, who it's going to (deselect
-// anyone), a countdown to auto-send, and Send-now / Hold buttons.
+// A staged group announcement (poll's open, game moved, no game this week, or
+// the line-up), awaiting the organiser's review before it emails/pushes the
+// group. Shows the message, who it's going to (deselect anyone), a countdown to
+// auto-send, and Send-now / Hold buttons.
 function announceCard() {
   const a = state.announcement;
   if (!a || a.status !== 'pending') return '';
-  // Only for the poll that's currently open.
-  if (!state.game || a.gameId !== state.game.id) return '';
 
   const excluded = new Set(a.excludedIds || []);
   const recipients = (a.recipients || []).map(r => ({ ...r, on: !excluded.has(r.id) }));
@@ -1237,20 +1238,22 @@ function announceCard() {
     ? 'Going out on the next check (within a few minutes)…'
     : `Auto-sends in <b>${mins < 1 ? 'under a minute' : mins === 1 ? '1 minute' : `${mins} minutes`}</b> unless you send or hold it.`;
 
-  const whenStr = a.kickoffAt ? new Date(a.kickoffAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : a.dateLabel;
+  const content = logic.announcementContent(a, state.config.clubName);
+  const preview = content.paragraphs.map(p => `<p>${esc(p)}</p>`).join('');
+  const empty = going === 0;
 
   return `<div class="card ann-card">
       <h2>📣 Announcement — review before it sends</h2>
       <p class="hint" style="margin-top:-2px">${countdown}</p>
       <div class="ann-preview">
-        <div class="ann-h">Poll's open — ${esc(a.dateLabel)}</div>
-        <p>The poll for <b>${esc(a.dateLabel)}</b> is open${a.venue ? ` at ${esc(a.venue)}` : ''}. Kick-off ${esc(whenStr)}. Get your name in to claim a spot.</p>
+        <div class="ann-h">${esc(content.heading)}</div>
+        ${preview}
       </div>
       <div class="section-title">Going to ${going} of ${recipients.length}</div>
       <p class="hint" style="margin-top:-2px">Untick anyone you don't want this to reach.</p>
       <div class="ann-list">${rows}</div>
       <div class="btn-row mt">
-        <button class="btn-primary" ${ready ? 'disabled' : ''} onclick="announceSendNow()">Send now</button>
+        <button class="btn-primary" ${ready || empty ? 'disabled' : ''} onclick="announceSendNow()">Send now</button>
         <button class="btn-danger" onclick="announceCancel()">Hold — don't send</button>
       </div>
     </div>`;
@@ -1958,7 +1961,8 @@ window.rescheduleGame = async (id) => {
 // Skip the week — call off an open game (no loyalty banked).
 window.cancelWeek = async (id) => {
   if (!confirm("Call off this week's game? The poll closes and no loyalty is banked. You can open a fresh game any time.")) return;
-  try { await db.cancelGame(id); tab = 'week'; render(); toast("This week's game called off"); }
+  // Stay on Organiser so the "no game this week" announcement is there to review.
+  try { await db.cancelGame(id); render(); toast("Called off — review the announcement below"); }
   catch (e) { toast(e.message, true); }
 };
 window.completeGame = async (id) => {
@@ -2162,8 +2166,14 @@ window.announceSendNow = async () => {
   } catch (e) { toast(e.message, true); }
 };
 window.announceCancel = async () => {
-  if (!confirm("Hold this announcement? Nobody will be emailed or notified about this poll.")) return;
+  if (!confirm("Hold this announcement? Nobody will be emailed or notified about it.")) return;
   try { await db.updateAnnouncement({ status: 'cancelled', resolvedAt: new Date().toISOString() }); toast('Held — no announcement sent'); }
+  catch (e) { toast(e.message, true); }
+};
+window.announceLineup = async (id) => {
+  if (state.announcement && state.announcement.status === 'pending'
+    && !confirm('There is already an announcement waiting to send. Replace it with the line-up?')) return;
+  try { await db.announceLineup(id); render(); toast('Line-up staged — review it below'); }
   catch (e) { toast(e.message, true); }
 };
 
