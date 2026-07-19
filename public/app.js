@@ -120,7 +120,7 @@ function buildView() {
   let game = null;
   const g = lastRaw.game;
   if (g && g.status !== 'completed' && g.status !== 'cancelled') {
-    const ranked = logic.rankSignups(lastRaw.signups, lastRaw.playersById, g.capacity);
+    const ranked = logic.rankSignups(lastRaw.signups, lastRaw.playersById, g.capacity, { pollOpenAt: g.createdAt, config: lastRaw.config });
     const mine = playerId ? ranked.find(r => r.playerId === playerId) : null;
     const hrs = logic.hoursUntilKickoff(g.kickoffAt);
     const paidBy = {};
@@ -134,6 +134,7 @@ function buildView() {
     const iAmOut = !!playerId && unavailable.some(u => u.playerId === playerId);
     game = {
       id: g.id, status: g.status, dateLabel: g.dateLabel, kickoffAt: g.kickoffAt, capacity: g.capacity,
+      createdAt: g.createdAt,
       venue: g.venue || lastRaw.config.venue,
       teams: g.teams || null, teamsFinalised: !!g.teamsFinalised,
       confirmed: ranked.filter(r => r.status === 'confirmed').map(withPaid),
@@ -392,11 +393,12 @@ function renderLineup(list, startNum, badgeMode) {
   const half = Math.ceil(list.length / 2);
   const row = (p, n, idx) => {
     const meCls = p.playerId === state.me?.id ? ' me' : '';
+    const half = p.prompt === false ? `<span class="lu-half" title="Signed up after the prompt window — loyalty counts half for this spot">½</span>` : '';
     const badge = badgeMode === 'reserve'
       ? `<span class="lu-badge amber">${ordinal(idx + 1)}</span>`
       : `<span class="lu-badge" title="loyalty">${p.loyalty}</span>`;
     const you = p.playerId === state.me?.id ? ' <span class="you">you</span>' : '';
-    return `<div class="lu-row${meCls}"><span class="lu-num">${n}</span><span class="lu-name">${playerLink(p.playerId, esc(abbrev(p.name)))}${you}</span>${badge}</div>`;
+    return `<div class="lu-row${meCls}"><span class="lu-num">${n}</span><span class="lu-name">${playerLink(p.playerId, esc(abbrev(p.name)))}${you}${half}</span>${badge}</div>`;
   };
   const left = list.slice(0, half).map((p, i) => row(p, startNum + i, i)).join('');
   const right = list.slice(half).map((p, i) => row(p, startNum + half + i, half + i)).join('');
@@ -603,6 +605,9 @@ function rulesScreen() {
   const reward = s.playedReward;
   const cap = state.config.capacity;
   const late = reward * (s.lateSignupBonusGames || 0);
+  const promptH = state.config.promptHours ?? 24;
+  const lateFactor = state.config.lateLoyaltyFactor ?? 0.5;
+  const promptBonus = s.promptBonus ?? 1;
   const coldMax = reward + (s.weatherBonus || 0) + (s.coldSeasonBonus || 0);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const coldMonths = (s.coldMonths || []).map(m => months[m]);
@@ -614,7 +619,9 @@ function rulesScreen() {
     <p class="small">The poll opens at a set time each week, so nobody misses out for being on the pitch or driving home. It auto-closes once we've got enough by ${esc(prevDay(state.config.gameDay))} 5pm, and the squad is set.</p>
     <div class="section-title">2 · Loyalty, not speed</div>
     <p class="small">When more than ${cap} sign up, the squad is the top ${cap} by loyalty score. Signing up first doesn't jump the queue — a regular who signs up late still ranks above a casual. Everyone else goes on the reserves, in loyalty order, and moves up automatically if someone drops out.</p>
-    <div class="section-title">3 · Time-weighted dropout penalty</div>
+    <div class="section-title">3 · Be prompt, or your loyalty counts less</div>
+    <p class="small">Get your name in within <b>${promptH}h</b> of the poll opening and your <b>full</b> loyalty counts for a spot. Leave it later and only <b>${Math.round(lateFactor * 100)}%</b> of your loyalty counts — so a keen early sign-up can leapfrog a regular who's slow off the mark. And signing up promptly earns <b>+${promptBonus}</b> even if you don't get a game${promptBonus ? '' : ' (currently off)'}, so keen players on the reserves steadily climb and eventually break in.</p>
+    <div class="section-title">4 · Time-weighted dropout penalty</div>
     <p class="small">Pulling out early is free — pulling out last-minute costs you, because it's harder to find a replacement. As Tom put it: a day or two's notice is fine, last minute isn't.</p>
     <ul class="penalty-scale">
       ${tiers.map(t => `<li><span>${esc(t.label)}</span><span class="pts ${t.penalty === 0 ? 'free' : ''}">${t.penalty === 0 ? 'no penalty' : '-' + t.penalty}</span></li>`).join('')}
@@ -627,6 +634,7 @@ function rulesScreen() {
       <li><span>Play a game (in the confirmed squad)</span><span class="pts free">+${reward}</span></li>
       ${s.weatherBonus ? `<li><span>…in adverse weather (cold or wet at kickoff)</span><span class="pts free">+${s.weatherBonus}</span></li>` : ''}
       ${s.coldSeasonBonus ? `<li><span>…during the cold season (${coldLabel})</span><span class="pts free">+${s.coldSeasonBonus}</span></li>` : ''}
+      ${promptBonus ? `<li><span>Sign up promptly (within ${promptH}h) but miss out on a spot</span><span class="pts free">+${promptBonus}</span></li>` : ''}
       ${s.lateSignupBonusGames ? `<li><span>Step in to fill a gap (sign up within ${s.lateSignupHours ?? 24}h when the squad's short) &amp; play</span><span class="pts free">+${late}</span></li>` : ''}
       ${tiers.map(t => `<li><span>Withdraw — ${esc(t.label)}</span><span class="pts ${t.penalty === 0 ? 'free' : ''}">${t.penalty === 0 ? '0' : '-' + t.penalty}</span></li>`).join('')}
     </ul>
@@ -1201,7 +1209,7 @@ function lateCoverSection(g) {
   const s = logic.withDefaults(state.config).scoring;
   const each = (s.playedReward || 0) * (s.lateSignupBonusGames || 0);
   if (!each) return '';
-  const auto = logic.lateSignupAwards(lastRaw.signups, lastRaw.playersById, state.config, g.kickoffAt, g.capacity);
+  const auto = logic.lateSignupAwards(lastRaw.signups, lastRaw.playersById, state.config, g.kickoffAt, g.capacity, g.createdAt);
   const rows = (g.confirmed || []).map(r => {
     const on = auto[r.playerId] != null;
     return `<label class="late-row"><input type="checkbox" id="late-${r.playerId}"${on ? ' checked' : ''} /><span class="late-name">${esc(r.name)}</span>${on ? '<span class="late-auto">auto</span>' : ''}</label>`;
@@ -1371,7 +1379,7 @@ function adminScreen() {
     ${accountsCard()}
     <div class="card">
       <h2>Recalculate loyalty</h2>
-      <p class="hint">Rebuild everyone's loyalty from the full match history, applying the played reward plus the weather (cold/wet) and cold-season bonuses to every past game. It fetches the weather for each game and freezes it onto the record. Use this after importing history or changing the bonus values. Replaces current loyalty totals.</p>
+      <p class="hint">Rebuild everyone's loyalty from the full match history, applying the played reward plus the weather (cold/wet) and cold-season bonuses to every past game. It fetches the weather for each game and freezes it onto the record. Use this after importing history or changing the bonus values. Replaces current loyalty totals. <b>Note:</b> it replays the play + weather rewards only — one-off manual nudges, prompt-reserve and late-cover bonuses aren't re-derived, so accumulated reserve bonuses will reset.</p>
       <button class="btn-primary" id="recalcBtn" onclick="recalcLoyalty()">Recalculate loyalty from history</button>
     </div>
     ${ratingsCard()}
@@ -1418,6 +1426,11 @@ function adminScreen() {
       <label class="field">Bonus for adverse weather (cold/wet)</label><input id="cWx" type="number" value="${state.config.scoring.weatherBonus ?? 1}" />
       <label class="field">Bonus for the cold season</label><input id="cCold" type="number" value="${state.config.scoring.coldSeasonBonus ?? 1}" />
       <label class="field">Last-minute sign-up bonus (× games' reward)</label><input id="cLate" type="number" value="${state.config.scoring.lateSignupBonusGames ?? 4}" />
+      <div class="section-title">Prompt sign-up (getting keen players up)</div>
+      <p class="hint" style="margin-top:-2px">Sign up within the window below of the poll opening and your full loyalty counts for a squad spot; sign up later and it counts at the fraction below — so keen early birds can leapfrog a slow regular. Prompt sign-ups who miss out on a spot bank the bonus, so they climb over time.</p>
+      <label class="field">Hours to count as a prompt sign-up</label><input id="cPromptH" type="number" min="0" value="${state.config.promptHours ?? 24}" />
+      <label class="field">Fraction a late sign-up's loyalty counts (0.5 = half)</label><input id="cLateFactor" type="number" min="0" max="1" step="0.05" value="${state.config.lateLoyaltyFactor ?? 0.5}" />
+      <label class="field">Bonus for a prompt sign-up who doesn't get a game</label><input id="cPrompt" type="number" min="0" step="0.5" value="${state.config.scoring.promptBonus ?? 1}" />
       <label class="field">Your email (for the auto-close squad alert)</label><input id="cOrg" type="email" value="${esc(state.config.organiserEmail || '')}" placeholder="you@email.com" />
       <label class="field">New admin PIN (leave blank to keep)</label><input id="cPin" type="password" inputmode="numeric" placeholder="••••" />
       <label class="field">Statto PIN — for the stats-keeper (leave blank to keep)</label><input id="cStatto" type="password" inputmode="numeric" placeholder="••••" />
@@ -2165,12 +2178,15 @@ window.saveConfig = async () => {
     announceGraceMinutes: Number(document.getElementById('cGrace').value),
     lineupHoursBefore: Number(document.getElementById('cLineupH').value),
     pitchCost: Number(document.getElementById('cPitchCost').value),
+    promptHours: Number(document.getElementById('cPromptH').value),
+    lateLoyaltyFactor: Number(document.getElementById('cLateFactor').value),
     capacity: Number(document.getElementById('cCap').value),
     organiserEmail: document.getElementById('cOrg').value.trim(),
     scoring: {
       playedReward: Number(document.getElementById('cReward').value),
       weatherBonus: Number(document.getElementById('cWx').value),
       coldSeasonBonus: Number(document.getElementById('cCold').value),
+      promptBonus: Number(document.getElementById('cPrompt').value),
       lateSignupBonusGames: Number(document.getElementById('cLate').value)
     }
   };

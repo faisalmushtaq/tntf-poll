@@ -18,6 +18,8 @@ also exported as the PWA/app icon.
 |---|---|
 | The poll appears at random times; people on the pitch or driving miss out | The organiser opens the game at a **consistent time**; there's a real window, not a race. |
 | First-come-first-served rewards fast tappers, not regulars | When oversubscribed, the squad is the **top N by loyalty score**, not sign-up order. A regular who signs up late still ranks above a casual. |
+| High-loyalty regulars can coast and sign up whenever | **Be prompt or your loyalty counts less**: sign up within 24h of the poll opening and your full loyalty counts; later and it counts half — so keen early birds can leapfrog a slow regular. |
+| Keen newcomers never break in | Prompt sign-ups who miss the squad **bank a small bonus** each week, so they steadily climb and eventually get a game. |
 | No reward for turning up regularly | **+2 loyalty** every game you play. |
 | Late dropouts go unpunished | **Time-weighted penalty**: free before 5pm Monday, scaling to −10 in the last 3 hours (Tom's point). Shown before you confirm. |
 | Chasing people who already know they're out | One-tap **Can't make it this week** — a no-penalty opt-out that shows on the list, so nobody gets pestered. |
@@ -331,9 +333,10 @@ guide. (Files whose names start with `_` are docs, never treated as a game.)
 ## The loyalty model (editable in Settings)
 - **Play a game:** `+2`.
 - **Bad conditions:** `+1` adverse weather (cold/wet) · `+1` cold season (Nov–Mar) — stack on top of playing.
+- **Prompt sign-up (miss out on a spot):** `+1` for signing up within the prompt window (default 24h of the poll opening) when you don't make the squad — so keen reserves climb toward a game.
 - **Step in to fill a gap:** signing up within 24h of kickoff **and playing** is worth `4 games` (`+8`) — but only when the squad was short of players who signed up in good time (capped at the number of gaps). No reward for just signing up late to a full squad.
 - **Withdraw:** `before 5pm Mon` free · `after 5pm Mon` −3 · `within 12h (from 8am)` −5 · `within 6h` −8 · `within 3h / no-show` −10. (Editable in Settings; times shown assume the Tue 8pm game.)
-- **Selection:** active sign-ups by loyalty (desc), ties broken by sign-up time. Top `capacity` confirmed, rest reserves.
+- **Selection:** active sign-ups by **effective** loyalty (desc), ties broken by sign-up time. Effective loyalty = your full score if you signed up within the prompt window (default 24h of the poll opening), else half — so a slow regular can be leapfrogged by a keen early bird. Top `capacity` confirmed, rest reserves.
 - **Table order:** by loyalty; ties broken by lowest win %, then fewest goals, then name.
 - **Result:** the organiser enters the final score when marking a game as played (editable, along with the teams, right up until confirming); it's stored on the match record and drives win/loss analytics.
 

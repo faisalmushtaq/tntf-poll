@@ -17,11 +17,14 @@ export const DEFAULT_CONFIG = {
   announceGraceMinutes: 60, // review window before most announcement emails auto-send
   lineupHoursBefore: 2,     // the line-up email auto-sends this many hours before kickoff
   pitchCost: 113,           // total £ to hire the pitch; split across the squad for per-player cost
+  promptHours: 24,         // sign up within this long of the poll opening → full loyalty counts…
+  lateLoyaltyFactor: 0.5,  // …sign up after that and your loyalty counts this fraction for a spot
   organiserEmail: '',      // where the auto-close squad alert is sent
   scoring: {
     playedReward: 2,       // loyalty gained for turning up
     weatherBonus: 1,       // extra loyalty when the game is cold/wet (adverse)
     coldSeasonBonus: 1,    // extra loyalty for playing in the cold-season months
+    promptBonus: 1,        // loyalty for a prompt sign-up who doesn't make the squad (keen reserves climb)
     coldMonths: [10, 11, 0, 1, 2], // Nov–Mar (0-indexed) count as cold season
     lateSignupBonusGames: 4, // stepping in late (see lateSignupHours) is worth this many games' reward
     lateSignupHours: 24,     // "last minute" = signed up within this many hours of kickoff
@@ -147,7 +150,7 @@ export function isLateSignup(config = {}, joinedAt, kickoffAt) {
 // number of bonuses is capped at the number of gaps (capacity minus the count
 // of non-late active sign-ups), handed to the highest-ranked late sign-ups.
 // Returns { [playerId]: loyaltyAmount }.
-export function lateSignupAwards(signups = [], playersById = {}, config = {}, kickoffAt, capacity = 14) {
+export function lateSignupAwards(signups = [], playersById = {}, config = {}, kickoffAt, capacity = 14, pollOpenAt = null) {
   const s = withDefaults(config).scoring;
   const games = s.lateSignupBonusGames || 0;
   const perAward = s.playedReward * games;
@@ -157,7 +160,7 @@ export function lateSignupAwards(signups = [], playersById = {}, config = {}, ki
   const nonLate = active.filter(su => !isLateSignup(config, su.joinedAt, kickoffAt)).length;
   let gaps = Math.max(0, capacity - nonLate);
   if (gaps <= 0) return out;
-  for (const r of rankSignups(active, playersById, capacity)) {
+  for (const r of rankSignups(active, playersById, capacity, { pollOpenAt, config })) {
     if (r.status !== 'confirmed' || gaps <= 0) break;
     if (isLateSignup(config, r.joinedAt, kickoffAt)) { out[r.playerId] = perAward; gaps--; }
   }
@@ -181,18 +184,43 @@ export function penaltyForHours(hours, config = DEFAULT_CONFIG) {
   return tiers[tiers.length - 1];
 }
 
-// The heart of it: rank active sign-ups by loyalty (desc), tie-break by the
-// time they registered. Top `capacity` are confirmed, the rest waitlist.
-// A regular who signs up late still ranks above a casual who got in early —
-// which is what kills the "fastest tapper wins" problem.
-export function rankSignups(signups = [], playersById = {}, capacity = 14) {
+// Was a sign-up "prompt" — made within promptHours of the poll opening?
+export function isPromptSignup(config = {}, joinedAt, pollOpenAt) {
+  if (!pollOpenAt || !joinedAt) return true; // no release time known → treat as prompt
+  const h = withDefaults(config).promptHours ?? 24;
+  return (new Date(joinedAt).getTime() - new Date(pollOpenAt).getTime()) <= h * 3600000;
+}
+
+// The loyalty a sign-up carries into the ranking. Sign up promptly (within
+// promptHours of the poll opening) and your full loyalty counts; sign up later
+// and it counts only `lateLoyaltyFactor` of it — so a keen early sign-up can
+// leapfrog a higher-loyalty regular who's slow off the mark.
+export function effectiveLoyalty(rawLoyalty = 0, joinedAt, pollOpenAt, config = {}) {
+  if (isPromptSignup(config, joinedAt, pollOpenAt)) return rawLoyalty;
+  const f = withDefaults(config).lateLoyaltyFactor;
+  return rawLoyalty * (Number.isFinite(f) ? f : 0.5);
+}
+
+// The heart of it: rank active sign-ups by their *effective* loyalty (desc),
+// tie-break by the time they registered. Top `capacity` are confirmed, the rest
+// waitlist. A regular who signs up in good time still ranks above a casual who
+// got in early — which kills the "fastest tapper wins" problem — but a regular
+// who's slow (past the prompt window) has their loyalty halved, opening the door
+// to keen early birds. Pass opts.pollOpenAt (the poll's release time) + config
+// to enable this; without it, ranking falls back to raw loyalty.
+export function rankSignups(signups = [], playersById = {}, capacity = 14, opts = {}) {
+  const { pollOpenAt = null, config = {} } = opts;
   const active = signups
     .filter(s => s.status !== 'withdrawn' && s.status !== 'out')
-    .map(s => ({ ...s, player: playersById[s.playerId] }))
+    .map(s => {
+      const player = playersById[s.playerId];
+      const eff = pollOpenAt && player ? effectiveLoyalty(player.loyalty, s.joinedAt, pollOpenAt, config) : (player ? player.loyalty : 0);
+      return { ...s, player, eff, prompt: isPromptSignup(config, s.joinedAt, pollOpenAt) };
+    })
     .filter(s => s.player);
 
   active.sort((a, b) => {
-    if (b.player.loyalty !== a.player.loyalty) return b.player.loyalty - a.player.loyalty;
+    if (b.eff !== a.eff) return b.eff - a.eff;
     return new Date(a.joinedAt) - new Date(b.joinedAt);
   });
 
@@ -200,11 +228,27 @@ export function rankSignups(signups = [], playersById = {}, capacity = 14) {
     playerId: s.playerId,
     name: s.player.name,
     loyalty: s.player.loyalty,
+    effLoyalty: s.eff,
+    prompt: s.prompt,
     gamesPlayed: s.player.gamesPlayed || 0,
     joinedAt: s.joinedAt,
     rank: i + 1,
     status: i < capacity ? 'confirmed' : 'waitlist'
   }));
+}
+
+// The "prompt sign-up" bonus: loyalty for players who signed up promptly but
+// didn't make the squad, so keen reserves accumulate points and eventually get
+// a game. Returns { [playerId]: loyaltyAmount }. Players who play get the normal
+// played reward instead; this is only for prompt reserves.
+export function promptSignupAwards(signups = [], playersById = {}, config = {}, pollOpenAt = null, capacity = 14) {
+  const bonus = Number(withDefaults(config).scoring.promptBonus) || 0;
+  const out = {};
+  if (!bonus) return out;
+  for (const r of rankSignups(signups, playersById, capacity, { pollOpenAt, config })) {
+    if (r.status === 'waitlist' && r.prompt) out[r.playerId] = bonus;
+  }
+  return out;
 }
 
 // Map a ranked list to { playerId: 'confirmed' | 'waitlist' } for diffing.

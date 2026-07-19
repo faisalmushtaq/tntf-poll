@@ -76,6 +76,50 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('next kickoff is in the future', next > from);
 }
 
+// --- prompt window: late sign-ups' loyalty counts half ---------------------
+{
+  const cfg = logic.withDefaults({ promptHours: 24, lateLoyaltyFactor: 0.5 });
+  const open = '2026-07-17T10:00:00Z'; // poll opened Friday 10am
+  const prompt = '2026-07-17T20:00:00Z';        // same day — within 24h
+  const late = '2026-07-19T09:00:00Z';          // Sunday — past 24h
+  ok('within 24h is prompt', logic.isPromptSignup(cfg, prompt, open));
+  ok('past 24h is not prompt', !logic.isPromptSignup(cfg, late, open));
+  ok('exactly 24h still counts', logic.isPromptSignup(cfg, '2026-07-18T10:00:00Z', open));
+  ok('prompt sign-up keeps full loyalty', logic.effectiveLoyalty(20, prompt, open, cfg) === 20);
+  ok('late sign-up loyalty is halved', logic.effectiveLoyalty(20, late, open, cfg) === 10);
+  ok('no release time → full loyalty', logic.effectiveLoyalty(20, late, null, cfg) === 20);
+
+  // ranking: a keen early bird (low loyalty, prompt) leapfrogs a slow regular
+  const players = { reg: { name: 'Reg', loyalty: 20 }, keen: { name: 'Keen', loyalty: 12 } };
+  const signups = [
+    { playerId: 'reg', status: 'in', joinedAt: late },   // regular, slow → 10 effective
+    { playerId: 'keen', status: 'in', joinedAt: prompt }  // keen, prompt → 12 effective
+  ];
+  const ranked = logic.rankSignups(signups, players, 1, { pollOpenAt: open, config: cfg });
+  ok('keen prompt sign-up ranks first', ranked[0].playerId === 'keen' && ranked[0].status === 'confirmed');
+  ok('slow regular drops to reserve', ranked[1].playerId === 'reg' && ranked[1].status === 'waitlist');
+  ok('raw loyalty still reported', ranked[1].loyalty === 20 && ranked[1].effLoyalty === 10);
+  // without the prompt window it's raw loyalty (regular wins)
+  const rawRanked = logic.rankSignups(signups, players, 1);
+  ok('fallback ranks by raw loyalty', rawRanked[0].playerId === 'reg');
+}
+
+// --- prompt bonus: keen reserves accumulate --------------------------------
+{
+  const cfg = logic.withDefaults({ promptHours: 24, scoring: { promptBonus: 1 } });
+  const open = '2026-07-17T10:00:00Z';
+  const players = { a: { loyalty: 30 }, b: { loyalty: 5 }, c: { loyalty: 4 } };
+  const signups = [
+    { playerId: 'a', status: 'in', joinedAt: '2026-07-17T11:00:00Z' }, // plays
+    { playerId: 'b', status: 'in', joinedAt: '2026-07-17T12:00:00Z' }, // prompt reserve
+    { playerId: 'c', status: 'in', joinedAt: '2026-07-19T12:00:00Z' }  // late reserve
+  ];
+  const awards = logic.promptSignupAwards(signups, players, cfg, open, 1);
+  ok('prompt reserve gets the bonus', awards.b === 1);
+  ok('player who made the squad gets no prompt bonus', !('a' in awards));
+  ok('late reserve gets no prompt bonus', !('c' in awards));
+}
+
 // --- auto-open: most-recent weekly moment ----------------------------------
 {
   // Saturday 18 Jul 2026, 14:00 — most recent Friday 10:00 is the day before.

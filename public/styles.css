@@ -181,6 +181,7 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .lu-num { font-weight: 500; color: var(--muted); width: 20px; text-align: right; font-variant-numeric: tabular-nums; font-size: 15px; flex: none; }
 .lu-name { flex: 1; font-size: 16px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lu-name .you { color: var(--muted); font-size: 13px; }
+.lu-half { display: inline-block; margin-left: 6px; color: var(--danger); font-size: 12px; font-weight: 600; border: 1px solid #cda99e; border-radius: 4px; padding: 0 4px; vertical-align: middle; }
 .lu-badge { font-size: 13px; font-weight: 500; color: var(--muted); min-width: 26px; text-align: right; }
 .lu-badge.amber { color: var(--amber); }
 
