@@ -60,18 +60,26 @@ function assemble(config, playersById, game, signups, announcement) {
 }
 
 // Stage a line-up announcement to the players who are on the team sheet, with
-// each side's names resolved for the message. Used by both backends.
-function buildLineupAnnouncement(game, playersById, config) {
+// each side's names resolved for the message. Auto-sends a set time before
+// kickoff. Used by both backends. `prev` (the current announcement) lets a
+// re-publish keep the organiser's recipient tweaks instead of resetting them.
+function buildLineupAnnouncement(game, playersById, config, prev = null, reserves = []) {
   const nameOf = id => (playersById[id] && playersById[id].name) || 'Player';
   const teams = game.teams || { bibs: [], nonbibs: [] };
   const bibIds = teams.bibs || [], nonbibIds = teams.nonbibs || [];
   const playingIds = [...new Set([...bibIds, ...nonbibIds])];
   const recipients = playingIds.map(id => playersById[id]).filter(Boolean);
-  return logic.buildAnnouncement('lineup', {
-    game: { id: game.id, dateLabel: game.dateLabel, kickoffAt: game.kickoffAt, venue: game.venue },
+  const ann = logic.buildAnnouncement('lineup', {
+    game: { id: game.id, dateLabel: game.dateLabel, kickoffAt: game.kickoffAt, venue: game.venue, capacity: game.capacity },
     recipients, config,
-    teams: { bibs: bibIds.map(nameOf), nonbibs: nonbibIds.map(nameOf) }
+    teams: { bibs: bibIds.map(nameOf), nonbibs: nonbibIds.map(nameOf) },
+    reserves
   });
+  // Re-publishing refreshes the teams but keeps who the organiser deselected.
+  if (prev && prev.kind === 'lineup' && prev.gameId === game.id && Array.isArray(prev.excludedIds)) {
+    ann.excludedIds = prev.excludedIds.filter(id => playingIds.includes(id));
+  }
+  return ann;
 }
 
 export async function createDB() {
@@ -162,7 +170,14 @@ function createLocalDB() {
     async saveLineup(gameId, teams, finalised) {
       const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
       g.teams = { bibs: teams.bibs || [], nonbibs: teams.nonbibs || [] };
-      g.teamsFinalised = !!finalised; persist();
+      g.teamsFinalised = !!finalised;
+      // Publishing (re)stages the line-up announcement to auto-send before kickoff.
+      if (finalised) {
+        const ranked = logic.rankSignups(g.signups, db.players, g.capacity);
+        const reserves = ranked.filter(r => r.status === 'waitlist').map(r => r.name);
+        db.announcement = buildLineupAnnouncement(g, db.players, db.config, db.announcement, reserves);
+      }
+      persist();
     },
     async mergePlayers(keepId, dropId) {
       if (keepId === dropId) return;
@@ -197,7 +212,7 @@ function createLocalDB() {
     },
     async announceLineup(id) {
       const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
-      db.announcement = buildLineupAnnouncement(g, db.players, db.config);
+      db.announcement = buildLineupAnnouncement(g, db.players, db.config, db.announcement);
       persist();
     },
     async signup(playerId, gameId) {
@@ -487,7 +502,15 @@ async function createFirestoreDB() {
     },
     async setPlayerAttrs(id, attrs) { await setDoc(doc(playersCol, id), { attrs }, { merge: true }); },
     async saveLineup(gameId, teams, finalised) {
-      await updateDoc(gameRef(gameId), { teams: { bibs: teams.bibs || [], nonbibs: teams.nonbibs || [] }, teamsFinalised: !!finalised });
+      const t = { bibs: teams.bibs || [], nonbibs: teams.nonbibs || [] };
+      await updateDoc(gameRef(gameId), { teams: t, teamsFinalised: !!finalised });
+      // Publishing (re)stages the line-up announcement to auto-send before kickoff.
+      if (finalised) {
+        const g = { ...(cache.game || {}), id: gameId, teams: t };
+        const ranked = logic.rankSignups(cache.signups, cache.players, g.capacity);
+        const reserves = ranked.filter(r => r.status === 'waitlist').map(r => r.name);
+        await setDoc(announceRef, buildLineupAnnouncement(g, cache.players, cfg(), cache.announcement, reserves));
+      }
     },
     async mergePlayers(keepId, dropId) {
       if (keepId === dropId) return;
@@ -591,7 +614,7 @@ async function createFirestoreDB() {
     },
     async announceLineup(id) {
       const g = cache.game && cache.game.id === id ? cache.game : { ...(cache.game || {}), id };
-      await setDoc(announceRef, buildLineupAnnouncement(g, cache.players, cfg()));
+      await setDoc(announceRef, buildLineupAnnouncement(g, cache.players, cfg(), cache.announcement));
     },
     async reopenGame(id) { await updateDoc(gameRef(id), { status: 'open' }); },
     async completeGame(id, opts = {}) {

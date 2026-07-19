@@ -1190,8 +1190,7 @@ function lineupBuilderCard(g) {
       <button class="btn-ghost" onclick="saveLineup(false)">Save draft</button>
       <button class="btn-primary" onclick="saveLineup(true)">Publish to This Week</button>
     </div>
-    ${g.teamsFinalised ? `<button class="btn-ghost mt" onclick="announceLineup('${g.id}')">📣 Email the line-up to the squad</button>
-      <p class="small" style="margin-top:6px">Stages a line-up announcement for review — you approve who it goes to before it sends.</p>` : ''}
+    <p class="small" style="margin-top:8px">Publishing also updates the line-up announcement above — it auto-sends ${state.config.lineupHoursBefore ?? 2} hours before kick-off (unless you send or hold it), and the WhatsApp picture reflects whatever you last published.</p>
   </div>`;
 }
 
@@ -1216,14 +1215,15 @@ function lateCoverSection(g) {
 // the line-up), awaiting the organiser's review before it emails/pushes the
 // group. Shows the message, who it's going to (deselect anyone), a countdown to
 // auto-send, and Send-now / Hold buttons.
-function announceCard() {
-  const a = state.announcement;
+function announceCard(a) {
   if (!a || a.status !== 'pending') return '';
+  const isLineup = a.kind === 'lineup';
 
   const excluded = new Set(a.excludedIds || []);
   const recipients = (a.recipients || []).map(r => ({ ...r, on: !excluded.has(r.id) }));
   const going = recipients.filter(r => r.on).length;
   const ready = logic.announcementReady(a, new Date());
+  const empty = going === 0;
 
   const rows = recipients.map(r => `
     <label class="ann-row">
@@ -1232,32 +1232,54 @@ function announceCard() {
       <span class="ann-contact">${r.email ? esc(r.email) : 'push / in-app only'}</span>
     </label>`).join('');
 
-  const when = new Date(a.sendAfter);
-  const mins = Math.round((when.getTime() - Date.now()) / 60000);
-  const countdown = ready
-    ? 'Going out on the next check (within a few minutes)…'
-    : `Auto-sends in <b>${mins < 1 ? 'under a minute' : mins === 1 ? '1 minute' : `${mins} minutes`}</b> unless you send or hold it.`;
+  let countdown;
+  if (ready) {
+    countdown = 'Going out on the next check (within a few minutes)…';
+  } else if (isLineup) {
+    const lead = state.config.lineupHoursBefore ?? 2;
+    const sendTime = new Date(a.sendAfter).toLocaleString('en-GB', { weekday: 'long', hour: '2-digit', minute: '2-digit' });
+    countdown = `Auto-sends <b>${lead === 1 ? '1 hour' : `${lead} hours`}</b> before kick-off (around ${sendTime}) unless you send or hold it.`;
+  } else {
+    const mins = Math.round((new Date(a.sendAfter).getTime() - Date.now()) / 60000);
+    countdown = `Auto-sends in <b>${mins < 1 ? 'under a minute' : mins === 1 ? '1 minute' : `${mins} minutes`}</b> unless you send or hold it.`;
+  }
 
   const content = logic.announcementContent(a, state.config.clubName);
-  const preview = content.paragraphs.map(p => `<p>${esc(p)}</p>`).join('');
-  const empty = going === 0;
+  let previewBody;
+  if (isLineup) {
+    const teams = a.teams || { bibs: [], nonbibs: [] };
+    const col = (cls, label, names) => `<div class="lu-col2"><div class="lu-h2">${bibIcon(cls)}<span>${label}</span></div>${(names || []).map((n, i) => `<div class="lu-nm">${i + 1}. ${esc(n)}</div>`).join('') || '<div class="lu-nm empty">—</div>'}</div>`;
+    const reserves = a.reserves || [];
+    const reservesBlock = reserves.length
+      ? `<div class="lu-reserves"><div class="lu-h2">Reserves</div>${reserves.map((n, i) => `<div class="lu-nm">${i + 1}. ${esc(n)}</div>`).join('')}</div>`
+      : '';
+    const per = logic.perPlayerCost(a);
+    const costBlock = per ? `<p class="ann-cost">💷 £${per.toFixed(2)} each this week — pitch is £${Number(a.pitchCost).toFixed(2)} split ${a.capacity} ways.</p>` : '';
+    previewBody = `<div class="ann-teams">${col('bibs', 'Bibs', teams.bibs)}${col('nonbibs', 'Non-bibs', teams.nonbibs)}</div>
+      ${reservesBlock}${costBlock}
+      <p class="ann-note">Goes out as it stands now — it also tells everyone there may be late changes, so check the app.</p>`;
+  } else {
+    previewBody = content.paragraphs.map(p => `<p>${esc(p)}</p>`).join('');
+  }
 
   return `<div class="card ann-card">
-      <h2>📣 Announcement — review before it sends</h2>
+      <h2>📣 ${isLineup ? 'Line-up announcement' : 'Announcement'} — review before it sends</h2>
       <p class="hint" style="margin-top:-2px">${countdown}</p>
       <div class="ann-preview">
         <div class="ann-h">${esc(content.heading)}</div>
-        ${preview}
+        ${previewBody}
       </div>
-      <div class="section-title">Going to ${going} of ${recipients.length}</div>
-      <p class="hint" style="margin-top:-2px">Untick anyone you don't want this to reach.</p>
-      <div class="ann-list">${rows}</div>
+      <details class="ann-details">
+        <summary>Going to ${going} of ${recipients.length} — tap to choose who</summary>
+        <p class="hint" style="margin:10px 0 0">Untick anyone you don't want this to reach.</p>
+        <div class="ann-list">${rows}</div>
+      </details>
       <div class="btn-row mt">
         <button class="btn-primary" ${ready || empty ? 'disabled' : ''} onclick="announceSendNow()">Send now</button>
         <button class="btn-danger" onclick="announceCancel()">Hold — don't send</button>
       </div>
-      <button class="btn-ghost mt" onclick="shareAnnouncement()">Share to WhatsApp${a.kind === 'lineup' ? ' (with the line-up picture)' : ''}</button>
-      <p class="small" style="margin-top:6px">Opens WhatsApp with the message${a.kind === 'lineup' ? ' and a line-up image' : ''} ready — pick the group and send. Doesn't affect the email above.</p>
+      <button class="btn-ghost mt" onclick="shareAnnouncement()">Share to WhatsApp${isLineup ? ' (with the line-up picture)' : ''}</button>
+      <p class="small" style="margin-top:6px">Opens WhatsApp with the message${isLineup ? ' and a line-up image' : ''} ready — pick the group and send. Doesn't affect the email above.</p>
     </div>`;
 }
 
@@ -1340,9 +1362,12 @@ function adminScreen() {
 
   const mergeOptions = state.roster.map(p => `<option value="${p.id}">${esc(p.name)} (${p.gamesPlayed})</option>`).join('');
 
-  return `${announceCard()}
+  const pendingAnn = (state.announcement && state.announcement.status === 'pending') ? state.announcement : null;
+  const lineupAnn = pendingAnn && pendingAnn.kind === 'lineup' ? pendingAnn : null;
+  const otherAnn = pendingAnn && pendingAnn.kind !== 'lineup' ? pendingAnn : null;
+  return `${announceCard(otherAnn)}
     ${gameCard}
-    ${g ? lineupBuilderCard(g) : ''}
+    ${g ? `${announceCard(lineupAnn)}${lineupBuilderCard(g)}` : ''}
     ${accountsCard()}
     <div class="card">
       <h2>Recalculate loyalty</h2>
@@ -1370,6 +1395,7 @@ function adminScreen() {
       <h2>Settings</h2>
       <label class="field">Club name</label><input id="cName" value="${esc(state.config.clubName)}" />
       <label class="field">Default venue</label><input id="cVenue" value="${esc(state.config.venue && state.config.venue !== 'Pitch 10' ? state.config.venue : 'Pitch 10 - Nou Camp')}" />
+      <label class="field">Pitch cost (£ total, split across the squad)</label><input id="cPitchCost" type="number" min="0" step="0.01" value="${state.config.pitchCost ?? 113}" />
       <label class="field">Pitch location for weather (latitude, longitude)</label>
       <div class="btn-row">
         <input id="cLat" type="number" step="any" value="${state.config.lat ?? ''}" placeholder="e.g. 53.4808" />
@@ -1385,6 +1411,7 @@ function adminScreen() {
         <input id="cOpenTime" value="${esc(state.config.pollOpenTime || '10:00')}" placeholder="HH:MM" />
       </div>
       <label class="field">Minutes to review the announcement before it auto-sends</label><input id="cGrace" type="number" min="0" value="${state.config.announceGraceMinutes ?? 60}" />
+      <label class="field">Hours before kick-off to send the line-up</label><input id="cLineupH" type="number" min="0" step="0.5" value="${state.config.lineupHoursBefore ?? 2}" />
       <p class="small">The robot puts the next poll out at this day and time — as long as last week's result is in. The announcement waits here in Organiser for you to review (who it's going to) and Send or Hold; if untouched it auto-sends after the review window above. The previous poll closes automatically once that game kicks off.</p>
       <label class="field">Default squad size</label><input id="cCap" type="number" value="${state.config.capacity}" />
       <label class="field">Loyalty per game played</label><input id="cReward" type="number" value="${state.config.scoring.playedReward}" />
@@ -2136,6 +2163,8 @@ window.saveConfig = async () => {
     pollOpenDay: document.getElementById('cOpenDay').value,
     pollOpenTime: document.getElementById('cOpenTime').value.trim(),
     announceGraceMinutes: Number(document.getElementById('cGrace').value),
+    lineupHoursBefore: Number(document.getElementById('cLineupH').value),
+    pitchCost: Number(document.getElementById('cPitchCost').value),
     capacity: Number(document.getElementById('cCap').value),
     organiserEmail: document.getElementById('cOrg').value.trim(),
     scoring: {
@@ -2172,13 +2201,6 @@ window.announceCancel = async () => {
   try { await db.updateAnnouncement({ status: 'cancelled', resolvedAt: new Date().toISOString() }); toast('Held — no announcement sent'); }
   catch (e) { toast(e.message, true); }
 };
-window.announceLineup = async (id) => {
-  if (state.announcement && state.announcement.status === 'pending'
-    && !confirm('There is already an announcement waiting to send. Replace it with the line-up?')) return;
-  try { await db.announceLineup(id); render(); toast('Line-up staged — review it below'); }
-  catch (e) { toast(e.message, true); }
-};
-
 // Draw the line-up as a portrait PNG (paper background, serif, two team columns)
 // so it can be shared as an image into WhatsApp. Returns a Blob, or null.
 async function lineupImageBlob(a, config) {
@@ -2207,29 +2229,56 @@ async function lineupImageBlob(a, config) {
 
   // Title + subtitle.
   ctx.textBaseline = 'alphabetic'; ctx.fillStyle = ink; ctx.font = F(600, 58);
-  ctx.fillText(`Line-up — ${a.dateLabel || ''}`.trim(), PAD, headY + 150);
+  ctx.fillText('Line-up', PAD, headY + 150);
   const when = a.kickoffAt ? new Date(a.kickoffAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '';
   const sub = [a.venue, when].filter(Boolean).join(' · ');
   if (sub) { ctx.fillStyle = muted; ctx.font = F(400, 32); ctx.fillText(sub, PAD, headY + 200); }
   // green accent rule
   ctx.fillStyle = green; ctx.fillRect(PAD, headY + 222, 60, 5);
 
-  // Two columns.
+  // Two columns, each headed with its bib icon.
   const colY = headY + 300, colW = (W - PAD * 2 - 40) / 2, lh = 62;
-  const drawCol = (x, label, names) => {
-    ctx.fillStyle = green; ctx.font = F(600, 34);
-    ctx.fillText(label, x, colY);
+  const drawCol = (x, cls, label, names) => {
+    drawBib(ctx, x, colY - 26, 32, cls === 'bibs');
+    ctx.fillStyle = green; ctx.font = F(600, 34); ctx.fillText(label, x + 42, colY);
     ctx.strokeStyle = line; ctx.beginPath(); ctx.moveTo(x, colY + 18); ctx.lineTo(x + colW, colY + 18); ctx.stroke();
     ctx.fillStyle = ink; ctx.font = F(400, 38);
     (names || []).forEach((n, i) => ctx.fillText(`${i + 1}.  ${n}`, x, colY + 70 + i * lh));
   };
-  drawCol(PAD, 'Bibs', teams.bibs);
-  drawCol(PAD + colW + 40, 'Non-bibs', teams.nonbibs);
+  drawCol(PAD, 'bibs', 'Bibs', teams.bibs);
+  drawCol(PAD + colW + 40, 'nonbibs', 'Non-bibs', teams.nonbibs);
 
+  // Reserves (if any) below the longer column.
+  const rows = Math.max((teams.bibs || []).length, (teams.nonbibs || []).length);
+  let y = colY + 70 + rows * lh + 44;
+  if ((a.reserves || []).length) {
+    ctx.fillStyle = green; ctx.font = F(600, 30); ctx.fillText('Reserves', PAD, y);
+    ctx.fillStyle = ink; ctx.font = F(400, 34);
+    ctx.fillText(a.reserves.map((n, i) => `${i + 1}. ${n}`).join('   ·   '), PAD, y + 44);
+    y += 100;
+  }
+
+  // Cost line, then the sign-off.
+  const per = logic.perPlayerCost(a);
+  if (per) {
+    ctx.fillStyle = ink; ctx.font = F(600, 36);
+    ctx.fillText(`£${per.toFixed(2)} each  ·  pitch £${Number(a.pitchCost).toFixed(2)} split ${a.capacity} ways`, PAD, Math.min(y + 10, H - PAD - 70));
+  }
   ctx.fillStyle = muted; ctx.font = F(400, 28);
   ctx.fillText('See you on the pitch ⚽', PAD, H - PAD + 10);
 
   return await new Promise(res => canvas.toBlob(res, 'image/png'));
+}
+// Draw a bib pennant (filled = bibs, outline = non-bibs) matching the app icon.
+function drawBib(ctx, x, y, size, filled) {
+  const s = size / 52;
+  ctx.save();
+  ctx.translate(x, y); ctx.scale(s, s);
+  const p = new Path2D('M16 10 L23 16 L29 16 L36 10 L38 22 V40 H14 V22 Z');
+  if (filled) { ctx.fillStyle = '#3f6146'; ctx.fill(p); }
+  ctx.lineWidth = 1.8; ctx.strokeStyle = '#1c1c1a'; ctx.stroke(p);
+  const c = new Path2D(); c.arc(26, 7, 2.8, 0, Math.PI * 2); ctx.stroke(c);
+  ctx.restore();
 }
 // Draw an image clipped to a rounded square (for the crest).
 function roundedImage(ctx, img, x, y, w, h, r) {

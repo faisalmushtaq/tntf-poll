@@ -95,6 +95,17 @@ body {
 .ann-row input { width: auto; margin: 0; }
 .ann-row .ann-name { font-weight: 500; color: var(--ink); }
 .ann-row .ann-contact { margin-left: auto; color: var(--muted); font-size: 13px; }
+.ann-teams { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.lu-col2 .lu-h2, .lu-reserves .lu-h2 { display: flex; align-items: center; gap: 7px; font-weight: 600; color: var(--green); margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid #cfdccf; }
+.lu-h2 .bib-ico { width: 18px; height: 18px; }
+.lu-nm { padding: 3px 0; color: var(--ink); font-size: 15.5px; }
+.lu-nm.empty { color: var(--muted); }
+.lu-reserves { margin-top: 14px; }
+.ann-cost { margin: 14px 0 0; font-weight: 600; color: var(--ink); font-size: 16px; }
+.ann-note { margin: 12px 0 0; font-size: 13.5px; color: var(--muted); }
+.ann-details { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 6px; }
+.ann-details summary { cursor: pointer; color: var(--muted); font-size: 14px; padding: 8px 0; list-style: revert; }
+.ann-details[open] summary { color: var(--ink); }
 
 /* ---- Buttons (pill — like Alljoined's) ---- */
 button, .btn { font: inherit; font-family: var(--serif); border: none; border-radius: 999px; padding: 14px 22px; font-weight: 500; font-size: 16px; cursor: pointer; width: 100%; transition: transform .06s ease, background .15s, opacity .15s; }
