@@ -95,14 +95,21 @@ first; that's what banks loyalty). The previous poll **closes automatically once
 its game kicks off**. You can still open a game by hand any time.
 
 **You approve every group announcement before it goes out.** Opening a poll,
-**moving** the day/time/venue, **calling off** the week, or emailing the
-**line-up** to the squad doesn't reach anyone straight away — each one stages an
-announcement in **Organiser** for review. You see the exact message and the full
-recipient list, can untick anyone, then **Send now** or **Hold** it. If you don't
-touch it, it **auto-sends once a grace window elapses** (default 60 minutes, set
-in Settings). Per-person "you're in / bumped" alerts still fire instantly. To
-send the line-up: publish the teams in **Team builder**, then **Email the
-line-up to the squad**.
+**moving** the day/time/venue, or **calling off** the week stages an
+announcement in **Organiser** for review. You see the exact message and the
+recipient list (tap to expand and untick anyone), then **Send now** or **Hold**
+it. If you don't touch it, it **auto-sends once a grace window elapses** (default
+60 minutes, set in Settings). Per-person "you're in / bumped" alerts still fire
+instantly.
+
+**The line-up is a special case.** Publishing the teams in **Team builder**
+stages the line-up announcement (the card sits right above the builder and
+updates every time you re-publish). It shows both sides with their bib icons,
+the **reserves** in order, and the **per-player cost** — the total pitch cost
+(set in Settings, default £113) split by the squad size (÷14 for 7-a-side, ÷16
+for 8-a-side). It **auto-sends 2 hours before kick-off** (also configurable)
+unless you send or hold it, and the message says it's the line-up "as it stands
+right now" and to check the app for late changes.
 
 Every review card also has a **Share to WhatsApp** button: it opens WhatsApp
 with the message ready so you can post it into the group in one tap (pick the

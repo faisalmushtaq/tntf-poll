@@ -156,6 +156,25 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   const lc = logic.announcementContent(line, 'TNTF');
   ok('lineup content lists both sides', /Bibs: Al, Bo/.test(lc.paragraphs[1]) && /Non-bibs: Cy/.test(lc.paragraphs[2]));
   ok('lineup subject names the date', /line-up for Tuesday 21 Jul/.test(lc.subject));
+  ok('lineup says "as it stands right now"', /as it stands right now/i.test(lc.paragraphs[0]));
+  ok('lineup forewarns of late changes', lc.paragraphs.some(p => /last-minute changes/i.test(p) && /check the app/i.test(p)));
+  // line-up auto-sends 2h (default) before kickoff, not after a grace window
+  ok('lineup sends 2h before kickoff', new Date(line.sendAfter).getTime() === new Date(game.kickoffAt).getTime() - 2 * 3600000);
+  const line1 = logic.buildAnnouncement('lineup', { game, recipients: roster, config: logic.withDefaults({ lineupHoursBefore: 1 }) }, now);
+  ok('lineup lead time is configurable', new Date(line1.sendAfter).getTime() === new Date(game.kickoffAt).getTime() - 1 * 3600000);
+  ok('lineup heading is just "Line-up"', lc.heading === 'Line-up');
+
+  // reserves + per-player pitch cost
+  const gameCap = { id: 'g9', dateLabel: 'Tue 21', kickoffAt: '2026-07-21T19:00:00Z', venue: 'Pitch 10', capacity: 14 };
+  const withCost = logic.buildAnnouncement('lineup', {
+    game: gameCap, recipients: roster, config: logic.withDefaults({ pitchCost: 113 }),
+    teams: { bibs: ['Al'], nonbibs: ['Bo'] }, reserves: ['Cy', 'Di']
+  }, now);
+  ok('per-player cost is total / squad size', Math.abs(logic.perPlayerCost(withCost) - 113 / 14) < 1e-9);
+  const wc = logic.announcementContent(withCost, 'TNTF');
+  ok('lineup lists reserves in order', wc.paragraphs.some(p => /Reserves: Cy, Di/.test(p)));
+  ok('lineup states the per-player cost', wc.paragraphs.some(p => /£8\.07 each/.test(p) && /£113\.00 split 14 ways/.test(p)));
+  ok('no cost line when pitch cost is zero', !logic.announcementContent(logic.buildAnnouncement('lineup', { game: gameCap, config: logic.withDefaults({ pitchCost: 0 }) }, now), 'TNTF').paragraphs.some(p => /each this week/.test(p)));
 }
 
 // --- past kickoff: registration closes after the game starts ---------------

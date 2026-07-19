@@ -14,7 +14,9 @@ export const DEFAULT_CONFIG = {
   configVersion: 3,        // bump to trigger a one-time config self-heal (see configMigrationPatch)
   pollOpenDay: 'Friday',   // the notifier auto-opens the next poll on this day…
   pollOpenTime: '10:00',   // …at this time (once last week's result is recorded)
-  announceGraceMinutes: 60, // review window before the "poll's open" email auto-sends
+  announceGraceMinutes: 60, // review window before most announcement emails auto-send
+  lineupHoursBefore: 2,     // the line-up email auto-sends this many hours before kickoff
+  pitchCost: 113,           // total £ to hire the pitch; split across the squad for per-player cost
   organiserEmail: '',      // where the auto-close squad alert is sent
   scoring: {
     playedReward: 2,       // loyalty gained for turning up
@@ -455,10 +457,20 @@ export function pastKickoff(game, now = new Date()) {
 // sends early, or holds. If untouched it auto-sends once the grace window
 // elapses. `kind` is one of: 'poll-open' | 'reschedule' | 'cancellation' |
 // 'lineup'. `teams` (line-up only) is { bibs: [names], nonbibs: [names] }.
-export function buildAnnouncement(kind, { game = {}, recipients = [], config = {}, teams = null } = {}, now = new Date()) {
+export function buildAnnouncement(kind, { game = {}, recipients = [], config = {}, teams = null, reserves = [] } = {}, now = new Date()) {
   const c = withDefaults(config);
   const grace = Number(c.announceGraceMinutes);
   const mins = Number.isFinite(grace) && grace >= 0 ? grace : 60;
+  // The line-up goes out a set time before kickoff (default 2h); everything else
+  // after a short review grace window.
+  let sendAfter;
+  if (kind === 'lineup' && game.kickoffAt) {
+    const lead = Number(c.lineupHoursBefore);
+    const h = Number.isFinite(lead) && lead >= 0 ? lead : 2;
+    sendAfter = new Date(new Date(game.kickoffAt).getTime() - h * 3600000).toISOString();
+  } else {
+    sendAfter = new Date(now.getTime() + mins * 60000).toISOString();
+  }
   return {
     kind: kind || 'poll-open',
     gameId: game.id || null,
@@ -466,13 +478,23 @@ export function buildAnnouncement(kind, { game = {}, recipients = [], config = {
     kickoffAt: game.kickoffAt || null,
     venue: game.venue || '',
     teams: teams || null,
+    reserves: reserves || [],
+    capacity: game.capacity ?? null,
+    pitchCost: Number(c.pitchCost) || 0,
     recipients: recipients.map(r => ({ id: r.id, name: r.name, email: r.email || null })),
     excludedIds: [],
     graceMinutes: mins,
-    sendAfter: new Date(now.getTime() + mins * 60000).toISOString(),
+    sendAfter,
     status: 'pending',
     createdAt: now.toISOString()
   };
+}
+
+// Per-player pitch cost for an announcement (total ÷ squad size), or 0.
+export function perPlayerCost(ann = {}) {
+  const cap = Number(ann.capacity) || 0;
+  const total = Number(ann.pitchCost) || 0;
+  return cap > 0 && total > 0 ? total / cap : 0;
 }
 
 // The message for an announcement, by kind. Returns { subject, heading,
@@ -495,8 +517,16 @@ export function announcementContent(ann = {}, clubName = 'the club') {
       const t = ann.teams || {};
       const bibs = (t.bibs || []).join(', ') || '—';
       const nonbibs = (t.nonbibs || []).join(', ') || '—';
-      return { subject: `${clubName} — line-up for ${label}`, heading: `Line-up — ${label}`,
-        paragraphs: [`Here's the line-up for ${label}${at}, kick-off ${when}.`, `Bibs: ${bibs}`, `Non-bibs: ${nonbibs}`] };
+      const paragraphs = [
+        `Here's the line-up as it stands right now — kick-off ${when}${at}.`,
+        `Bibs: ${bibs}`,
+        `Non-bibs: ${nonbibs}`
+      ];
+      if ((ann.reserves || []).length) paragraphs.push(`Reserves: ${ann.reserves.join(', ')}`);
+      const per = perPlayerCost(ann);
+      if (per) paragraphs.push(`It's £${per.toFixed(2)} each this week — the pitch is £${Number(ann.pitchCost).toFixed(2)} split ${ann.capacity} ways.`);
+      paragraphs.push(`There may be a few last-minute changes — check the app for the latest.`);
+      return { subject: `${clubName} — line-up for ${label}`, heading: `Line-up`, paragraphs };
     }
     case 'poll-open':
     default:
