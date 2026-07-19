@@ -104,6 +104,13 @@ in Settings). Per-person "you're in / bumped" alerts still fire instantly. To
 send the line-up: publish the teams in **Team builder**, then **Email the
 line-up to the squad**.
 
+Every review card also has a **Share to WhatsApp** button: it opens WhatsApp
+with the message ready so you can post it into the group in one tap (pick the
+group and send — it doesn't affect the email). For the **line-up** it attaches a
+**picture** of the teams, drawn in the site's style (on a phone the image and
+text share together; on a desktop the image downloads and WhatsApp opens with
+the text to attach).
+
 ---
 
 ## Setup

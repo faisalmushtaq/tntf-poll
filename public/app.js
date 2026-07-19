@@ -1256,6 +1256,8 @@ function announceCard() {
         <button class="btn-primary" ${ready || empty ? 'disabled' : ''} onclick="announceSendNow()">Send now</button>
         <button class="btn-danger" onclick="announceCancel()">Hold — don't send</button>
       </div>
+      <button class="btn-ghost mt" onclick="shareAnnouncement()">Share to WhatsApp${a.kind === 'lineup' ? ' (with the line-up picture)' : ''}</button>
+      <p class="small" style="margin-top:6px">Opens WhatsApp with the message${a.kind === 'lineup' ? ' and a line-up image' : ''} ready — pick the group and send. Doesn't affect the email above.</p>
     </div>`;
 }
 
@@ -2175,6 +2177,101 @@ window.announceLineup = async (id) => {
     && !confirm('There is already an announcement waiting to send. Replace it with the line-up?')) return;
   try { await db.announceLineup(id); render(); toast('Line-up staged — review it below'); }
   catch (e) { toast(e.message, true); }
+};
+
+// Draw the line-up as a portrait PNG (paper background, serif, two team columns)
+// so it can be shared as an image into WhatsApp. Returns a Blob, or null.
+async function lineupImageBlob(a, config) {
+  const teams = a.teams || { bibs: [], nonbibs: [] };
+  const W = 1080, H = 1350, PAD = 80;
+  const paper = '#fbfaf8', ink = '#171614', muted = '#9a9488', green = '#4a795d', line = '#e2ddd1';
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = paper; ctx.fillRect(0, 0, W, H);
+  const F = (w, px) => `${w} ${px}px 'Newsreader', Georgia, serif`;
+  try { await Promise.all([document.fonts.load(F(600, 44)), document.fonts.load(F(500, 40)), document.fonts.load(F(400, 40))]); } catch {}
+
+  // Masthead: crest + club name.
+  let headY = PAD + 10;
+  try {
+    const img = new Image(); img.src = 'icon-192.png'; await img.decode();
+    const s = 66; roundedImage(ctx, img, PAD, headY - 20, s, s, 14);
+    ctx.fillStyle = ink; ctx.font = F(600, 40); ctx.textBaseline = 'middle';
+    ctx.fillText(config.clubName || 'Tuesday Night Total Football', PAD + s + 22, headY + 14);
+  } catch {
+    ctx.fillStyle = ink; ctx.font = F(600, 40); ctx.textBaseline = 'middle';
+    ctx.fillText(config.clubName || 'Tuesday Night Total Football', PAD, headY + 14);
+  }
+  ctx.strokeStyle = line; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(PAD, headY + 62); ctx.lineTo(W - PAD, headY + 62); ctx.stroke();
+
+  // Title + subtitle.
+  ctx.textBaseline = 'alphabetic'; ctx.fillStyle = ink; ctx.font = F(600, 58);
+  ctx.fillText(`Line-up — ${a.dateLabel || ''}`.trim(), PAD, headY + 150);
+  const when = a.kickoffAt ? new Date(a.kickoffAt).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '';
+  const sub = [a.venue, when].filter(Boolean).join(' · ');
+  if (sub) { ctx.fillStyle = muted; ctx.font = F(400, 32); ctx.fillText(sub, PAD, headY + 200); }
+  // green accent rule
+  ctx.fillStyle = green; ctx.fillRect(PAD, headY + 222, 60, 5);
+
+  // Two columns.
+  const colY = headY + 300, colW = (W - PAD * 2 - 40) / 2, lh = 62;
+  const drawCol = (x, label, names) => {
+    ctx.fillStyle = green; ctx.font = F(600, 34);
+    ctx.fillText(label, x, colY);
+    ctx.strokeStyle = line; ctx.beginPath(); ctx.moveTo(x, colY + 18); ctx.lineTo(x + colW, colY + 18); ctx.stroke();
+    ctx.fillStyle = ink; ctx.font = F(400, 38);
+    (names || []).forEach((n, i) => ctx.fillText(`${i + 1}.  ${n}`, x, colY + 70 + i * lh));
+  };
+  drawCol(PAD, 'Bibs', teams.bibs);
+  drawCol(PAD + colW + 40, 'Non-bibs', teams.nonbibs);
+
+  ctx.fillStyle = muted; ctx.font = F(400, 28);
+  ctx.fillText('See you on the pitch ⚽', PAD, H - PAD + 10);
+
+  return await new Promise(res => canvas.toBlob(res, 'image/png'));
+}
+// Draw an image clipped to a rounded square (for the crest).
+function roundedImage(ctx, img, x, y, w, h, r) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  ctx.clip(); ctx.drawImage(img, x, y, w, h); ctx.restore();
+}
+
+// Share the staged announcement to WhatsApp. Text for most kinds; for the
+// line-up it attaches a picture via the native share sheet (mobile), falling
+// back on desktop to downloading the image + opening WhatsApp with the text.
+window.shareAnnouncement = async () => {
+  const a = state.announcement; if (!a) return;
+  const content = logic.announcementContent(a, state.config.clubName);
+  const text = content.paragraphs.join('\n\n');
+  try {
+    let files = [];
+    if (a.kind === 'lineup') {
+      const blob = await lineupImageBlob(a, state.config);
+      if (blob) files = [new File([blob], `lineup-${(a.dateLabel || 'teams').replace(/\W+/g, '-')}.png`, { type: 'image/png' })];
+    }
+    if (files.length && navigator.canShare && navigator.canShare({ files })) {
+      await navigator.share({ files, text });
+      return;
+    }
+    if (files.length) {
+      // Desktop: no file-share — download the picture and open WhatsApp with text.
+      const url = URL.createObjectURL(files[0]);
+      const link = document.createElement('a'); link.href = url; link.download = files[0].name; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+      toast('Line-up image downloaded — attach it in WhatsApp');
+      return;
+    }
+    if (navigator.share) { await navigator.share({ text }); return; }
+    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+  } catch (e) {
+    if (e && e.name === 'AbortError') return; // user dismissed the share sheet
+    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+  }
 };
 
 // foreground push → in-app toast
