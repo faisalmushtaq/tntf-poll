@@ -173,7 +173,7 @@ function createLocalDB() {
       g.teamsFinalised = !!finalised;
       // Publishing (re)stages the line-up announcement to auto-send before kickoff.
       if (finalised) {
-        const ranked = logic.rankSignups(g.signups, db.players, g.capacity);
+        const ranked = logic.rankSignups(g.signups, db.players, g.capacity, { pollOpenAt: g.createdAt, config: db.config });
         const reserves = ranked.filter(r => r.status === 'waitlist').map(r => r.name);
         db.announcement = buildLineupAnnouncement(g, db.players, db.config, db.announcement, reserves);
       }
@@ -276,7 +276,7 @@ function createLocalDB() {
     },
     async completeGame(id, opts = {}) {
       const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
-      const ranked = logic.rankSignups(g.signups, db.players, g.capacity);
+      const ranked = logic.rankSignups(g.signups, db.players, g.capacity, { pollOpenAt: g.createdAt, config: db.config });
       const sc = logic.withDefaults(db.config).scoring;
       const flat = sc.playedReward + (Number(opts.bonus) || 0);
       // Late-cover: an explicit list from the organiser (each gets the full late
@@ -286,11 +286,15 @@ function createLocalDB() {
         const each = (sc.playedReward || 0) * (sc.lateSignupBonusGames || 0);
         awards = {}; for (const pid of opts.lateBonusIds) awards[pid] = each;
       } else {
-        awards = logic.lateSignupAwards(g.signups, db.players, db.config, g.kickoffAt, g.capacity);
+        awards = logic.lateSignupAwards(g.signups, db.players, db.config, g.kickoffAt, g.capacity, g.createdAt);
       }
+      // Prompt reserves (signed up quickly but didn't make the squad) bank a
+      // small bonus so keen players climb toward eventually getting a game.
+      const promptAwards = logic.promptSignupAwards(g.signups, db.players, db.config, g.createdAt, g.capacity);
       for (const r of ranked) if (r.status === 'confirmed') {
         db.players[r.playerId].loyalty += flat + (awards[r.playerId] || 0); db.players[r.playerId].gamesPlayed += 1;
       }
+      for (const [pid, amt] of Object.entries(promptAwards)) if (db.players[pid]) db.players[pid].loyalty += amt;
       g.status = 'completed'; g.completedAt = new Date().toISOString(); g.result = logic.finalResult(ranked);
       if (opts.scores) g.scores = opts.scores;
       if (opts.weather) g.weather = opts.weather;
@@ -507,7 +511,7 @@ async function createFirestoreDB() {
       // Publishing (re)stages the line-up announcement to auto-send before kickoff.
       if (finalised) {
         const g = { ...(cache.game || {}), id: gameId, teams: t };
-        const ranked = logic.rankSignups(cache.signups, cache.players, g.capacity);
+        const ranked = logic.rankSignups(cache.signups, cache.players, g.capacity, { pollOpenAt: g.createdAt, config: cfg() });
         const reserves = ranked.filter(r => r.status === 'waitlist').map(r => r.name);
         await setDoc(announceRef, buildLineupAnnouncement(g, cache.players, cfg(), cache.announcement, reserves));
       }
@@ -619,7 +623,8 @@ async function createFirestoreDB() {
     async reopenGame(id) { await updateDoc(gameRef(id), { status: 'open' }); },
     async completeGame(id, opts = {}) {
       const capacity = cache.game?.capacity || cfg().capacity;
-      const ranked = logic.rankSignups(cache.signups, cache.players, capacity);
+      const pollOpenAt = cache.game?.createdAt || null;
+      const ranked = logic.rankSignups(cache.signups, cache.players, capacity, { pollOpenAt, config: cfg() });
       const sc = cfg().scoring;
       const flat = sc.playedReward + (Number(opts.bonus) || 0);
       let awards;
@@ -627,12 +632,15 @@ async function createFirestoreDB() {
         const each = (sc.playedReward || 0) * (sc.lateSignupBonusGames || 0);
         awards = {}; for (const pid of opts.lateBonusIds) awards[pid] = each;
       } else {
-        awards = logic.lateSignupAwards(cache.signups, cache.players, cache.config, cache.game?.kickoffAt, capacity);
+        awards = logic.lateSignupAwards(cache.signups, cache.players, cache.config, cache.game?.kickoffAt, capacity, pollOpenAt);
       }
+      // Prompt reserves bank a small bonus so keen players climb over time.
+      const promptAwards = logic.promptSignupAwards(cache.signups, cache.players, cache.config, pollOpenAt, capacity);
       const batch = writeBatch(dbf);
       for (const r of ranked) if (r.status === 'confirmed') {
         batch.update(doc(playersCol, r.playerId), { loyalty: increment(flat + (awards[r.playerId] || 0)), gamesPlayed: increment(1) });
       }
+      for (const [pid, amt] of Object.entries(promptAwards)) batch.update(doc(playersCol, pid), { loyalty: increment(amt) });
       const gamePatch = { status: 'completed', completedAt: new Date().toISOString(), result: logic.finalResult(ranked) };
       if (opts.scores) gamePatch.scores = opts.scores;
       if (opts.weather) gamePatch.weather = opts.weather;

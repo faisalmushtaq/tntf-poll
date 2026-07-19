@@ -164,7 +164,7 @@ async function main() {
 
   const susSnap = await db.collection(`games/${gameId}/signups`).get();
   const signups = susSnap.docs.map(d => ({ playerId: d.id, ...d.data() }));
-  const ranked = logic.rankSignups(signups, players, game.capacity);
+  const ranked = logic.rankSignups(signups, players, game.capacity, { pollOpenAt: game.createdAt, config });
   const curr = logic.statusMap(ranked);
 
   const events = [];
