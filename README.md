@@ -187,11 +187,55 @@ in **Settings → Secrets and variables → Actions**:
 | `SMTP_HOST`,`SMTP_PORT`,`SMTP_USER`,`SMTP_PASS`,`MAIL_FROM` | any SMTP account (e.g. a Gmail address + an [app password](https://support.google.com/accounts/answer/185833)) | email only |
 
 Push needs only the service account (Firebase Cloud Messaging is free). Email
-needs the SMTP secrets — **to send the "poll's open" announcement emails you
-must set `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`MAIL_FROM`** (a Gmail
-address + app password works). Set up either or both. The same Action also
-opens the weekly poll on schedule, so leaving it on is what makes auto-open
-work.
+needs the SMTP secrets. Set up either or both. The same Action also opens the
+weekly poll on schedule, so leaving it on is what makes auto-open work.
+(WhatsApp sharing needs none of this — it's a one-tap Share button in the app.)
+
+#### Setting up email (SMTP)
+
+The notifier speaks plain SMTP, so any provider works — you just fill in the
+same five secrets. Two good options:
+
+**Option A — Gmail + app password (quickest, no domain needed).** Fine to start
+with; it sends from your own Gmail.
+1. Turn on **2-Step Verification** on your Google account (required for app
+   passwords): [myaccount.google.com/security](https://myaccount.google.com/security).
+2. Create an app password: [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+   → name it "TNTF" → copy the 16-character code.
+3. Set the secrets:
+
+   | Secret | Value |
+   |---|---|
+   | `SMTP_HOST` | `smtp.gmail.com` |
+   | `SMTP_PORT` | `465` |
+   | `SMTP_USER` | your full Gmail address |
+   | `SMTP_PASS` | the 16-char app password (no spaces) |
+   | `MAIL_FROM` | your Gmail address |
+
+   The app password doesn't expire on a timer — it keeps working until you
+   change your Google password, turn off 2FA, or revoke it. Cap is ~500
+   emails/day (far more than this group needs). Downside: mail is from your
+   personal inbox and can occasionally land in spam.
+
+**Option B — Resend (set-and-forget, better deliverability).** An API key that
+never needs re-auth; not tied to your personal inbox. Free tier is 3,000
+emails/month.
+1. Sign up at [resend.com](https://resend.com) and (ideally) verify a domain you
+   own — or use their test sender to trial it.
+2. **API Keys → Create** → copy the key.
+3. Resend → **SMTP** shows the settings; use them as the secrets:
+
+   | Secret | Value |
+   |---|---|
+   | `SMTP_HOST` | `smtp.resend.com` |
+   | `SMTP_PORT` | `465` |
+   | `SMTP_USER` | `resend` |
+   | `SMTP_PASS` | your Resend API key |
+   | `MAIL_FROM` | an address on your verified domain, e.g. `poll@yourclub.com` |
+
+Switching from A to B later is just changing these five secret values — no code
+change, no redeploy. Other SMTP providers (Brevo, SendGrid, Amazon SES) work the
+same way.
 
 ### 6. First run
 - Open the app → **Organiser** → unlock with your organiser PIN → set/rotate it (and the Statto PIN) any time in **Settings**.
