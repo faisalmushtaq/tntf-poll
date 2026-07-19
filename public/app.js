@@ -35,6 +35,8 @@ let pendingName = null;   // name typed on account creation, used to name the ro
 let tableSort = { key: 'loyalty', dir: 'desc' }; // League-table sort column + direction
 let perfSort = { key: 'g', dir: 'desc' };        // Performances-table sort column + direction
 let adminUnlocked = false;
+let adminTab = 'week';         // organiser sub-nav: week | matches | players | settings
+let adminMatchId = null;       // which past match the organiser is editing (matches tab)
 let pendingAction = null;      // 'in' | 'out' — two-tap confirm for sign-up / withdraw
 let stattoUnlocked = false;    // stats-keeper role unlocked this session?
 let stattoGameId = null;       // which game the statto is editing
@@ -1373,69 +1375,154 @@ function adminScreen() {
   const pendingAnn = (state.announcement && state.announcement.status === 'pending') ? state.announcement : null;
   const lineupAnn = pendingAnn && pendingAnn.kind === 'lineup' ? pendingAnn : null;
   const otherAnn = pendingAnn && pendingAnn.kind !== 'lineup' ? pendingAnn : null;
-  return `${announceCard(otherAnn)}
+
+  // --- tab bodies ---
+  const weekTab = `${announceCard(otherAnn)}
     ${gameCard}
-    ${g ? `${announceCard(lineupAnn)}${lineupBuilderCard(g)}` : ''}
-    ${accountsCard()}
-    <div class="card">
-      <h2>Recalculate loyalty</h2>
-      <p class="hint">Rebuild everyone's loyalty from the full match history, applying the played reward plus the weather (cold/wet) and cold-season bonuses to every past game. It fetches the weather for each game and freezes it onto the record. Use this after importing history or changing the bonus values. Replaces current loyalty totals. <b>Note:</b> it replays the play + weather rewards only — one-off manual nudges, prompt-reserve and late-cover bonuses aren't re-derived, so accumulated reserve bonuses will reset.</p>
-      <button class="btn-primary" id="recalcBtn" onclick="recalcLoyalty()">Recalculate loyalty from history</button>
-    </div>
-    ${ratingsCard()}
-    <div class="card">
+    ${g ? `${announceCard(lineupAnn)}${lineupBuilderCard(g)}` : ''}`;
+
+  const playersTab = `<div class="card">
       <h2>Roster</h2>
       <p class="hint">Edit a name (✎), nudge loyalty (＋/－), or remove a player (🗑). Deleting also removes them from past game records.</p>
       ${roster}
       <label class="field mt">Add a player</label><input id="newPlayer" placeholder="Name" />
       <button class="btn-ghost" onclick="addPlayer()">Add to roster</button>
     </div>
-    <div class="card">
-      <h2>Merge duplicates</h2>
+    ${accountsCard()}
+    ${ratingsCard()}
+    <details class="card fold">
+      <summary><h2>Merge duplicates</h2></summary>
       <p class="hint">Two entries for the same person (e.g. a name-only history record + their sign-in)? Merge them: all history and loyalty move onto the one you keep, the other is removed.</p>
       <label class="field">Keep this player</label>
       <select id="mergeKeep"><option value="">— keep —</option>${mergeOptions}</select>
       <label class="field">Merge & remove this one</label>
       <select id="mergeDrop"><option value="">— remove —</option>${mergeOptions}</select>
       <button class="btn-warn mt" onclick="mergePlayers()">Merge profiles</button>
-    </div>
-    <div class="card">
+    </details>`;
+
+  const settingsTab = `<div class="card">
       <h2>Settings</h2>
+      <p class="hint">The essentials up top; the bits you rarely touch are tucked into the sections below.</p>
       <label class="field">Club name</label><input id="cName" value="${esc(state.config.clubName)}" />
       <label class="field">Default venue</label><input id="cVenue" value="${esc(state.config.venue && state.config.venue !== 'Pitch 10' ? state.config.venue : 'Pitch 10 - Nou Camp')}" />
       <label class="field">Pitch cost (£ total, split across the squad)</label><input id="cPitchCost" type="number" min="0" step="0.01" value="${state.config.pitchCost ?? 113}" />
-      <label class="field">Pitch location for weather (latitude, longitude)</label>
-      <div class="btn-row">
-        <input id="cLat" type="number" step="any" value="${state.config.lat ?? ''}" placeholder="e.g. 53.4808" />
-        <input id="cLon" type="number" step="any" value="${state.config.lon ?? ''}" placeholder="e.g. -2.2426" />
-      </div>
-      <p class="small">Find the pitch on Google Maps, right-click it → the numbers at the top are latitude, longitude. Leave blank to hide weather. Free, no API key (Open-Meteo).</p>
+      <label class="field">Default squad size</label><input id="cCap" type="number" value="${state.config.capacity}" />
       <label class="field">Game day</label>
       <select id="cDay">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `<option ${d === state.config.gameDay ? 'selected' : ''}>${d}</option>`).join('')}</select>
       <label class="field">Kickoff (HH:MM)</label><input id="cKick" value="${esc(state.config.kickoff)}" />
-      <label class="field">Poll opens automatically on</label>
-      <div class="btn-row">
-        <select id="cOpenDay">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `<option ${d === (state.config.pollOpenDay || 'Friday') ? 'selected' : ''}>${d}</option>`).join('')}</select>
-        <input id="cOpenTime" value="${esc(state.config.pollOpenTime || '10:00')}" placeholder="HH:MM" />
-      </div>
-      <label class="field">Minutes to review the announcement before it auto-sends</label><input id="cGrace" type="number" min="0" value="${state.config.announceGraceMinutes ?? 60}" />
-      <label class="field">Hours before kick-off to send the line-up</label><input id="cLineupH" type="number" min="0" step="0.5" value="${state.config.lineupHoursBefore ?? 2}" />
-      <p class="small">The robot puts the next poll out at this day and time — as long as last week's result is in. The announcement waits here in Organiser for you to review (who it's going to) and Send or Hold; if untouched it auto-sends after the review window above. The previous poll closes automatically once that game kicks off.</p>
-      <label class="field">Default squad size</label><input id="cCap" type="number" value="${state.config.capacity}" />
-      <label class="field">Loyalty per game played</label><input id="cReward" type="number" value="${state.config.scoring.playedReward}" />
-      <label class="field">Bonus for adverse weather (cold/wet)</label><input id="cWx" type="number" value="${state.config.scoring.weatherBonus ?? 1}" />
-      <label class="field">Bonus for the cold season</label><input id="cCold" type="number" value="${state.config.scoring.coldSeasonBonus ?? 1}" />
-      <label class="field">Last-minute sign-up bonus (× games' reward)</label><input id="cLate" type="number" value="${state.config.scoring.lateSignupBonusGames ?? 4}" />
-      <div class="section-title">Prompt sign-up (getting keen players up)</div>
-      <p class="hint" style="margin-top:-2px">Sign up within the window below of the poll opening and your full loyalty counts for a squad spot; sign up later and it counts at the fraction below — so keen early birds can leapfrog a slow regular. Prompt sign-ups who miss out on a spot bank the bonus, so they climb over time.</p>
-      <label class="field">Hours to count as a prompt sign-up</label><input id="cPromptH" type="number" min="0" value="${state.config.promptHours ?? 24}" />
-      <label class="field">Fraction a late sign-up's loyalty counts (0.5 = half)</label><input id="cLateFactor" type="number" min="0" max="1" step="0.05" value="${state.config.lateLoyaltyFactor ?? 0.5}" />
-      <label class="field">Bonus for a prompt sign-up who doesn't get a game</label><input id="cPrompt" type="number" min="0" step="0.5" value="${state.config.scoring.promptBonus ?? 1}" />
-      <label class="field">Your email (for the auto-close squad alert)</label><input id="cOrg" type="email" value="${esc(state.config.organiserEmail || '')}" placeholder="you@email.com" />
-      <label class="field">New admin PIN (leave blank to keep)</label><input id="cPin" type="password" inputmode="numeric" placeholder="••••" />
-      <label class="field">Statto PIN — for the stats-keeper (leave blank to keep)</label><input id="cStatto" type="password" inputmode="numeric" placeholder="••••" />
+
+      <details class="fold-sec">
+        <summary>Poll timing &amp; announcements</summary>
+        <label class="field">Poll opens automatically on</label>
+        <div class="btn-row">
+          <select id="cOpenDay">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `<option ${d === (state.config.pollOpenDay || 'Friday') ? 'selected' : ''}>${d}</option>`).join('')}</select>
+          <input id="cOpenTime" value="${esc(state.config.pollOpenTime || '10:00')}" placeholder="HH:MM" />
+        </div>
+        <label class="field">Minutes to review the announcement before it auto-sends</label><input id="cGrace" type="number" min="0" value="${state.config.announceGraceMinutes ?? 60}" />
+        <label class="field">Hours before kick-off to send the line-up</label><input id="cLineupH" type="number" min="0" step="0.5" value="${state.config.lineupHoursBefore ?? 2}" />
+        <p class="small">The robot puts the next poll out at this day and time (once last week's result is in), then the announcement waits here for you to review before it auto-sends. The previous poll closes when that game kicks off.</p>
+        <label class="field">Your email (for the auto-close squad alert)</label><input id="cOrg" type="email" value="${esc(state.config.organiserEmail || '')}" placeholder="you@email.com" />
+      </details>
+
+      <details class="fold-sec">
+        <summary>Loyalty &amp; scoring</summary>
+        <label class="field">Loyalty per game played</label><input id="cReward" type="number" value="${state.config.scoring.playedReward}" />
+        <label class="field">Bonus for adverse weather (cold/wet)</label><input id="cWx" type="number" value="${state.config.scoring.weatherBonus ?? 1}" />
+        <label class="field">Bonus for the cold season</label><input id="cCold" type="number" value="${state.config.scoring.coldSeasonBonus ?? 1}" />
+        <label class="field">Last-minute sign-up bonus (× games' reward)</label><input id="cLate" type="number" value="${state.config.scoring.lateSignupBonusGames ?? 4}" />
+        <div class="section-title">Prompt sign-up (getting keen players up)</div>
+        <p class="hint" style="margin-top:-2px">Sign up within the window of the poll opening and your full loyalty counts for a spot; later and it counts at the fraction below. Prompt sign-ups who miss out bank the bonus, so they climb over time.</p>
+        <label class="field">Hours to count as a prompt sign-up</label><input id="cPromptH" type="number" min="0" value="${state.config.promptHours ?? 24}" />
+        <label class="field">Fraction a late sign-up's loyalty counts (0.5 = half)</label><input id="cLateFactor" type="number" min="0" max="1" step="0.05" value="${state.config.lateLoyaltyFactor ?? 0.5}" />
+        <label class="field">Bonus for a prompt sign-up who doesn't get a game</label><input id="cPrompt" type="number" min="0" step="0.5" value="${state.config.scoring.promptBonus ?? 1}" />
+      </details>
+
+      <details class="fold-sec">
+        <summary>Weather location &amp; PINs</summary>
+        <label class="field">Pitch location for weather (latitude, longitude)</label>
+        <div class="btn-row">
+          <input id="cLat" type="number" step="any" value="${state.config.lat ?? ''}" placeholder="e.g. 53.4808" />
+          <input id="cLon" type="number" step="any" value="${state.config.lon ?? ''}" placeholder="e.g. -2.2426" />
+        </div>
+        <p class="small">Find the pitch on Google Maps, right-click it → the numbers at the top are latitude, longitude. Leave blank to hide weather. Free, no API key (Open-Meteo).</p>
+        <label class="field">New admin PIN (leave blank to keep)</label><input id="cPin" type="password" inputmode="numeric" placeholder="••••" />
+        <label class="field">Statto PIN — for the stats-keeper (leave blank to keep)</label><input id="cStatto" type="password" inputmode="numeric" placeholder="••••" />
+      </details>
+
       <button class="btn-primary mt" onclick="saveConfig()">Save settings</button>
       <button class="btn-ghost mt" onclick="adminLogout()">Log out of organiser</button>
+    </div>`;
+
+  const tabs = [['week', 'This week'], ['matches', 'Matches'], ['players', 'Players'], ['settings', 'Settings']];
+  const subnav = `<div class="subnav">${tabs.map(([k, l]) => `<button class="subnav-btn${adminTab === k ? ' on' : ''}" onclick="setAdminTab('${k}')">${l}</button>`).join('')}</div>`;
+  const body = adminTab === 'matches' ? adminMatchesTab()
+    : adminTab === 'players' ? playersTab
+    : adminTab === 'settings' ? settingsTab
+    : weekTab;
+  return subnav + body;
+}
+
+// Organiser "Matches" tab: every past game, editable — fix the score and adjust
+// each player's loyalty / award bonus points as the organiser sees fit. (Detailed
+// stats — goalscorers, ratings, MOTM — live in the Statto tab.)
+function adminMatchesTab() {
+  if (history === null) { ensureHistory(); return `<div class="card"><h2>Matches</h2><p class="hint">Loading…</p></div>`; }
+  const games = [...history].filter(g => g.status === 'completed').sort((a, b) => gameDateKey(b).localeCompare(gameDateKey(a)));
+
+  if (adminMatchId) {
+    const g = games.find(x => x.id === adminMatchId);
+    if (g) return adminMatchEditor(g);
+    adminMatchId = null;
+  }
+  if (!games.length) return `<div class="card"><h2>Matches</h2><p class="hint">No completed games yet. Once you mark a game as played it'll appear here to edit.</p></div>`;
+  const rows = games.map(g => {
+    const b = g.scores?.bibs, n = g.scores?.nonbibs;
+    const score = Number.isFinite(b) && Number.isFinite(n) ? `${b}–${n}` : '—';
+    return `<button class="match-row" onclick="openAdminMatch('${g.id}')">
+        <span class="match-date">${esc(g.dateLabel || gameDateKey(g))}</span>
+        <span class="match-score">${score}</span>
+        <span class="match-count">${logic.gamePlayers(g).length} played ›</span>
+      </button>`;
+  }).join('');
+  return `<div class="card">
+      <h2>Matches</h2>
+      <p class="hint">Tap a game to fix the score or adjust loyalty. This replaces the old bulk recalculate — you edit each match directly, as you see fit.</p>
+      <div class="match-list">${rows}</div>
+    </div>`;
+}
+
+// Editor for one past match: score + per-player loyalty adjustments.
+function adminMatchEditor(g) {
+  const players = logic.gamePlayers(g).map(id => state.playersById[id]).filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const b = g.scores?.bibs, n = g.scores?.nonbibs;
+  const rows = players.map(p => `<div class="madj-row">
+      <span class="madj-name">${esc(p.name)}</span>
+      <span class="madj-loy" title="current loyalty">${p.loyalty}</span>
+      <span class="madj-btns">
+        <button class="icon-btn" title="-1" onclick="adjust('${p.id}',-1)">－</button>
+        <button class="icon-btn" title="+1" onclick="adjust('${p.id}',1)">＋</button>
+      </span>
+    </div>`).join('');
+  return `<button class="back-link" onclick="closeAdminMatch()">← All matches</button>
+    <div class="card">
+      <h2>${esc(g.dateLabel || gameDateKey(g))}</h2>
+      <div class="section-title">Score</div>
+      <div class="btn-row">
+        <div><label class="field">Bibs</label><input id="mScoreBibs" type="number" inputmode="numeric" value="${Number.isFinite(b) ? b : ''}" placeholder="0" /></div>
+        <div><label class="field">Non-bibs</label><input id="mScoreNonbibs" type="number" inputmode="numeric" value="${Number.isFinite(n) ? n : ''}" placeholder="0" /></div>
+      </div>
+      <button class="btn-ghost mt" onclick="saveMatchScore('${g.id}')">Save score</button>
+      <div class="section-title">Loyalty &amp; bonus points</div>
+      <p class="hint" style="margin-top:-2px">Nudge anyone's loyalty for this game with ＋/－, or award a custom amount below. Changes apply to their running total straight away.</p>
+      <div class="madj-list">${rows || '<div class="empty">No players recorded for this game.</div>'}</div>
+      <div class="section-title">Award / dock a custom amount</div>
+      <div class="btn-row">
+        <select id="mAdjPlayer"><option value="">— player —</option>${players.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>
+        <input id="mAdjAmount" type="number" step="1" placeholder="e.g. 3 or -2" style="max-width:120px" />
+        <button class="btn-ghost" onclick="applyMatchBonus()">Apply</button>
+      </div>
+      <p class="small" style="margin-top:10px">Goalscorers, ratings and man of the match are edited in the <b>Statto</b> tab.</p>
     </div>`;
 }
 
@@ -2053,34 +2140,24 @@ window.togglePaid = async (playerId, gameId, paid) => {
   try { await db.setPaid(playerId, gameId, asBool(paid)); }
   catch (e) { toast(e.message, true); }
 };
-// Recompute everyone's loyalty from the whole match history, fetching the
-// weather for each past game so the adverse-weather + cold-season bonuses count.
-window.recalcLoyalty = async () => {
-  if (!confirm('Recalculate everyone\'s loyalty from the full match history — applying the played reward plus the weather and cold-season bonuses to every past game?\n\nThis replaces current loyalty values (including any manual +/- tweaks), and fetches the weather for each game (may take a few seconds).')) return;
-  const btn = document.getElementById('recalcBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Recalculating…'; }
-  try {
-    const games = (history && history.length ? history : await db.loadHistory()).filter(g => g.status === 'completed');
-    const { lat, lon } = state.config;
-    const s = logic.withDefaults(state.config).scoring;
-    const adverse = {}; const gamesWeather = []; let wxCount = 0, coldCount = 0;
-    for (const g of games) {
-      let w = g.weather || null;
-      if (!w && lat != null && lon != null) { try { w = await fetchWeather(lat, lon, gameISO(g)); } catch {} }
-      const isAdv = w ? weatherFlags(w).rough : false;
-      const cold = logic.isColdSeason(g.date || g.completedAt || g.kickoffAt, state.config);
-      adverse[g.id] = isAdv;
-      if (isAdv) wxCount++; if (cold) coldCount++;
-      const reasons = []; if (isAdv) reasons.push('adverse weather'); if (cold) reasons.push('cold season');
-      const bonus = (isAdv ? (s.weatherBonus || 0) : 0) + (cold ? (s.coldSeasonBonus || 0) : 0);
-      gamesWeather.push({ id: g.id, weather: w || undefined, weatherBonus: bonus, bonusReasons: reasons });
-    }
-    const totals = logic.recomputeLoyalty(games, state.config, adverse);
-    const players = Object.entries(totals).map(([id, t]) => ({ id, loyalty: t.loyalty, gamesPlayed: t.gamesPlayed }));
-    await db.commitRecalc({ players, games: gamesWeather });
-    history = null; ensureHistory();
-    toast(`Recalculated ${players.length} players · ${wxCount} wet/cold + ${coldCount} cold-season games`);
-  } catch (e) { toast(e.message, true); }
-  finally { const b = document.getElementById('recalcBtn'); if (b) { b.disabled = false; b.textContent = 'Recalculate loyalty from history'; } }
+// Organiser sub-nav + per-match editing.
+window.setAdminTab = (t) => { adminTab = t; adminMatchId = null; if (t === 'matches') ensureHistory(); render(); window.scrollTo(0, 0); };
+window.openAdminMatch = (id) => { adminMatchId = id; render(); window.scrollTo(0, 0); };
+window.closeAdminMatch = () => { adminMatchId = null; render(); window.scrollTo(0, 0); };
+window.saveMatchScore = async (id) => {
+  const bibs = Number(document.getElementById('mScoreBibs').value);
+  const nonbibs = Number(document.getElementById('mScoreNonbibs').value);
+  if (!Number.isFinite(bibs) || !Number.isFinite(nonbibs)) return toast('Enter both scores', true);
+  try { await db.saveGameStats(id, { scores: { bibs, nonbibs } }); history = null; ensureHistory(); toast('Score saved'); }
+  catch (e) { toast(e.message, true); }
+};
+window.applyMatchBonus = async () => {
+  const id = document.getElementById('mAdjPlayer').value;
+  const amt = Number(document.getElementById('mAdjAmount').value);
+  if (!id) return toast('Pick a player', true);
+  if (!amt) return toast('Enter an amount (e.g. 3 or -2)', true);
+  try { await db.adjustLoyalty(id, amt); document.getElementById('mAdjAmount').value = ''; toast(`${amt > 0 ? '+' : ''}${amt} loyalty applied`); }
+  catch (e) { toast(e.message, true); }
 };
 window.editPlayer = async (id) => {
   const cur = state.roster.find(p => p.id === id);

@@ -85,6 +85,28 @@ body {
 .center { text-align: center; }
 .mt { margin-top: 12px; }
 
+/* ---- Organiser sub-nav + matches + folds ---- */
+.subnav { display: flex; gap: 8px; margin: 0 0 16px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+.subnav-btn { width: auto; flex: 0 0 auto; background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 9px 16px; font-size: 15px; }
+.subnav-btn.on { background: var(--ink); color: #f6f4ef; border-color: var(--ink); }
+.match-list { display: flex; flex-direction: column; }
+.match-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: transparent; border: none; border-bottom: 1px solid var(--line-2); border-radius: 0; padding: 14px 2px; color: var(--ink); }
+.match-row:active { background: var(--line-2); }
+.match-row .match-date { font-weight: 600; }
+.match-row .match-score { color: var(--muted); font-variant-numeric: tabular-nums; }
+.match-row .match-count { margin-left: auto; color: var(--muted); font-size: 14px; }
+.madj-list { display: flex; flex-direction: column; }
+.madj-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line-2); }
+.madj-row .madj-name { font-weight: 500; }
+.madj-row .madj-loy { margin-left: auto; min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.madj-row .madj-btns { display: flex; gap: 6px; flex: 0 0 auto; }
+.fold summary, .fold-sec summary { cursor: pointer; list-style: revert; }
+.fold.card > summary { list-style: revert; }
+.fold.card > summary h2 { display: inline; }
+.fold-sec { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 4px; }
+.fold-sec > summary { padding: 12px 0 4px; font-weight: 600; color: var(--ink); }
+.fold-sec[open] > summary { color: var(--green); }
+
 /* ---- Announcement review card ---- */
 .ann-card { border-color: var(--green); box-shadow: inset 3px 0 0 var(--green); }
 .ann-preview { background: var(--green-soft); border: 1px solid #cfdccf; border-radius: 6px; padding: 14px 16px; margin: 4px 0 4px; }

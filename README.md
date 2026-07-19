@@ -61,12 +61,17 @@ you exactly where you were.
   with a badge in the History line-up. Ratings and MOTM awards feed the
   Performances page and your profile.
 - **Rules** — the system explained, with the penalty scale.
-- **Organiser** — PIN-protected: open/lock/complete games, **set the squad size
-  per game** (5/6/7/8-a-side presets or a custom number, changeable live while
-  the poll's open), **reschedule** the day/time/venue mid-week (the countdown and
-  drop-out penalties follow the new kickoff) or **skip the week** entirely (a
-  Christmas break, no pitch — call it off, no loyalty banked), manage the roster,
-  recalculate loyalty, add highlight links, change every setting.
+- **Organiser** — PIN-protected, split into tabs to keep it tidy:
+  - **This week** — open/lock/complete the game, **set the squad size** (5/6/7/8-a-side
+    presets or a custom number, changeable live), **reschedule** the day/time/venue
+    mid-week or **skip the week** entirely, review announcements, and build the teams.
+  - **Matches** — every past game, editable directly: fix the score and **adjust
+    each player's loyalty / award bonus points as you see fit** (replaces the old
+    bulk "recalculate").
+  - **Players** — the roster (rename, nudge loyalty, remove), add players, self-rating
+    attributes, link sign-ins, and merge duplicates.
+  - **Settings** — the essentials up front; poll timing, scoring/loyalty and
+    weather/PINs tucked into collapsible sections.
 - **Statto** — a separate PIN-protected role for the stats-keeper: correct any
   game's score, log **who scored** (goals + assists up front, the full stat set
   behind a **+ more** toggle), mark **own goals**, give each player a **rating**,
