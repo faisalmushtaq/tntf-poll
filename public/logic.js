@@ -291,10 +291,14 @@ export function playerStats(playerId, games = []) {
     if (g.status !== 'completed' || !g.result) continue;
     total += 1; // every completed game the club has played
     const signup = (g.signups || []).find(s => s.playerId === playerId);
-    const withdrew = signup && signup.status === 'withdrawn';
+    // Prefer the denormalized withdrawnIds (so history loads don't need signups);
+    // fall back to the per-signup status for older games / the live game object.
+    const withdrew = Array.isArray(g.withdrawnIds)
+      ? g.withdrawnIds.includes(playerId)
+      : !!(signup && signup.status === 'withdrawn');
     const wasConfirmed = g.result.confirmed.includes(playerId);
     const wasReserve = g.result.reserves.includes(playerId);
-    if (!signup && !wasConfirmed && !wasReserve) continue; // wasn't involved
+    if (!wasConfirmed && !wasReserve && !withdrew && !signup) continue; // wasn't involved
     invited += 1;
     if (wasConfirmed) played += 1;
     if (withdrew) dropouts += 1;
@@ -436,6 +440,73 @@ export function playerPerformance(playerId, games = []) {
   t.motm = motm;
   t.og = og;
   return t;
+}
+
+// Build a per-player stats index in one pass over history, so screens don't
+// recompute analytics on every render. Returns IDs only (names are resolved at
+// render time). For each player: the existing analytics/performance/attendance
+// (reused verbatim, so output is identical to computing them ad hoc), plus a
+// teammates matrix (same-side co-appearances), an opponents matrix (faced), and
+// a chronological per-game `series` for the form-over-time plots.
+export function buildStatsIndex(games = [], playersById = {}) {
+  // Completed games with two teams and a score, oldest first.
+  const rel = games
+    .filter(g => g.status === 'completed' && g.teams && g.scores)
+    .slice()
+    .sort((a, b) => new Date(a.date || a.completedAt || 0) - new Date(b.date || b.completedAt || 0));
+
+  const acc = {}; // id -> { teammates:{}, opponents:{}, series:[] }
+  const ensure = id => (acc[id] ||= { teammates: {}, opponents: {}, series: [] });
+  const credit = (bucket, key, outcome) => {
+    const m = (bucket[key] ||= { id: key, games: 0, wins: 0, draws: 0, losses: 0 });
+    m.games++; if (outcome === 'W') m.wins++; else if (outcome === 'D') m.draws++; else m.losses++;
+  };
+
+  for (const g of rel) {
+    const bibs = g.teams.bibs || [], nonbibs = g.teams.nonbibs || [];
+    for (const side of ['bibs', 'nonbibs']) {
+      const mine = side === 'bibs' ? bibs : nonbibs;
+      const theirs = side === 'bibs' ? nonbibs : bibs;
+      const other = side === 'bibs' ? 'nonbibs' : 'bibs';
+      const gf = Number(g.scores[side]) || 0, ga = Number(g.scores[other]) || 0;
+      const outcome = gf > ga ? 'W' : gf < ga ? 'L' : 'D';
+      for (const id of mine) {
+        const rec = ensure(id);
+        for (const t of mine) if (t !== id) credit(rec.teammates, t, outcome);
+        for (const o of theirs) credit(rec.opponents, o, outcome);
+        const pg = (g.stats && g.stats[id] && Number(g.stats[id].g)) || (g.goals && Number(g.goals[id])) || 0;
+        rec.series.push({ date: g.date, dateLabel: g.dateLabel, gf, ga, pg, outcome, rating: effectiveRating(g, id) });
+      }
+    }
+  }
+
+  const withPct = m => ({ ...m, winPct: m.games ? Math.round(m.wins / m.games * 100) : 0 });
+  const rank = obj => Object.values(obj).map(withPct)
+    .sort((a, b) => b.games - a.games || b.winPct - a.winPct || String(a.id).localeCompare(String(b.id)));
+
+  const out = { version: rel.length, players: {} };
+  const ids = new Set([...Object.keys(playersById), ...Object.keys(acc)]);
+  for (const id of ids) {
+    const rec = acc[id] || { teammates: {}, opponents: {}, series: [] };
+    let cumPts = 0, cumGD = 0; const recent = [];
+    const series = rec.series.map(s => {
+      cumPts += s.outcome === 'W' ? 3 : s.outcome === 'D' ? 1 : 0;
+      cumGD += s.gf - s.ga;
+      recent.push(s.outcome === 'W' ? 1 : 0);
+      const last = recent.slice(-5);
+      const rollWin = Math.round(last.reduce((a, b) => a + b, 0) / last.length * 100);
+      return { ...s, cumPts, cumGD, rollWin };
+    });
+    out.players[id] = {
+      analytics: playerAnalytics(id, games),
+      performance: playerPerformance(id, games),
+      attendance: playerStats(id, games),
+      teammates: rank(rec.teammates),
+      opponents: rank(rec.opponents),
+      series
+    };
+  }
+  return out;
 }
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];

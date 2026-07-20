@@ -570,4 +570,57 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('alias Fit/Str/Spd/Skl map', (() => { const c = sheet.parseRatingsSheet('Player,Fit,Skl,Str,Spd\nX,1,2,3,4').columns; return c.fitness === 1 && c.skill === 2 && c.strength === 3 && c.speed === 4; })());
 }
 
+// --- buildStatsIndex: teammates / opponents / series + reuse -----------------
+{
+  const players = { a: { loyalty: 0 }, b: { loyalty: 0 }, c: { loyalty: 0 }, d: { loyalty: 0 } };
+  const games = [
+    { id: 'g1', status: 'completed', date: '2026-01-06', dateLabel: 'Wk1', completedAt: '2026-01-06T21:00:00Z',
+      teams: { bibs: ['a', 'b'], nonbibs: ['c', 'd'] }, scores: { bibs: 3, nonbibs: 1 },
+      result: { confirmed: ['a', 'b', 'c', 'd'], reserves: [] } },
+    { id: 'g2', status: 'completed', date: '2026-01-13', dateLabel: 'Wk2', completedAt: '2026-01-13T21:00:00Z',
+      teams: { bibs: ['a', 'c'], nonbibs: ['b', 'd'] }, scores: { bibs: 0, nonbibs: 2 },
+      result: { confirmed: ['a', 'b', 'c', 'd'], reserves: [] } }
+  ];
+  const idx = logic.buildStatsIndex(games, players);
+  const A = idx.players.a;
+
+  // reuse: index output must equal computing the functions ad hoc
+  assert.deepStrictEqual(A.analytics, logic.playerAnalytics('a', games)); ok('index analytics == playerAnalytics', true);
+  assert.deepStrictEqual(A.performance, logic.playerPerformance('a', games)); ok('index performance == playerPerformance', true);
+  assert.deepStrictEqual(A.attendance, logic.playerStats('a', games)); ok('index attendance == playerStats', true);
+
+  // teammates: a played with b (won) once, with c (lost) once
+  const tm = Object.fromEntries(A.teammates.map(t => [t.id, t]));
+  ok('teammate count with b', tm.b.games === 1 && tm.b.wins === 1 && tm.b.winPct === 100);
+  ok('teammate count with c', tm.c.games === 1 && tm.c.losses === 1 && tm.c.winPct === 0);
+  ok('a and d never teammates', !tm.d);
+
+  // opponents: a faced d twice (W then L), c once (W), b once (L)
+  const op = Object.fromEntries(A.opponents.map(o => [o.id, o]));
+  ok('faced d twice, 1 win', op.d.games === 2 && op.d.wins === 1 && op.d.winPct === 50);
+  ok('faced c once (win)', op.c.games === 1 && op.c.winPct === 100);
+  ok('opponents sorted by games desc', A.opponents[0].id === 'd');
+
+  // series: chronological with running cumulative points / goal diff / rolling win%
+  ok('series is chronological', A.series.length === 2 && A.series[0].dateLabel === 'Wk1');
+  ok('cumulative points run', A.series[0].cumPts === 3 && A.series[1].cumPts === 3);
+  ok('cumulative goal diff runs', A.series[0].cumGD === 2 && A.series[1].cumGD === 0);
+  ok('rolling win% updates', A.series[0].rollWin === 100 && A.series[1].rollWin === 50);
+
+  // a player with no games still gets an (empty) entry
+  const withGhost = logic.buildStatsIndex(games, { ...players, z: { loyalty: 0 } });
+  ok('rostered no-show has empty stats', withGhost.players.z.teammates.length === 0 && withGhost.players.z.series.length === 0);
+}
+
+// --- playerStats: withdrawnIds denormalization + legacy fallback -------------
+{
+  const denorm = { id: 'gx', status: 'completed', dateLabel: 'X', completedAt: '2026-01-01T00:00:00Z',
+    result: { confirmed: ['a'], reserves: [] }, withdrawnIds: ['b'] }; // no signups
+  const legacy = { id: 'gy', status: 'completed', dateLabel: 'Y', completedAt: '2026-01-02T00:00:00Z',
+    result: { confirmed: ['a'], reserves: [] }, signups: [{ playerId: 'b', status: 'withdrawn' }] }; // no withdrawnIds
+  ok('withdrawnIds → dropout counted (no signups)', logic.playerStats('b', [denorm]).dropouts === 1);
+  ok('legacy signups → dropout still counted', logic.playerStats('b', [legacy]).dropouts === 1);
+  ok('confirmed player has no dropout', logic.playerStats('a', [denorm, legacy]).dropouts === 0 && logic.playerStats('a', [denorm, legacy]).played === 2);
+}
+
 console.log(`\n${pass} checks passed ✅`);

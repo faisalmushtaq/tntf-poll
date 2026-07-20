@@ -296,6 +296,8 @@ function createLocalDB() {
       }
       for (const [pid, amt] of Object.entries(promptAwards)) if (db.players[pid]) db.players[pid].loyalty += amt;
       g.status = 'completed'; g.completedAt = new Date().toISOString(); g.result = logic.finalResult(ranked);
+      // Denormalize who withdrew so history loads don't need the signups.
+      g.withdrawnIds = (g.signups || []).filter(s => s.status === 'withdrawn').map(s => s.playerId);
       if (opts.scores) g.scores = opts.scores;
       if (opts.weather) g.weather = opts.weather;
       if (Number(opts.bonus) > 0) { g.weatherBonus = Number(opts.bonus); g.bonusReasons = opts.reasons || []; }
@@ -642,6 +644,8 @@ async function createFirestoreDB() {
       }
       for (const [pid, amt] of Object.entries(promptAwards)) batch.update(doc(playersCol, pid), { loyalty: increment(amt) });
       const gamePatch = { status: 'completed', completedAt: new Date().toISOString(), result: logic.finalResult(ranked) };
+      // Denormalize who withdrew so history loads don't need the signups subcollection.
+      gamePatch.withdrawnIds = (cache.signups || []).filter(s => s.status === 'withdrawn').map(s => s.playerId);
       if (opts.scores) gamePatch.scores = opts.scores;
       if (opts.weather) gamePatch.weather = opts.weather;
       if (Number(opts.bonus) > 0) { gamePatch.weatherBonus = Number(opts.bonus); gamePatch.bonusReasons = opts.reasons || []; }
@@ -660,13 +664,15 @@ async function createFirestoreDB() {
       await setDoc(doc(playersCol, id), { pushTokens: { [token.slice(-24)]: token } }, { merge: true });
     },
     async loadHistory() {
+      // Single collection read — no per-game signups fan-out. Everything history
+      // needs is frozen on the game doc (result, teams, scores, stats, ratings,
+      // and withdrawnIds); signups are only for the live game.
       const gs = await getDocs(collection(dbf, 'games'));
       const out = [];
       for (const d of gs.docs) {
         const data = d.data();
         if (data.status !== 'completed') continue;
-        const sus = await getDocs(signupsCol(d.id));
-        out.push({ id: d.id, ...data, signups: sus.docs.map(s => ({ playerId: s.id, ...s.data() })) });
+        out.push({ id: d.id, ...data });
       }
       return out;
     },
