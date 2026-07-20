@@ -288,14 +288,22 @@ function createLocalDB() {
       } else {
         awards = logic.lateSignupAwards(g.signups, db.players, db.config, g.kickoffAt, g.capacity, g.createdAt);
       }
-      // Prompt reserves (signed up quickly but didn't make the squad) bank a
-      // small bonus so keen players climb toward eventually getting a game.
-      const promptAwards = logic.promptSignupAwards(g.signups, db.players, db.config, g.createdAt, g.capacity);
-      for (const r of ranked) if (r.status === 'confirmed') {
-        db.players[r.playerId].loyalty += flat + (awards[r.playerId] || 0); db.players[r.playerId].gamesPlayed += 1;
+      // Who actually played: the finalised team sheet if the organiser built it
+      // (they may have pulled people in or taken them out), else the ranked squad.
+      const teamSheet = g.teamsFinalised && g.teams && ((g.teams.bibs || []).length || (g.teams.nonbibs || []).length)
+        ? logic.gamePlayers(g) : null;
+      const playedIds = teamSheet || ranked.filter(r => r.status === 'confirmed').map(r => r.playerId);
+      const playedSet = new Set(playedIds);
+      // Prompt reserves (signed up quickly but didn't play) bank the reward + bonus.
+      const promptAwards = logic.promptSignupAwards(g.signups, db.players, db.config, g.createdAt, g.capacity, teamSheet ? playedIds : null);
+      for (const pid of playedIds) if (db.players[pid]) {
+        db.players[pid].loyalty += flat + (awards[pid] || 0); db.players[pid].gamesPlayed += 1;
       }
       for (const [pid, amt] of Object.entries(promptAwards)) if (db.players[pid]) db.players[pid].loyalty += amt;
-      g.status = 'completed'; g.completedAt = new Date().toISOString(); g.result = logic.finalResult(ranked);
+      g.status = 'completed'; g.completedAt = new Date().toISOString();
+      g.result = teamSheet
+        ? { confirmed: [...playedIds], reserves: ranked.filter(r => !playedSet.has(r.playerId)).map(r => r.playerId) }
+        : logic.finalResult(ranked);
       // Denormalize who withdrew so history loads don't need the signups.
       g.withdrawnIds = (g.signups || []).filter(s => s.status === 'withdrawn').map(s => s.playerId);
       if (opts.scores) g.scores = opts.scores;
@@ -636,14 +644,24 @@ async function createFirestoreDB() {
       } else {
         awards = logic.lateSignupAwards(cache.signups, cache.players, cache.config, cache.game?.kickoffAt, capacity, pollOpenAt);
       }
-      // Prompt reserves bank a small bonus so keen players climb over time.
-      const promptAwards = logic.promptSignupAwards(cache.signups, cache.players, cache.config, pollOpenAt, capacity);
+      // Who actually played: the finalised team sheet if the organiser built it
+      // (add-ins / removals included), else the ranked squad.
+      const gm = cache.game || {};
+      const teamSheet = gm.teamsFinalised && gm.teams && ((gm.teams.bibs || []).length || (gm.teams.nonbibs || []).length)
+        ? logic.gamePlayers(gm) : null;
+      const playedIds = teamSheet || ranked.filter(r => r.status === 'confirmed').map(r => r.playerId);
+      const playedSet = new Set(playedIds);
+      // Prompt reserves (signed up quickly but didn't play) bank the reward + bonus.
+      const promptAwards = logic.promptSignupAwards(cache.signups, cache.players, cache.config, pollOpenAt, capacity, teamSheet ? playedIds : null);
       const batch = writeBatch(dbf);
-      for (const r of ranked) if (r.status === 'confirmed') {
-        batch.update(doc(playersCol, r.playerId), { loyalty: increment(flat + (awards[r.playerId] || 0)), gamesPlayed: increment(1) });
+      for (const pid of playedIds) {
+        batch.update(doc(playersCol, pid), { loyalty: increment(flat + (awards[pid] || 0)), gamesPlayed: increment(1) });
       }
       for (const [pid, amt] of Object.entries(promptAwards)) batch.update(doc(playersCol, pid), { loyalty: increment(amt) });
-      const gamePatch = { status: 'completed', completedAt: new Date().toISOString(), result: logic.finalResult(ranked) };
+      const result = teamSheet
+        ? { confirmed: [...playedIds], reserves: ranked.filter(r => !playedSet.has(r.playerId)).map(r => r.playerId) }
+        : logic.finalResult(ranked);
+      const gamePatch = { status: 'completed', completedAt: new Date().toISOString(), result };
       // Denormalize who withdrew so history loads don't need the signups subcollection.
       gamePatch.withdrawnIds = (cache.signups || []).filter(s => s.status === 'withdrawn').map(s => s.playerId);
       if (opts.scores) gamePatch.scores = opts.scores;

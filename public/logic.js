@@ -242,14 +242,18 @@ export function rankSignups(signups = [], playersById = {}, capacity = 14, opts 
 // point than the players who actually played. This is the incentive that keeps
 // new/keen players signing up (and softens the disappointment of missing out),
 // so they climb and eventually get a game. Returns { [playerId]: loyaltyAmount }.
-export function promptSignupAwards(signups = [], playersById = {}, config = {}, pollOpenAt = null, capacity = 14) {
+export function promptSignupAwards(signups = [], playersById = {}, config = {}, pollOpenAt = null, capacity = 14, playedIds = null) {
   const s = withDefaults(config).scoring;
   const bonus = Number(s.promptBonus) || 0;
   const out = {};
   if (!bonus) return out;
   const award = (Number(s.playedReward) || 0) + bonus;
+  // "Didn't play" is the actual team sheet when the organiser finalised it
+  // (they may have added/removed people); otherwise it's the ranked reserves.
+  const played = playedIds ? new Set(playedIds) : null;
   for (const r of rankSignups(signups, playersById, capacity, { pollOpenAt, config })) {
-    if (r.status === 'waitlist' && r.prompt) out[r.playerId] = award;
+    const missedOut = played ? !played.has(r.playerId) : r.status === 'waitlist';
+    if (missedOut && r.prompt) out[r.playerId] = award;
   }
   return out;
 }
