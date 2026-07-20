@@ -23,6 +23,7 @@ let state = null;     // derived view for rendering
 let history = null;   // completed games (loaded lazily for Stats)
 let statsIndex = null, statsIndexFor = null; // memoized analytics, keyed on the `history` array ref
 let lastTickSig = null; // last countdown signature, so the 20s ticker only re-renders on a real change
+let formMetric = 'points'; // which metric the "Form over time" chart shows
 let tab = 'week';
 let detailId = null;  // which historic game the detail view is showing
 let profileId = null; // which player the public profile view is showing
@@ -1044,7 +1045,7 @@ function playerProfileScreen() {
       <img class="you-crest" src="./assets/crest-primary.svg" alt="" aria-hidden="true" />
       <div class="you-name">${esc(p.name)}${isMe ? ' <span class="small">(you)</span>' : ''}</div>
       <p class="small">${p.loyalty} loyalty · ${p.gamesPlayed} games</p>
-    </div>${formRecordCard(p)}${performanceStatsCard(p, isMe)}${recordStatsCard(p, isMe)}`;
+    </div>${formRecordCard(p)}${formOverTimeCard(p)}${playsWithCard(p, isMe)}${upAgainstCard(p, isMe)}${performanceStatsCard(p, isMe)}${recordStatsCard(p, isMe)}`;
 }
 
 // ---- you: your profile + notifications + account --------------------------
@@ -1080,13 +1081,110 @@ function youScreen() {
       <img class="you-crest" src="./assets/crest-primary.svg" alt="Tuesday Night Total Football crest" />
       <div class="you-name">${esc(me.name)}</div>
       <p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p>
-    </div>${formRecordCard(me)}${performanceStatsCard(me, true)}${recordStatsCard(me, true)}${notif}${account}`;
+    </div>${formRecordCard(me)}${formOverTimeCard(me)}${playsWithCard(me, true)}${upAgainstCard(me, true)}${performanceStatsCard(me, true)}${recordStatsCard(me, true)}${notif}${account}`;
 }
 
 // Guardian-style form guide: coloured W/D/L chips, newest first.
 function formGuide(form) {
   if (!form || !form.length) return '<p class="small">No games yet.</p>';
   return `<div class="form-guide">${form.map(o => `<span class="fchip ${o.toLowerCase()}">${o}</span>`).join('')}</div>`;
+}
+
+// ---- tiny dependency-free charts (inline SVG / CSS bars, theme-aware) -------
+// A responsive line over time. `points` is chronological [{ y, outcome? }];
+// colours come from CSS classes bound to theme vars. Uniform scaling keeps the
+// stroke crisp and the marks round; a dashed zero line shows when the range
+// straddles zero (e.g. goal difference).
+function svgLine(points, { marks = false } = {}) {
+  const pts = (points || []).filter(p => Number.isFinite(p.y));
+  if (pts.length < 2) return '<p class="small">Not enough games yet for a trend.</p>';
+  const W = 300, H = 80, pad = 8;
+  const ys = pts.map(p => p.y);
+  let min = Math.min(...ys), max = Math.max(...ys);
+  if (min === max) { min -= 1; max += 1; }
+  const x = i => pad + (W - 2 * pad) * i / (pts.length - 1);
+  const y = v => pad + (H - 2 * pad) * (1 - (v - min) / (max - min));
+  const d = pts.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(p.y).toFixed(1)}`).join(' ');
+  const zero = (min < 0 && max > 0) ? `<line class="chart-zero" x1="${pad}" y1="${y(0).toFixed(1)}" x2="${W - pad}" y2="${y(0).toFixed(1)}"/>` : '';
+  const dots = marks ? pts.map((p, i) => p.outcome ? `<circle class="mk ${p.outcome.toLowerCase()}" cx="${x(i).toFixed(1)}" cy="${y(p.y).toFixed(1)}" r="2.4"/>` : '').join('') : '';
+  return `<svg class="chart-line" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-hidden="true">${zero}<path class="cl-path" d="${d}"/>${dots}</svg>`;
+}
+
+// Horizontal bars for teammate/opponent lists. rows: [{ label(html), value, sub(html) }].
+function statBars(rows) {
+  if (!rows || !rows.length) return '<p class="small">Nothing to show yet.</p>';
+  const max = Math.max(...rows.map(r => r.value), 1);
+  return `<div class="sbars">${rows.map(r => `
+    <div class="sbar">
+      <div class="sbar-top"><span class="sbar-label">${r.label}</span><span class="sbar-sub">${r.sub}</span></div>
+      <div class="sbar-track"><div class="sbar-fill" style="width:${Math.max(4, Math.round(r.value / max * 100))}%"></div></div>
+    </div>`).join('')}</div>`;
+}
+
+// Form over time — a line chart with a metric toggle. Metrics are derived from
+// the memoized per-game series (see logic.buildStatsIndex).
+function formOverTimeCard(p) {
+  const idx = getStatsIndex();
+  const series = idx ? (idx.players[p.id]?.series || []) : [];
+  if (series.length < 2) return '';
+  const metrics = [
+    ['points', 'Points', 'Match points as they add up (win 3 · draw 1 · loss 0).', series.map(x => ({ y: x.cumPts, outcome: x.outcome })), true],
+    ['winpct', 'Win %', 'Win rate over the last five games.', series.map(x => ({ y: x.rollWin, outcome: x.outcome })), true],
+    ['gd', 'Goal diff', 'Running goal difference in games played.', series.map(x => ({ y: x.cumGD, outcome: x.outcome })), true]
+  ];
+  if (series.some(s => s.pg > 0)) { let c = 0; metrics.push(['goals', 'Goals', 'Goals as they add up.', series.map(x => ({ y: (c += x.pg) })), false]); }
+  if (series.some(s => s.rating != null)) metrics.push(['rating', 'Rating', 'Match rating, game by game.', series.filter(x => x.rating != null).map(x => ({ y: x.rating })), false]);
+  const sel = metrics.find(m => m[0] === formMetric) || metrics[0];
+  const toggle = metrics.map(m => `<button class="metric-btn${m[0] === sel[0] ? ' on' : ''}" onclick="setFormMetric('${m[0]}')">${m[1]}</button>`).join('');
+  return `<div class="card">
+    <h2>Form over time</h2>
+    <p class="hint">${series.length} games with a result — oldest to newest. ${sel[2]}</p>
+    <div class="metric-row">${toggle}</div>
+    ${svgLine(sel[3], { marks: sel[4] })}
+  </div>`;
+}
+
+// Who a player lines up with most (same side), and their win rate together.
+function playsWithCard(p, isMe) {
+  const idx = getStatsIndex();
+  const tm = idx ? (idx.players[p.id]?.teammates || []) : [];
+  if (!tm.length) return '';
+  const nameOf = id => state.playersById[id]?.name || 'Player';
+  const rows = tm.slice(0, 5).map(t => ({
+    label: playerLink(t.id, esc(nameOf(t.id))),
+    value: t.games,
+    sub: `${t.games} together · ${t.winPct}% won`
+  }));
+  const eligible = tm.filter(t => t.games >= 3);
+  let extra = '';
+  if (eligible.length >= 2) {
+    const best = eligible.reduce((a, b) => (b.winPct > a.winPct ? b : a));
+    const worst = eligible.reduce((a, b) => (b.winPct < a.winPct ? b : a));
+    if (best.id !== worst.id) extra = `<p class="small mt">🍀 Best together: <b>${esc(nameOf(best.id))}</b> (${best.winPct}% in ${best.games}) · 😬 toughest: <b>${esc(nameOf(worst.id))}</b> (${worst.winPct}% in ${worst.games})</p>`;
+  }
+  return `<div class="card">
+    <h2>${isMe ? 'You play with' : 'Plays with'} most</h2>
+    <p class="hint">Teammates ${isMe ? "you've" : "they've"} shared a side with most, and the win rate together.</p>
+    ${statBars(rows)}${extra}
+  </div>`;
+}
+
+// Who a player faces most (other side), and their win rate against them.
+function upAgainstCard(p, isMe) {
+  const idx = getStatsIndex();
+  const op = idx ? (idx.players[p.id]?.opponents || []) : [];
+  if (!op.length) return '';
+  const nameOf = id => state.playersById[id]?.name || 'Player';
+  const rows = op.slice(0, 5).map(o => ({
+    label: playerLink(o.id, esc(nameOf(o.id))),
+    value: o.games,
+    sub: `${o.games} faced · ${o.winPct}% won`
+  }));
+  return `<div class="card">
+    <h2>Up against most</h2>
+    <p class="hint">Opponents ${isMe ? "you've" : "they've"} faced most, and ${isMe ? 'your' : 'their'} win rate against them.</p>
+    ${statBars(rows)}
+  </div>`;
 }
 
 // ---- organiser: link new sign-ins to historic records ----------------------
@@ -2162,6 +2260,7 @@ window.togglePaid = async (playerId, gameId, paid) => {
 };
 // Organiser sub-nav + per-match editing.
 window.setAdminTab = (t) => { adminTab = t; adminMatchId = null; if (t === 'matches') ensureHistory(); render(); window.scrollTo(0, 0); };
+window.setFormMetric = (m) => { formMetric = m; render(); };
 window.openAdminMatch = (id) => { adminMatchId = id; render(); window.scrollTo(0, 0); };
 window.closeAdminMatch = () => { adminMatchId = null; render(); window.scrollTo(0, 0); };
 window.saveMatchScore = async (id) => {
