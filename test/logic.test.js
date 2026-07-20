@@ -631,4 +631,92 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('confirmed player has no dropout', logic.playerStats('a', [denorm, legacy]).dropouts === 0 && logic.playerStats('a', [denorm, legacy]).played === 2);
 }
 
+// --- recommendedFormat: 5 / 7 / 8-a-side algorithm --------------------------
+{
+  // helper to build signups + players with a given format preference & loyalty
+  const build = (specs) => {
+    const su = []; const pb = {};
+    let k = 0;
+    for (const { n, pref, loyalty } of specs) {
+      for (let i = 0; i < n; i++) {
+        const id = `p${k++}`;
+        su.push({ playerId: id, status: 'in' });
+        pb[id] = { id, name: id, loyalty, formatPref: pref };
+      }
+    }
+    return { su, pb };
+  };
+
+  // 16 in, evenly split preference, but 8-camp loyalty doesn't clear 1.25× → stay 7
+  {
+    const { su, pb } = build([{ n: 8, pref: 7, loyalty: 10 }, { n: 8, pref: 8, loyalty: 11 }]);
+    const r = logic.recommendedFormat(su, pb);
+    // pts7 = 80, pts8 = 88; 88 > 80*1.25=100? no → 7-a-side
+    ok('16 in, weak 8 pref → 7-a-side', r.format === 7 && r.capacity === 14 && r.wantsEight === false);
+    ok('16 in reports counts', r.count === 16 && r.pts7 === 80 && r.pts8 === 88);
+  }
+
+  // 16 in, overwhelming 8-camp loyalty → flip to 8
+  {
+    const { su, pb } = build([{ n: 6, pref: 7, loyalty: 5 }, { n: 10, pref: 8, loyalty: 10 }]);
+    const r = logic.recommendedFormat(su, pb);
+    // pts7 = 30, pts8 = 100; 100 > 30*1.25=37.5 → 8-a-side
+    ok('16 in, strong 8 pref → 8-a-side', r.format === 8 && r.capacity === 16 && r.wantsEight === true);
+  }
+
+  // strong 8 preference but only 15 in → not enough for 8, stay 7
+  {
+    const { su, pb } = build([{ n: 3, pref: 7, loyalty: 5 }, { n: 12, pref: 8, loyalty: 10 }]);
+    const r = logic.recommendedFormat(su, pb);
+    ok('15 in, strong 8 pref → still 7 (too few for 8)', r.format === 7 && r.wantsEight === true && r.count === 15);
+  }
+
+  // default: 14 in, nobody expresses a preference → 7-a-side
+  {
+    const { su, pb } = build([{ n: 14, pref: 0, loyalty: 8 }]);
+    const r = logic.recommendedFormat(su, pb);
+    ok('14 in, no prefs → 7-a-side default', r.format === 7 && r.capacity === 14 && r.needsPitch === false);
+  }
+
+  // awkward middle: 12 in → top-10 5-a-side, needs a pitch
+  {
+    const { su, pb } = build([{ n: 12, pref: 0, loyalty: 8 }]);
+    const r = logic.recommendedFormat(su, pb);
+    ok('12 in → 5-a-side, needsPitch', r.format === 5 && r.capacity === 10 && r.needsPitch === true && r.count === 12);
+  }
+
+  // small: 8 in → 5-a-side, needs a smaller pitch
+  {
+    const { su, pb } = build([{ n: 8, pref: 0, loyalty: 8 }]);
+    const r = logic.recommendedFormat(su, pb);
+    ok('8 in → 5-a-side', r.format === 5 && r.capacity === 10 && r.needsPitch === true);
+  }
+
+  // withdrawn / out sign-ups don't count toward turnout or preference
+  {
+    const { su, pb } = build([{ n: 14, pref: 0, loyalty: 8 }]);
+    su.push({ playerId: 'gone', status: 'withdrawn' }, { playerId: 'nope', status: 'out' });
+    pb.gone = { id: 'gone', loyalty: 99, formatPref: 8 };
+    pb.nope = { id: 'nope', loyalty: 99, formatPref: 8 };
+    const r = logic.recommendedFormat(su, pb);
+    ok('withdrawn/out excluded from turnout', r.count === 14 && r.pts8 === 0);
+  }
+
+  // per-signup formatPref overrides the player's standing preference
+  {
+    const su = [{ playerId: 'x', status: 'in', formatPref: 8 }];
+    const pb = { x: { id: 'x', loyalty: 20, formatPref: 7 } };
+    const r = logic.recommendedFormat(su, pb);
+    ok('signup formatPref overrides player pref', r.pts8 === 20 && r.pts7 === 0);
+  }
+
+  // bias is configurable
+  {
+    const { su, pb } = build([{ n: 8, pref: 7, loyalty: 10 }, { n: 8, pref: 8, loyalty: 11 }]);
+    const r = logic.recommendedFormat(su, pb, { eightASideBias: 1.0 });
+    // now 88 > 80*1.0=80 → flips to 8
+    ok('lower bias flips to 8 sooner', r.format === 8 && r.eightBias === 1);
+  }
+}
+
 console.log(`\n${pass} checks passed ✅`);

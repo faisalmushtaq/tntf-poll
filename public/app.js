@@ -333,6 +333,7 @@ function weekScreen() {
       ${actionBtn()}
       ${paymentControl(g)}
     </div>
+    ${formatPrefControl()}
     ${teamsCard(g)}
     <div class="card">
       <h2>Squad &amp; reserves</h2>
@@ -343,6 +344,56 @@ function weekScreen() {
       ${g.unavailable.length ? `<div class="lu-head sub">Can't make it this week (${g.unavailable.length})</div>
         <div class="unavail-list">${g.unavailable.map(u => `<span class="unavail-chip${u.playerId === state.me?.id ? ' me' : ''}">${esc(abbrev(u.name))}</span>`).join('')}</div>` : ''}
     </div>`;
+}
+
+// The format recommendation for the current game (5 / 7 / 8-a-side), or null.
+function formatRec() {
+  if (!lastRaw || !lastRaw.game || !state.game) return null;
+  return logic.recommendedFormat(lastRaw.signups, state.playersById, state.config);
+}
+function round1(n) { return Math.round((Number(n) || 0) * 10) / 10; }
+
+// A signed-in player's standing 7-vs-8-a-side preference, on This week.
+function formatPrefControl() {
+  const g = state.game;
+  if (!g || !state.me || g.status !== 'open') return '';
+  const pref = Number(state.me.formatPref) || 0;
+  const btn = (val, label) => `<button type="button" class="aside-btn${pref === val ? ' on' : ''}" onclick="setFmtPref(${val})">${label}</button>`;
+  const rec = formatRec();
+  const recLine = rec && rec.count >= 14
+    ? `<p class="small" style="margin-top:8px">Heading for <b>${rec.format}-a-side</b> this week — ${esc(rec.note)}</p>`
+    : '';
+  return `<div class="card">
+    <div class="section-title" style="margin-top:0">7 or 8 a side?</div>
+    <p class="hint" style="margin-top:-2px">Strong preference? Let us know. 7-a-side is the weekly default — it only switches to 8 when the loyalty behind "8" clearly outweighs "7". "No preference" is fine and counts for neither.</p>
+    <div class="aside-row">
+      ${btn(7, '7-a-side')}
+      ${btn(8, '8-a-side')}
+      ${btn(0, 'No preference')}
+    </div>
+    ${recLine}
+  </div>`;
+}
+
+// Organiser-facing recommendation card, shown above the manual squad-size control.
+function formatRecCard(g) {
+  const rec = formatRec();
+  if (!rec) return '';
+  const match = rec.capacity === g.capacity;
+  const pitchWarn = rec.needsPitch
+    ? `<p class="small rec-warn">⚠ Needs an alternative (smaller) pitch — if none can be found, change the date/time or call the game off.</p>` : '';
+  const vote = (rec.n7 || rec.n8)
+    ? `<div class="rec-vote">7-a-side: <b>${rec.n7}</b> (loyalty ${rec.pts7}) · 8-a-side: <b>${rec.n8}</b> (loyalty ${rec.pts8}) · flips to 8 above ${rec.pts7} × ${rec.eightBias} = <b>${round1(rec.threshold)}</b></div>`
+    : `<div class="rec-vote">No 7-vs-8 preferences in yet — defaulting to 7-a-side.</div>`;
+  return `<div class="rec-box">
+    <div class="rec-head">Recommended: <b>${rec.format}-a-side</b> · ${rec.capacity} squad · ${rec.count} in</div>
+    <p class="small" style="margin-top:2px">${esc(rec.note)}</p>
+    ${rec.count >= 14 ? vote : ''}
+    ${pitchWarn}
+    ${match
+      ? `<p class="small rec-ok">✓ This week's squad size already matches.</p>`
+      : `<button class="btn-ghost mt" onclick="setCapacity('${g.id}',${rec.capacity})">Apply ${rec.format}-a-side (${rec.capacity})</button>`}
+  </div>`;
 }
 
 // Player's own "have you paid?" toggle — appears once you're in the squad.
@@ -629,6 +680,7 @@ function rulesScreen() {
   const lateFactor = state.config.lateLoyaltyFactor ?? 0.5;
   const promptBonus = s.promptBonus ?? 1;
   const reserveReward = reward + promptBonus; // a prompt reserve earns one more than a player
+  const bias = state.config.eightASideBias ?? 1.25;
   const coldMax = reward + (s.weatherBonus || 0) + (s.coldSeasonBonus || 0);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const coldMonths = (s.coldMonths || []).map(m => months[m]);
@@ -660,6 +712,21 @@ function rulesScreen() {
       ${tiers.map(t => `<li><span>Withdraw — ${esc(t.label)}</span><span class="pts ${t.penalty === 0 ? 'free' : ''}">${t.penalty === 0 ? '0' : '-' + t.penalty}</span></li>`).join('')}
     </ul>
     <p class="small mt">Turning up week after week steadily builds your priority; late dropouts chip it away. Miss a week without signing up and there's no penalty — you just don't earn the +${reward}. The organiser can also nudge scores by hand (e.g. a one-off ringer).</p>
+  </div>
+  <div class="card">
+    <h2>5, 7 or 8 a side?</h2>
+    <p class="hint">The format is decided by turnout, and — for the 7-vs-8 question — by a loyalty-weighted preference vote. You can always override it by hand, but this is what the poll recommends automatically.</p>
+    <ul class="penalty-scale">
+      <li><span><b>14–15 in</b> — a full 7-a-side (the weekly default)</span><span class="pts free">7-a-side</span></li>
+      <li><span><b>16+ in</b> — 7-a-side <em>unless</em> the 8-camp's loyalty wins the vote below</span><span class="pts free">7 or 8</span></li>
+      <li><span><b>11–13 in</b> — the top 10 by loyalty, on a smaller pitch if one can be found</span><span class="pts">5-a-side*</span></li>
+      <li><span><b>10 or fewer</b> — a straight 5-a-side, if a smaller pitch can be found</span><span class="pts">5-a-side*</span></li>
+    </ul>
+    <p class="small">*11–13 and below need an <b>alternative (smaller) pitch</b> — the usual booking is for 7-a-side. If none is available we may have to change the date/time or, occasionally, call it off.</p>
+    <div class="section-title">The 7-vs-8 vote</div>
+    <p class="small">7-a-side is the starting position every week. Each player can register a preference for 7 or 8 (or none). We add up the <b>loyalty points</b> behind each camp — not the headcount, so the regulars' voices carry further. It only switches to 8-a-side when the 8-camp's loyalty beats the 7-camp's by more than <b>${bias}×</b>. That deliberately biases us toward 7: a slim majority won't do it — it takes an <em>overwhelming</em>, loyalty-weighted consensus to flip. (The ${bias}× weighting is set by the organiser and can be reviewed later.)</p>
+    <div class="section-title">Worked example</div>
+    <p class="small">Say <b>16</b> turn up and everyone votes. Nine prefer 7-a-side with <b>90</b> loyalty between them; seven prefer 8-a-side with <b>130</b> between them. The 8-camp has to clear 90 × ${bias} = <b>${round1(90 * bias)}</b>. They've got 130, which beats it — so it flips to <b>8-a-side</b>. But if the 8-camp had only <b>100</b> loyalty, that's under ${round1(90 * bias)}, so it would <b>stay 7-a-side</b> — even though they're the majority by headcount. The default holds unless the case for 8 is overwhelming.</p>
   </div>
   ${(s.weatherBonus || s.coldSeasonBonus) ? `<div class="card">
     <h2>Bad-weather bonus</h2>
@@ -1452,6 +1519,7 @@ function adminScreen() {
     <div class="card">
       <h2>${esc(g.dateLabel)} — ${esc(g.status)}</h2>
       <p class="hint">${g.confirmed.length}/${g.capacity} confirmed · ${g.waitlist.length} waiting</p>
+      ${formatRecCard(g)}
       <div class="section-title">Squad size · ${g.capacity % 2 === 0 ? `${g.capacity / 2}-a-side` : `${g.capacity} players`}</div>
       <p class="hint" style="margin-top:-2px">This week's format. The squad is the top ${g.capacity} by loyalty; the rest are reserves — change it any time and places recalc instantly.</p>
       <div class="aside-row">
@@ -1551,6 +1619,7 @@ function adminScreen() {
       <label class="field">Default venue</label><input id="cVenue" value="${esc(state.config.venue && state.config.venue !== 'Pitch 10' ? state.config.venue : 'Pitch 10 - Nou Camp')}" />
       <label class="field">Pitch cost (£ total, split across the squad)</label><input id="cPitchCost" type="number" min="0" step="0.01" value="${state.config.pitchCost ?? 113}" />
       <label class="field">Default squad size</label><input id="cCap" type="number" value="${state.config.capacity}" />
+      <label class="field">8-a-side bias (7 is the default; the 8-camp's loyalty must beat the 7-camp's by this multiple to switch)</label><input id="cEightBias" type="number" min="1" step="0.05" value="${state.config.eightASideBias ?? 1.25}" />
       <label class="field">Game day</label>
       <select id="cDay">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `<option ${d === state.config.gameDay ? 'selected' : ''}>${d}</option>`).join('')}</select>
       <label class="field">Kickoff (HH:MM)</label><input id="cKick" value="${esc(state.config.kickoff)}" />
@@ -2009,6 +2078,13 @@ window.clearUnavailable = async () => {
   try { await db.setUnavailable(state.me.id, state.game.id, false); buildView(); render(); toast('Back to undecided'); }
   catch (e) { toast(e.message, true); }
 };
+window.setFmtPref = async (pref) => {
+  if (!state.me) return;
+  const n = Number(pref);
+  try { await db.setFormatPref(state.me.id, n); buildView(); render();
+    toast(n === 7 || n === 8 ? `Preference saved: ${n}-a-side` : 'Preference cleared'); }
+  catch (e) { toast(e.message, true); }
+};
 
 window.adminLogin = async () => {
   const pin = document.getElementById('pinInput').value;
@@ -2436,6 +2512,7 @@ window.saveConfig = async () => {
     promptHours: Number(document.getElementById('cPromptH').value),
     lateLoyaltyFactor: Number(document.getElementById('cLateFactor').value),
     capacity: Number(document.getElementById('cCap').value),
+    eightASideBias: Number(document.getElementById('cEightBias').value) || 1.25,
     organiserEmail: document.getElementById('cOrg').value.trim(),
     scoring: {
       playedReward: Number(document.getElementById('cReward').value),

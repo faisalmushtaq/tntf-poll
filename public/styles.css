@@ -478,6 +478,13 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .aside-btn.on { background: var(--ink); color: #f6f4ef; border-color: var(--ink); font-weight: 500; }
 .aside-row #capCustom { margin: 0; }
 
+/* ---- Format recommendation box (organiser This week) ---- */
+.rec-box { border: 1px solid var(--line); border-left: 3px solid var(--green); border-radius: 10px; padding: 12px 14px; margin: 6px 0 4px; background: color-mix(in srgb, var(--green) 5%, transparent); }
+.rec-head { font-size: 15px; font-weight: 500; color: var(--body); }
+.rec-vote { font-size: 12.5px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+.rec-warn { color: var(--danger); margin-top: 6px; }
+.rec-ok { color: var(--green); margin-top: 6px; }
+
 /* ---- File-upload button (styled like a ghost button) ---- */
 .file-btn { display: inline-flex; align-items: center; justify-content: center; text-align: center; cursor: pointer; -webkit-user-select: none; user-select: none; }
 

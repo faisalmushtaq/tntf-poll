@@ -19,6 +19,7 @@ export const DEFAULT_CONFIG = {
   pitchCost: 113,           // total £ to hire the pitch; split across the squad for per-player cost
   promptHours: 24,         // sign up within this long of the poll opening → full loyalty counts…
   lateLoyaltyFactor: 0.5,  // …sign up after that and your loyalty counts this fraction for a spot
+  eightASideBias: 1.25,    // 7-a-side is the weekly default; only auto-switch to 8 when the loyalty behind "8" beats the loyalty behind "7" by MORE than this multiple. Biases us toward 7; reviewable.
   organiserEmail: '',      // where the auto-close squad alert is sent
   scoring: {
     playedReward: 2,       // loyalty gained for turning up
@@ -257,6 +258,63 @@ export function promptSignupAwards(signups = [], playersById = {}, config = {}, 
   }
   return out;
 }
+
+// Decide the format — 5, 7 or 8-a-side — from turnout and preferences.
+//
+//  · Turnout is the number of sign-ups who are in (not out / withdrawn).
+//  · 14 = a full 7-a-side, 16 = a full 8-a-side, 10 = a 5-a-side.
+//  · 7-a-side is the weekly default. It only flips to 8-a-side when there are
+//    enough bodies (>=16) AND the loyalty behind the "8" camp beats the loyalty
+//    behind the "7" camp by MORE than the `eightASideBias` multiple (1.25). So
+//    it takes an overwhelming, loyalty-weighted preference to override the
+//    default — a slim majority won't do it.
+//  · 11–13 is an awkward middle: too few for 7-a-side, too many for a clean
+//    5-a-side, so the top 10 (by the usual loyalty ranking) play a 5-a-side —
+//    but only if an alternative (smaller) pitch can be found; otherwise the
+//    date/time has to change or the game is cancelled. `needsPitch` flags that.
+//  · 10 or fewer → a straight 5-a-side (also needs a smaller pitch).
+//
+// A player's preference comes from the sign-up (`formatPref`, a per-week
+// override) or the player's standing `formatPref` (7 or 8); anyone with no
+// preference is happy with the default and counts for neither camp.
+export function recommendedFormat(signups = [], playersById = {}, config = DEFAULT_CONFIG) {
+  const c = withDefaults(config);
+  const bias = Number(c.eightASideBias) > 0 ? Number(c.eightASideBias) : 1.25;
+  const avail = signups.filter(s => s && s.status !== 'out' && s.status !== 'withdrawn');
+  const count = avail.length;
+
+  // Loyalty (and headcount) behind each of the 7- vs 8-a-side camps.
+  let pts7 = 0, pts8 = 0, n7 = 0, n8 = 0;
+  for (const s of avail) {
+    const p = playersById[s.playerId];
+    const pref = Number(s.formatPref) || (p && Number(p.formatPref)) || 0;
+    const loyalty = p ? (Number(p.loyalty) || 0) : 0;
+    if (pref === 8) { pts8 += loyalty; n8++; }
+    else if (pref === 7) { pts7 += loyalty; n7++; }
+  }
+  const wantsEight = pts8 > pts7 * bias;
+  const threshold = pts7 * bias;
+
+  let format, capacity, needsPitch = false, note = '';
+  if (count >= 16 && wantsEight) {
+    format = 8; capacity = 16;
+    note = `The loyalty behind 8-a-side (${pts8}) beats 7-a-side's ${pts7} × ${bias} = ${round1(threshold)}, so it flips to 8.`;
+  } else if (count >= 14) {
+    format = 7; capacity = 14;
+    note = (n8 && count < 16)
+      ? `${n8} would prefer 8-a-side, but there aren't ${16} in for it — staying 7-a-side.`
+      : `7-a-side is the weekly default; the 8-camp's loyalty (${pts8}) doesn't clear ${pts7} × ${bias} = ${round1(threshold)}.`;
+  } else if (count > 10) {
+    format = 5; capacity = 10; needsPitch = true;
+    note = `Only ${count} in — too few for 7-a-side. The top 10 play a 5-a-side, if a smaller pitch can be found; otherwise change the date/time or cancel.`;
+  } else {
+    format = 5; capacity = 10; needsPitch = true;
+    note = `Only ${count} in — a 5-a-side, if a smaller pitch can be found.`;
+  }
+  return { format, capacity, count, wantsEight, pts7, pts8, n7, n8, eightBias: bias, threshold, needsPitch, note };
+}
+
+function round1(n) { return Math.round(n * 10) / 10; }
 
 // Map a ranked list to { playerId: 'confirmed' | 'waitlist' } for diffing.
 export function statusMap(ranked = []) {
