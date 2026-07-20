@@ -115,7 +115,8 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
     { playerId: 'c', status: 'in', joinedAt: '2026-07-19T12:00:00Z' }  // late reserve
   ];
   const awards = logic.promptSignupAwards(signups, players, cfg, open, 1);
-  ok('prompt reserve gets the bonus', awards.b === 1);
+  // prompt reserve gets playedReward (2) + promptBonus (1) = 3 — one more than a player
+  ok('prompt reserve gets played reward + bonus (one more than players)', awards.b === 3);
   ok('player who made the squad gets no prompt bonus', !('a' in awards));
   ok('late reserve gets no prompt bonus', !('c' in awards));
 }
