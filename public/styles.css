@@ -424,7 +424,10 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .pchip { display: flex; justify-content: space-between; align-items: center; gap: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 0; padding: 10px 11px; margin-bottom: 8px; cursor: grab; user-select: none; }
 .pchip:active { cursor: grabbing; }
 .pchip-name { font-size: 15px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pchip-ov { font-size: 13px; font-weight: 500; color: var(--muted); flex: none; }
+.pchip-ov { font-size: 13px; font-weight: 500; color: var(--muted); flex: none; margin-left: auto; }
+.pchip-x { width: 20px; height: 20px; flex: none; padding: 0; margin: 0; border: none; border-radius: 999px; background: transparent; color: var(--muted); font-size: 17px; line-height: 1; cursor: pointer; }
+.pchip-x:hover { color: var(--danger); }
+.pchip.pulled { border-color: var(--green); box-shadow: inset 2px 0 0 var(--green); }
 
 /* ---- Ratings table (square inputs) ---- */
 .rate-head, .rate-row { display: grid; grid-template-columns: 1fr 40px 40px 40px 40px 34px; gap: 6px; align-items: center; }

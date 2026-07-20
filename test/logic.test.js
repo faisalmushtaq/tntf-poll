@@ -119,6 +119,13 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('prompt reserve gets played reward + bonus (one more than players)', awards.b === 3);
   ok('player who made the squad gets no prompt bonus', !('a' in awards));
   ok('late reserve gets no prompt bonus', !('c' in awards));
+
+  // team-sheet override: whoever actually played (organiser add/remove) decides
+  // who "missed out", not the ranking. capacity 3, but the played sheet is b + c.
+  const played = ['b', 'c'];
+  const teamAwards = logic.promptSignupAwards(signups, players, cfg, open, 3, played);
+  ok('benched prompt sign-up (off the team sheet) banks the reserve award', teamAwards.a === 3);
+  ok('players on the team sheet get no reserve bonus', !('b' in teamAwards) && !('c' in teamAwards));
 }
 
 // --- auto-open: most-recent weekly moment ----------------------------------

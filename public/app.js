@@ -47,6 +47,8 @@ let importDraft = null;        // { text, targetGameId, resolved } — stats imp
 let ratingsImport = null;      // { text, url, resolved } — player-ratings import preview
 let lineupDraft = null;        // organiser lineupDraft builder state { bibs:[], nonbibs:[] }
 let lineupGameId = null;  // which game `lineupDraft` was built for
+let lineupAdded = new Set();    // players the organiser pulled in who didn't respond on the poll
+let lineupRemoved = new Set();  // players the organiser took out (won't be auto-re-added)
 
 // Top-nav definition: [tab key, label]. Order is left→right on web,
 // top→bottom in the mobile menu.
@@ -1266,16 +1268,26 @@ function ratingsPreview(res) {
 function initLineup(g) {
   const confirmedIds = g.confirmed.map(r => r.playerId);
   if (lineupDraft && lineupGameId === g.id) {
-    // keep only still-confirmed players; drop anyone who withdrew
-    lineupDraft.bibs = lineupDraft.bibs.filter(id => confirmedIds.includes(id));
-    lineupDraft.nonbibs = lineupDraft.nonbibs.filter(id => confirmedIds.includes(id));
+    // The pool is whoever responded plus anyone the organiser pulled in by hand,
+    // minus anyone they took out. Confirmed players who withdrew fall away; the
+    // rest stay put so manual add/remove survives sign-up churn and re-renders.
+    const pool = new Set([...confirmedIds, ...lineupAdded]);
+    lineupDraft.bibs = lineupDraft.bibs.filter(id => pool.has(id) && !lineupRemoved.has(id));
+    lineupDraft.nonbibs = lineupDraft.nonbibs.filter(id => pool.has(id) && !lineupRemoved.has(id));
     const placed = new Set([...lineupDraft.bibs, ...lineupDraft.nonbibs]);
-    for (const id of confirmedIds) if (!placed.has(id)) (lineupDraft.bibs.length <= lineupDraft.nonbibs.length ? lineupDraft.bibs : lineupDraft.nonbibs).push(id);
+    for (const id of confirmedIds) {
+      if (placed.has(id) || lineupRemoved.has(id)) continue;
+      (lineupDraft.bibs.length <= lineupDraft.nonbibs.length ? lineupDraft.bibs : lineupDraft.nonbibs).push(id);
+    }
     return;
   }
   lineupGameId = g.id;
+  lineupAdded = new Set(); lineupRemoved = new Set();
   if (g.teams && (g.teams.bibs?.length || g.teams.nonbibs?.length)) {
     lineupDraft = { bibs: [...(g.teams.bibs || [])], nonbibs: [...(g.teams.nonbibs || [])] };
+    // Anyone on the published team sheet who didn't respond on the poll was
+    // pulled in by hand — remember that so they aren't dropped on reconcile.
+    for (const id of [...lineupDraft.bibs, ...lineupDraft.nonbibs]) if (!confirmedIds.includes(id)) lineupAdded.add(id);
     initLineup(g); // reconcile with current confirmed
   } else {
     const b = logic.balanceTeams(confirmedIds, state.playersById);
@@ -1288,8 +1300,10 @@ function lineupBuilderCard(g) {
   const total = ids => ids.reduce((s, id) => s + logic.attrOverall(state.playersById[id]), 0);
   const chip = (id, side) => {
     const p = state.playersById[id];
-    return `<div class="pchip" draggable="true" ondragstart="lineupDragStart(event,'${id}')" onclick="flipSide('${id}')" title="Tap to switch sides">
-      <span class="pchip-name">${esc(p ? p.name : '—')}</span><span class="pchip-ov">${logic.attrOverall(p)}</span></div>`;
+    const extra = lineupAdded.has(id) ? ' pulled' : '';
+    return `<div class="pchip${extra}" draggable="true" ondragstart="lineupDragStart(event,'${id}')" onclick="flipSide('${id}')" title="Tap to switch sides">
+      <span class="pchip-name">${esc(p ? p.name : '—')}</span><span class="pchip-ov">${logic.attrOverall(p)}</span>
+      <button class="pchip-x" title="Remove from teams" onclick="event.stopPropagation();lineupRemove('${id}')">×</button></div>`;
   };
   const column = (side, label, cls) => `<div class="build-col ${cls}" ondragover="event.preventDefault()" ondrop="lineupDrop(event,'${side}')">
       <div class="team-head ${cls}">${bibIcon(cls)}<span class="th-label">${label}</span> <span>${lineupDraft[side].length} · ${total(lineupDraft[side])}</span></div>
@@ -1297,11 +1311,20 @@ function lineupBuilderCard(g) {
     </div>`;
   const diff = Math.abs(total(lineupDraft.bibs) - total(lineupDraft.nonbibs));
   const finalisedTag = g.teamsFinalised ? '<span class="link-tag ok">published</span>' : '<span class="link-tag no">draft</span>';
+  // Anyone not already on a team, for last-minute add-ins (e.g. a WhatsApp reply).
+  const placed = new Set([...lineupDraft.bibs, ...lineupDraft.nonbibs]);
+  const addable = state.roster.filter(p => !placed.has(p.id)).sort((a, b) => a.name.localeCompare(b.name));
   return `<div class="card">
     <h2>Team builder ${finalisedTag}</h2>
     <p class="hint">Auto-balance by rating, then tap a player (or drag on a computer) to switch sides. Rating gap: <b>${diff}</b>. Publish to show the teams on This Week — you can keep tweaking after.</p>
     <button class="btn-ghost" onclick="autoBalance()">⚖️ Auto-balance</button>
     <div class="teams-grid build mt">${column('bibs', 'Bibs', 'bibs')}${column('nonbibs', 'Non-bibs', 'nonbibs')}</div>
+    <div class="section-title">Add a player</div>
+    <p class="hint" style="margin-top:-2px">Someone reply on WhatsApp but not the poll? Pull anyone from the squad straight into the teams. Tap the <b>×</b> on a player to take them out.</p>
+    <div class="btn-row">
+      <select id="lineupAddSel">${addable.length ? `<option value="">— add from the squad —</option>${addable.map(p => `<option value="${p.id}">${esc(p.name)}${g.confirmed.some(r => r.playerId === p.id) ? '' : ' · didn’t respond'}</option>`).join('')}` : '<option value="">— everyone is already in —</option>'}</select>
+      <button class="btn-ghost" onclick="lineupAdd()" ${addable.length ? '' : 'disabled'}>Add to teams</button>
+    </div>
     <div class="btn-row mt">
       <button class="btn-ghost" onclick="saveLineup(false)">Save draft</button>
       <button class="btn-primary" onclick="saveLineup(true)">Publish to This Week</button>
@@ -2338,9 +2361,29 @@ window.saveRatings = async () => {
   } catch (e) { toast(e.message, true); }
 };
 window.autoBalance = () => {
-  const g = state.game; if (!g) return;
-  const b = logic.balanceTeams(g.confirmed.map(r => r.playerId), state.playersById);
-  lineupDraft = { bibs: b.bibs, nonbibs: b.nonbibs }; lineupGameId = g.id; render();
+  const g = state.game; if (!g || !lineupDraft) return;
+  // Balance whoever is currently in the teams (keeps hand-added / hand-removed).
+  const ids = [...new Set([...lineupDraft.bibs, ...lineupDraft.nonbibs])];
+  const b = logic.balanceTeams(ids, state.playersById);
+  lineupDraft = { bibs: b.bibs, nonbibs: b.nonbibs }; render();
+};
+// Pull anyone from the squad into the teams (e.g. a last-minute WhatsApp reply).
+window.lineupAdd = () => {
+  const sel = document.getElementById('lineupAddSel'); const id = sel && sel.value;
+  if (!id || !lineupDraft) return;
+  lineupAdded.add(id); lineupRemoved.delete(id);
+  if (![...lineupDraft.bibs, ...lineupDraft.nonbibs].includes(id)) {
+    (lineupDraft.bibs.length <= lineupDraft.nonbibs.length ? lineupDraft.bibs : lineupDraft.nonbibs).push(id);
+  }
+  render();
+};
+// Take a player out of the teams; they won't be auto-added back.
+window.lineupRemove = (id) => {
+  if (!lineupDraft) return;
+  lineupDraft.bibs = lineupDraft.bibs.filter(x => x !== id);
+  lineupDraft.nonbibs = lineupDraft.nonbibs.filter(x => x !== id);
+  lineupRemoved.add(id); lineupAdded.delete(id);
+  render();
 };
 window.flipSide = (id) => {
   if (!lineupDraft) return;
