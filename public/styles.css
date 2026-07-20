@@ -314,6 +314,24 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .fchip.d { background: #b3ac9d; }
 .fchip.l { background: var(--danger); }
 
+/* ---- charts (form-over-time line + teammate/opponent bars) ---- */
+.chart-line { width: 100%; height: auto; display: block; margin: 8px 0 2px; }
+.chart-line .cl-path { fill: none; stroke: var(--ink); stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
+.chart-line .chart-zero { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 2 3; }
+.chart-line .mk { stroke: none; }
+.chart-line .mk.w { fill: var(--green); }
+.chart-line .mk.d { fill: #b3ac9d; }
+.chart-line .mk.l { fill: var(--danger); }
+.metric-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 4px; }
+.metric-btn { width: auto; flex: 0 0 auto; background: transparent; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 6px 13px; font-size: 14px; }
+.metric-btn.on { background: var(--ink); color: #f6f4ef; border-color: var(--ink); }
+.sbars { display: flex; flex-direction: column; gap: 11px; margin-top: 4px; }
+.sbar-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.sbar-label { font-weight: 500; color: var(--ink); }
+.sbar-sub { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.sbar-track { height: 7px; background: var(--line-2); border-radius: 99px; overflow: hidden; }
+.sbar-fill { height: 100%; background: var(--green); border-radius: 99px; }
+
 /* ---- League table ---- */
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -20px; }
 .stats-table { border-collapse: collapse; width: 100%; font-size: 14px; white-space: nowrap; }
