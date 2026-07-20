@@ -149,7 +149,18 @@ function buildView() {
       totalIn: ranked.length,
       unavailable, iAmOut,
       me: mine ? { rank: mine.rank, status: mine.status, paid: !!paidBy[playerId] } : null,
-      withdrawPenaltyNow: logic.penaltyForHours(hrs, lastRaw.config).penalty
+      withdrawPenaltyNow: logic.penaltyForHours(hrs, lastRaw.config).penalty,
+      // Each player's response this week: confirmed | waitlist | out | withdrawn
+      // (absent = never responded). Drives the Team builder "add a player" labels.
+      responseStatus: (() => {
+        const m = {};
+        for (const r of ranked) m[r.playerId] = r.status; // confirmed | waitlist
+        for (const s of lastRaw.signups) {
+          if (s.status === 'out') m[s.playerId] = 'out';
+          else if (s.status === 'withdrawn') m[s.playerId] = 'withdrawn';
+        }
+        return m;
+      })()
     };
   }
   const alert = game ? statusAlert(game, playerId) : null;
@@ -1312,7 +1323,11 @@ function lineupBuilderCard(g) {
   const diff = Math.abs(total(lineupDraft.bibs) - total(lineupDraft.nonbibs));
   const finalisedTag = g.teamsFinalised ? '<span class="link-tag ok">published</span>' : '<span class="link-tag no">draft</span>';
   // Anyone not already on a team, for last-minute add-ins (e.g. a WhatsApp reply).
+  // Tag each with how they actually responded so we don't mislabel someone who
+  // said "can't make it" (or is a reserve) as never having responded.
   const placed = new Set([...lineupDraft.bibs, ...lineupDraft.nonbibs]);
+  const respLabel = { confirmed: '', waitlist: ' · reserve', out: ' · can’t make it', withdrawn: ' · dropped out' };
+  const respOf = id => { const s = (g.responseStatus || {})[id]; return s === undefined ? ' · didn’t respond' : (respLabel[s] || ''); };
   const addable = state.roster.filter(p => !placed.has(p.id)).sort((a, b) => a.name.localeCompare(b.name));
   return `<div class="card">
     <h2>Team builder ${finalisedTag}</h2>
@@ -1322,7 +1337,7 @@ function lineupBuilderCard(g) {
     <div class="section-title">Add a player</div>
     <p class="hint" style="margin-top:-2px">Someone reply on WhatsApp but not the poll? Pull anyone from the squad straight into the teams. Tap the <b>×</b> on a player to take them out.</p>
     <div class="btn-row">
-      <select id="lineupAddSel">${addable.length ? `<option value="">— add from the squad —</option>${addable.map(p => `<option value="${p.id}">${esc(p.name)}${g.confirmed.some(r => r.playerId === p.id) ? '' : ' · didn’t respond'}</option>`).join('')}` : '<option value="">— everyone is already in —</option>'}</select>
+      <select id="lineupAddSel">${addable.length ? `<option value="">— add from the squad —</option>${addable.map(p => `<option value="${p.id}">${esc(p.name)}${respOf(p.id)}</option>`).join('')}` : '<option value="">— everyone is already in —</option>'}</select>
       <button class="btn-ghost" onclick="lineupAdd()" ${addable.length ? '' : 'disabled'}>Add to teams</button>
     </div>
     <div class="btn-row mt">
