@@ -24,7 +24,7 @@ export const DEFAULT_CONFIG = {
     playedReward: 2,       // loyalty gained for turning up
     weatherBonus: 1,       // extra loyalty when the game is cold/wet (adverse)
     coldSeasonBonus: 1,    // extra loyalty for playing in the cold-season months
-    promptBonus: 1,        // loyalty for a prompt sign-up who doesn't make the squad (keen reserves climb)
+    promptBonus: 1,        // extra loyalty (on top of the played reward) for a prompt sign-up who's benched — so a keen reserve earns one MORE than a player, and climbs faster
     coldMonths: [10, 11, 0, 1, 2], // Nov–Mar (0-indexed) count as cold season
     lateSignupBonusGames: 4, // stepping in late (see lateSignupHours) is worth this many games' reward
     lateSignupHours: 24,     // "last minute" = signed up within this many hours of kickoff
@@ -237,16 +237,19 @@ export function rankSignups(signups = [], playersById = {}, capacity = 14, opts 
   }));
 }
 
-// The "prompt sign-up" bonus: loyalty for players who signed up promptly but
-// didn't make the squad, so keen reserves accumulate points and eventually get
-// a game. Returns { [playerId]: loyaltyAmount }. Players who play get the normal
-// played reward instead; this is only for prompt reserves.
+// The "prompt sign-up" reward: a keen reserve who signed up promptly but didn't
+// make the squad gets the played reward PLUS the prompt bonus — i.e. one more
+// point than the players who actually played. This is the incentive that keeps
+// new/keen players signing up (and softens the disappointment of missing out),
+// so they climb and eventually get a game. Returns { [playerId]: loyaltyAmount }.
 export function promptSignupAwards(signups = [], playersById = {}, config = {}, pollOpenAt = null, capacity = 14) {
-  const bonus = Number(withDefaults(config).scoring.promptBonus) || 0;
+  const s = withDefaults(config).scoring;
+  const bonus = Number(s.promptBonus) || 0;
   const out = {};
   if (!bonus) return out;
+  const award = (Number(s.playedReward) || 0) + bonus;
   for (const r of rankSignups(signups, playersById, capacity, { pollOpenAt, config })) {
-    if (r.status === 'waitlist' && r.prompt) out[r.playerId] = bonus;
+    if (r.status === 'waitlist' && r.prompt) out[r.playerId] = award;
   }
   return out;
 }

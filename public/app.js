@@ -615,6 +615,7 @@ function rulesScreen() {
   const promptH = state.config.promptHours ?? 24;
   const lateFactor = state.config.lateLoyaltyFactor ?? 0.5;
   const promptBonus = s.promptBonus ?? 1;
+  const reserveReward = reward + promptBonus; // a prompt reserve earns one more than a player
   const coldMax = reward + (s.weatherBonus || 0) + (s.coldSeasonBonus || 0);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const coldMonths = (s.coldMonths || []).map(m => months[m]);
@@ -627,7 +628,7 @@ function rulesScreen() {
     <div class="section-title">2 · Loyalty, not speed</div>
     <p class="small">When more than ${cap} sign up, the squad is the top ${cap} by loyalty score. Signing up first doesn't jump the queue — a regular who signs up late still ranks above a casual. Everyone else goes on the reserves, in loyalty order, and moves up automatically if someone drops out.</p>
     <div class="section-title">3 · Be prompt, or your loyalty counts less</div>
-    <p class="small">Get your name in within <b>${promptH}h</b> of the poll opening and your <b>full</b> loyalty counts for a spot. Leave it later and only <b>${Math.round(lateFactor * 100)}%</b> of your loyalty counts — so a keen early sign-up can leapfrog a regular who's slow off the mark. And signing up promptly earns <b>+${promptBonus}</b> even if you don't get a game${promptBonus ? '' : ' (currently off)'}, so keen players on the reserves steadily climb and eventually break in.</p>
+    <p class="small">Get your name in within <b>${promptH}h</b> of the poll opening and your <b>full</b> loyalty counts for a spot. Leave it later and only <b>${Math.round(lateFactor * 100)}%</b> of your loyalty counts — so a keen early sign-up can leapfrog a regular who's slow off the mark. And here's the kicker: if you sign up promptly but <b>miss out on a spot</b>, you earn <b>+${reserveReward}</b> — <b>one more than the players who actually played</b>${promptBonus ? '' : ' (currently off)'}. It softens the disappointment and means keen reserves climb <em>faster</em> than the regulars, so they break into the squad before long.</p>
     <div class="section-title">4 · Time-weighted dropout penalty</div>
     <p class="small">Pulling out early is free — pulling out last-minute costs you, because it's harder to find a replacement. As Tom put it: a day or two's notice is fine, last minute isn't.</p>
     <ul class="penalty-scale">
@@ -641,7 +642,7 @@ function rulesScreen() {
       <li><span>Play a game (in the confirmed squad)</span><span class="pts free">+${reward}</span></li>
       ${s.weatherBonus ? `<li><span>…in adverse weather (cold or wet at kickoff)</span><span class="pts free">+${s.weatherBonus}</span></li>` : ''}
       ${s.coldSeasonBonus ? `<li><span>…during the cold season (${coldLabel})</span><span class="pts free">+${s.coldSeasonBonus}</span></li>` : ''}
-      ${promptBonus ? `<li><span>Sign up promptly (within ${promptH}h) but miss out on a spot</span><span class="pts free">+${promptBonus}</span></li>` : ''}
+      ${promptBonus ? `<li><span>Sign up promptly (within ${promptH}h) but miss out on a spot — one more than playing</span><span class="pts free">+${reserveReward}</span></li>` : ''}
       ${s.lateSignupBonusGames ? `<li><span>Step in to fill a gap (sign up within ${s.lateSignupHours ?? 24}h when the squad's short) &amp; play</span><span class="pts free">+${late}</span></li>` : ''}
       ${tiers.map(t => `<li><span>Withdraw — ${esc(t.label)}</span><span class="pts ${t.penalty === 0 ? 'free' : ''}">${t.penalty === 0 ? '0' : '-' + t.penalty}</span></li>`).join('')}
     </ul>
@@ -1536,10 +1537,10 @@ function adminScreen() {
         <label class="field">Bonus for the cold season</label><input id="cCold" type="number" value="${state.config.scoring.coldSeasonBonus ?? 1}" />
         <label class="field">Last-minute sign-up bonus (× games' reward)</label><input id="cLate" type="number" value="${state.config.scoring.lateSignupBonusGames ?? 4}" />
         <div class="section-title">Prompt sign-up (getting keen players up)</div>
-        <p class="hint" style="margin-top:-2px">Sign up within the window of the poll opening and your full loyalty counts for a spot; later and it counts at the fraction below. Prompt sign-ups who miss out bank the bonus, so they climb over time.</p>
+        <p class="hint" style="margin-top:-2px">Sign up within the window of the poll opening and your full loyalty counts for a spot; later and it counts at the fraction below. A prompt sign-up who misses out on a spot earns the played reward <b>plus</b> the bonus below — one more than the players who played — so keen reserves climb faster and break in.</p>
         <label class="field">Hours to count as a prompt sign-up</label><input id="cPromptH" type="number" min="0" value="${state.config.promptHours ?? 24}" />
         <label class="field">Fraction a late sign-up's loyalty counts (0.5 = half)</label><input id="cLateFactor" type="number" min="0" max="1" step="0.05" value="${state.config.lateLoyaltyFactor ?? 0.5}" />
-        <label class="field">Bonus for a prompt sign-up who doesn't get a game</label><input id="cPrompt" type="number" min="0" step="0.5" value="${state.config.scoring.promptBonus ?? 1}" />
+        <label class="field">Prompt reserve bonus (added on top of the played reward — so a benched prompt sign-up earns this much more than a player)</label><input id="cPrompt" type="number" min="0" step="0.5" value="${state.config.scoring.promptBonus ?? 1}" />
       </details>
 
       <details class="fold-sec">
