@@ -24,7 +24,7 @@ also exported as the PWA/app icon.
 | Late dropouts go unpunished | **Time-weighted penalty**: free before 5pm Monday, scaling to −10 in the last 3 hours (Tom's point). Shown before you confirm. |
 | Chasing people who already know they're out | One-tap **Can't make it this week** — a no-penalty opt-out that shows on the list, so nobody gets pestered. |
 | People never know if they're in or out | **Email + push notifications** when your status changes, plus a public list everyone can see. |
-| 5-, 7- or 8-a-side, week to week | Squad size is set per game with one-tap **a-side** presets (or a custom number) — right when you open it *and* live afterwards, so a format change re-picks the squad and reserves instantly. |
+| 5-, 7- or 8-a-side, week to week | The poll **recommends a format from turnout** and a loyalty-weighted 7-vs-8 preference vote (one-tap *Apply*), or set the squad size by hand with the **a-side** presets — right when you open it *and* live afterwards, so a format change re-picks the squad and reserves instantly. |
 
 ## Screens
 
@@ -344,6 +344,15 @@ guide. (Files whose names start with `_` are docs, never treated as a game.)
 - **Selection:** active sign-ups by **effective** loyalty (desc), ties broken by sign-up time. Effective loyalty = your full score if you signed up within the prompt window (default 24h of the poll opening), else half — so a slow regular can be leapfrogged by a keen early bird. Top `capacity` confirmed, rest reserves.
 - **Table order:** by loyalty; ties broken by lowest win %, then fewest goals, then name.
 - **Result:** the organiser enters the final score when marking a game as played (editable, along with the teams, right up until confirming); it's stored on the match record and drives win/loss analytics.
+
+### Recommended format (5 / 7 / 8-a-side)
+The poll recommends a format from turnout (and, for 7-vs-8, a loyalty-weighted preference vote). The organiser can always override it by hand; this is what **This week** suggests automatically, with an *Apply* button.
+- **14–15 in →** a full **7-a-side** (the weekly default).
+- **16+ in →** **7-a-side unless the 8-camp wins the vote** (below).
+- **11–13 in →** the **top 10** by loyalty play a **5-a-side**, *if an alternative (smaller) pitch can be found* — the usual booking is for 7-a-side. If none is available, change the date/time or call it off. Flagged in the organiser view.
+- **10 or fewer →** a straight **5-a-side** (also needs a smaller pitch).
+- **The 7-vs-8 vote:** each player registers a preference for 7 or 8 (or none) on This week. We sum the **loyalty points** behind each camp — not the headcount, so regulars' voices carry further. It only switches to 8 when the 8-camp's loyalty beats the 7-camp's by more than the **`eightASideBias`** multiple (default **1.25×**, editable in Settings). That biases us toward 7: a slim majority won't do it — it takes an overwhelming, loyalty-weighted consensus. *Worked example:* 16 in — nine prefer 7 (90 loyalty), seven prefer 8 (130). The 8-camp must clear 90 × 1.25 = 112.5; 130 beats it, so it flips to 8. With only 100 loyalty it would stay 7, even as the headcount majority.
+- Pure algorithm: `recommendedFormat()` in `logic.js` (shared by app + tests).
 
 ## Security note
 This is a private link for one group chat, so Firestore lets anyone with the

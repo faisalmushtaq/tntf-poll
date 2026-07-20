@@ -167,6 +167,13 @@ function createLocalDB() {
       const p = db.players[id]; if (!p) throw new Error('Unknown player');
       p.attrs = { ...(p.attrs || {}), ...attrs }; persist();
     },
+    // Standing 7-vs-8-a-side preference (7, 8, or null for no preference).
+    async setFormatPref(id, pref) {
+      const p = db.players[id]; if (!p) throw new Error('Unknown player');
+      const v = Number(pref);
+      if (v === 7 || v === 8) p.formatPref = v; else delete p.formatPref;
+      persist();
+    },
     async saveLineup(gameId, teams, finalised) {
       const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
       g.teams = { bibs: teams.bibs || [], nonbibs: teams.nonbibs || [] };
@@ -515,6 +522,11 @@ async function createFirestoreDB() {
       await batch.commit();
     },
     async setPlayerAttrs(id, attrs) { await setDoc(doc(playersCol, id), { attrs }, { merge: true }); },
+    // Standing 7-vs-8-a-side preference (7, 8, or null for no preference).
+    async setFormatPref(id, pref) {
+      const v = Number(pref);
+      await setDoc(doc(playersCol, id), { formatPref: (v === 7 || v === 8) ? v : null }, { merge: true });
+    },
     async saveLineup(gameId, teams, finalised) {
       const t = { bibs: teams.bibs || [], nonbibs: teams.nonbibs || [] };
       await updateDoc(gameRef(gameId), { teams: t, teamsFinalised: !!finalised });
