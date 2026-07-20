@@ -419,13 +419,13 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .team-head.nonbibs { border-bottom-color: var(--amber); }
 
 /* ---- Team builder (square) ---- */
-.teams-grid.build .build-col { background: transparent; border: 1px solid var(--line); border-radius: 0; padding: 8px; min-height: 84px; }
+.teams-grid.build .build-col { background: transparent; border: 1px solid var(--line); border-radius: 0; padding: 8px; min-height: 84px; min-width: 0; }
 .build-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 18px 4px; }
-.pchip { display: flex; justify-content: space-between; align-items: center; gap: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 0; padding: 10px 11px; margin-bottom: 8px; cursor: grab; user-select: none; }
+.pchip { display: flex; align-items: center; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 0; padding: 10px 11px; margin-bottom: 8px; cursor: grab; user-select: none; }
 .pchip:active { cursor: grabbing; }
-.pchip-name { font-size: 15px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pchip-ov { font-size: 13px; font-weight: 500; color: var(--muted); flex: none; margin-left: auto; }
-.pchip-x { width: 20px; height: 20px; flex: none; padding: 0; margin: 0; border: none; border-radius: 999px; background: transparent; color: var(--muted); font-size: 17px; line-height: 1; cursor: pointer; }
+.pchip-name { flex: 1; min-width: 0; font-size: 15px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pchip-ov { flex: none; font-size: 13px; font-weight: 500; color: var(--muted); }
+.pchip-x { flex: none; width: 22px; height: 22px; padding: 0; margin: 0 -2px 0 0; border: none; border-radius: 999px; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
 .pchip-x:hover { color: var(--danger); }
 .pchip.pulled { border-color: var(--green); box-shadow: inset 2px 0 0 var(--green); }
 
