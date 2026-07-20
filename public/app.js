@@ -21,6 +21,8 @@ let user = null;      // signed-in Firebase user (cloud mode) or null
 let lastRaw = null;   // latest snapshot from the data layer
 let state = null;     // derived view for rendering
 let history = null;   // completed games (loaded lazily for Stats)
+let statsIndex = null, statsIndexFor = null; // memoized analytics, keyed on the `history` array ref
+let lastTickSig = null; // last countdown signature, so the 20s ticker only re-renders on a real change
 let tab = 'week';
 let detailId = null;  // which historic game the detail view is showing
 let profileId = null; // which player the public profile view is showing
@@ -495,7 +497,8 @@ function canonicalOrder(a, b) {
 
 function tableScreen() {
   const { key, dir } = tableSort;
-  const entries = state.roster.map(p => ({ p, an: history ? logic.playerAnalytics(p.id, history) : null }));
+  const idx = getStatsIndex();
+  const entries = state.roster.map(p => ({ p, an: idx ? idx.players[p.id]?.analytics : null }));
   entries.sort((a, b) => {
     if (key === 'loyalty') { const c = canonicalOrder(a, b); return dir === 'desc' ? c : -c; }
     let cmp = key === 'name' ? a.p.name.localeCompare(b.p.name) : tableValue(a, key) - tableValue(b, key);
@@ -567,7 +570,8 @@ function perfCell(perf, c) {
 function performancesScreen() {
   if (history === null) { ensureHistory(); return `<div class="card"><h2>Performances</h2><p class="hint">Loading…</p></div>`; }
   const { key, dir } = perfSort;
-  const entries = state.roster.map(p => ({ p, perf: logic.playerPerformance(p.id, history) }))
+  const idx = getStatsIndex();
+  const entries = state.roster.map(p => ({ p, perf: idx.players[p.id].performance }))
     .filter(e => e.perf.games > 0 || e.perf.ratingGames > 0 || e.perf.motm > 0 || e.perf.og > 0);
   entries.sort((a, b) => {
     let cmp = key === 'name' ? a.p.name.localeCompare(b.p.name) : (a.perf[key] || 0) - (b.perf[key] || 0);
@@ -971,7 +975,8 @@ function mdBlock(text) {
 // Record: games, attendance, loyalty, dropouts + their game history.
 function recordStatsCard(p, isMe) {
   const who = isMe ? 'Your record' : `${esc(p.name)}’s record`;
-  const stats = history ? logic.playerStats(p.id, history) : null;
+  const idx = getStatsIndex();
+  const stats = idx ? idx.players[p.id]?.attendance : null;
   if (!stats) return `<div class="card"><h2>${who}</h2><p class="hint">Loading history…</p></div>`;
   return `<div class="card">
     <h2>${who}</h2>
@@ -988,7 +993,8 @@ function recordStatsCard(p, isMe) {
 }
 // Form & win/loss record from historic results.
 function formRecordCard(p) {
-  const an = history ? logic.playerAnalytics(p.id, history) : null;
+  const idx = getStatsIndex();
+  const an = idx ? idx.players[p.id]?.analytics : null;
   if (!an || !an.played) return '';
   const cs = an.currentStreak;
   const streakText = cs && cs.type
@@ -1011,7 +1017,8 @@ function formRecordCard(p) {
 }
 // Individual performance (goals, assists, MOTM, avg rating).
 function performanceStatsCard(p, isMe) {
-  const perf = history ? logic.playerPerformance(p.id, history) : null;
+  const idx = getStatsIndex();
+  const perf = idx ? idx.players[p.id]?.performance : null;
   if (!perf || !(perf.games || perf.ratingGames || perf.motm)) return '';
   return `<div class="card">
     <h2>Performance</h2>
@@ -1720,6 +1727,19 @@ async function ensureHistory() {
   if (history !== null) return;
   history = [];
   try { history = await db.loadHistory(); render(); } catch (e) { console.error(e); }
+}
+
+// Per-player analytics, computed once per history change. `history` is a brand-new
+// array on every load and null on every invalidation, so its reference is a
+// perfect cache key — screens read O(1) lookups instead of re-crunching history
+// on every render/sort.
+function getStatsIndex() {
+  if (!history || !state) return null;
+  if (statsIndexFor !== history) {
+    statsIndex = logic.buildStatsIndex(history, state.playersById);
+    statsIndexFor = history;
+  }
+  return statsIndex;
 }
 
 // ---- actions --------------------------------------------------------------
@@ -2438,5 +2458,16 @@ window.addEventListener('tntf-push', e => {
     $app.innerHTML = `<div class="loading">Couldn't start: ${esc(e.message || e)}.<br>If you just added Firebase config, check firestore.rules are published.</div>`;
   }
   // keep countdown / penalty text fresh
-  setInterval(() => { if (document.visibilityState === 'visible' && lastRaw) { buildView(); if (tab === 'week' || tab === 'table') render(); } }, 20000);
+  // Refresh the countdown/penalty text on the week screen — but only actually
+  // re-render when a real change happened (the minute rolled over or status moved),
+  // so an idle tab doesn't rebuild the DOM every 20s.
+  setInterval(() => {
+    if (document.visibilityState !== 'visible' || !lastRaw || tab !== 'week') return;
+    buildView();
+    const g = state && state.game;
+    const sig = g ? `${g.status}|${fmtCountdown(g.kickoffAt)}` : 'none';
+    if (sig === lastTickSig) return;
+    lastTickSig = sig;
+    render();
+  }, 20000);
 })();
