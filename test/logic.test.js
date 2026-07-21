@@ -631,6 +631,32 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('confirmed player has no dropout', logic.playerStats('a', [denorm, legacy]).dropouts === 0 && logic.playerStats('a', [denorm, legacy]).played === 2);
 }
 
+// --- lineupReserves: team-sheet-aware reserves (no duplicate names) ---------
+{
+  const players = {
+    a: { id: 'a', name: 'Alice', loyalty: 10 },
+    b: { id: 'b', name: 'Bob',   loyalty: 8  },
+    c: { id: 'c', name: 'Cara',  loyalty: 6  },
+    d: { id: 'd', name: 'Dan',   loyalty: 4  },
+    e: { id: 'e', name: 'Eve',   loyalty: 2  },
+    z: { id: 'z', name: 'Zoe',   loyalty: 99 } // never signed up — a late add-in
+  };
+  const signups = ['a','b','c','d','e'].map((id, i) => ({ playerId: id, status: 'in', joinedAt: `2026-01-01T10:0${i}:00Z` }));
+  // Organiser finalises a 2-a-side: puts Eve (a low-loyalty waitlister) in, and
+  // a squad add-in Zoe who never signed up; leaves Bob and Dan out.
+  const teams = { bibs: ['a', 'e'], nonbibs: ['c', 'z'] };
+  const reserves = logic.lineupReserves(signups, players, teams, 4);
+  ok('reserves exclude everyone on the team sheet', !reserves.includes('Alice') && !reserves.includes('Eve') && !reserves.includes('Cara'));
+  ok('promoted waitlister is off the reserves', !reserves.includes('Eve'));
+  ok('benched sign-ups are the reserves, in loyalty order', reserves.join(',') === 'Bob,Dan');
+  ok('late add-in (never signed up) never appears in reserves', !reserves.includes('Zoe'));
+  // A player taken OUT of the squad rejoins the reserves.
+  const teams2 = { bibs: ['a', 'b'], nonbibs: ['c', 'd'] }; // Eve left out entirely
+  ok('player left off the sheet is a reserve', logic.lineupReserves(signups, players, teams2, 4).includes('Eve'));
+  // Empty team sheet → everyone available is a reserve (in rank order).
+  ok('no teams → all available are reserves', logic.lineupReserves(signups, players, {}, 4).join(',') === 'Alice,Bob,Cara,Dan,Eve');
+}
+
 // --- recommendedFormat: 5 / 7 / 8-a-side algorithm --------------------------
 {
   // helper to build signups + players with a given format preference & loyalty

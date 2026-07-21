@@ -180,8 +180,7 @@ function createLocalDB() {
       g.teamsFinalised = !!finalised;
       // Publishing (re)stages the line-up announcement to auto-send before kickoff.
       if (finalised) {
-        const ranked = logic.rankSignups(g.signups, db.players, g.capacity, { pollOpenAt: g.createdAt, config: db.config });
-        const reserves = ranked.filter(r => r.status === 'waitlist').map(r => r.name);
+        const reserves = logic.lineupReserves(g.signups, db.players, g.teams, g.capacity, { pollOpenAt: g.createdAt, config: db.config });
         db.announcement = buildLineupAnnouncement(g, db.players, db.config, db.announcement, reserves);
       }
       persist();
@@ -533,8 +532,7 @@ async function createFirestoreDB() {
       // Publishing (re)stages the line-up announcement to auto-send before kickoff.
       if (finalised) {
         const g = { ...(cache.game || {}), id: gameId, teams: t };
-        const ranked = logic.rankSignups(cache.signups, cache.players, g.capacity, { pollOpenAt: g.createdAt, config: cfg() });
-        const reserves = ranked.filter(r => r.status === 'waitlist').map(r => r.name);
+        const reserves = logic.lineupReserves(cache.signups, cache.players, t, g.capacity, { pollOpenAt: g.createdAt, config: cfg() });
         await setDoc(announceRef, buildLineupAnnouncement(g, cache.players, cfg(), cache.announcement, reserves));
       }
     },
