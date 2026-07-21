@@ -139,6 +139,25 @@ function buildView() {
       .filter(x => x.name)
       .sort((a, b) => a.name.localeCompare(b.name));
     const iAmOut = !!playerId && unavailable.some(u => u.playerId === playerId);
+    // Who to collect the match fee from: the finalised team sheet once the
+    // organiser has published teams (so add-ins are in and dropped players are
+    // out), otherwise the ranked confirmed squad. Then anyone who's already
+    // marked themselves paid is appended, so a payment is never hidden just
+    // because that person isn't in the current squad.
+    const payRoster = (() => {
+      const teamIds = (g.teamsFinalised && g.teams && ((g.teams.bibs || []).length + (g.teams.nonbibs || []).length))
+        ? [...new Set([...(g.teams.bibs || []), ...(g.teams.nonbibs || [])])]
+        : ranked.filter(r => r.status === 'confirmed').map(r => r.playerId);
+      const seen = new Set(); const out = [];
+      const push = id => {
+        if (seen.has(id)) return;
+        const p = lastRaw.playersById[id]; if (!p) return;
+        seen.add(id); out.push({ playerId: id, name: p.name, paid: !!paidBy[id] });
+      };
+      teamIds.forEach(push);
+      for (const s of lastRaw.signups) if (paidBy[s.playerId]) push(s.playerId);
+      return out;
+    })();
     game = {
       id: g.id, status: g.status, dateLabel: g.dateLabel, kickoffAt: g.kickoffAt, capacity: g.capacity,
       createdAt: g.createdAt,
@@ -146,6 +165,7 @@ function buildView() {
       teams: g.teams || null, teamsFinalised: !!g.teamsFinalised,
       confirmed: ranked.filter(r => r.status === 'confirmed').map(withPaid),
       waitlist: ranked.filter(r => r.status === 'waitlist').map(withPaid),
+      payRoster,
       totalIn: ranked.length,
       unavailable, iAmOut,
       me: mine ? { rank: mine.rank, status: mine.status, paid: !!paidBy[playerId] } : null,
@@ -407,15 +427,19 @@ function paymentControl(g) {
   </div>`;
 }
 
-// Organiser payment tracker for the current squad.
+// Organiser payment tracker for the current squad. Reads the payment roster
+// (the finalised team sheet once teams are published, otherwise the confirmed
+// squad, plus anyone who's already paid), so it tracks the organiser's team
+// re-selections and never hides a payment.
 function paymentsAdmin(g) {
-  const paidCount = g.confirmed.filter(r => r.paid).length;
-  const rows = g.confirmed.map(r => `<div class="pay-line">
+  const roster = g.payRoster || [];
+  const paidCount = roster.filter(r => r.paid).length;
+  const rows = roster.map(r => `<div class="pay-line">
       <span class="pay-name">${esc(r.name)}</span>
       <button class="pay-toggle${r.paid ? ' ok' : ''}" onclick="togglePaid('${r.playerId}','${g.id}',${r.paid ? 'false' : 'true'})">${r.paid ? `${ICON('icon-confirmed', 'inline-ico')} paid` : 'mark paid'}</button>
     </div>`).join('');
-  return `<div class="section-title">Payments · ${paidCount}/${g.confirmed.length} paid</div>
-    <p class="hint" style="margin-top:-2px">Players tick themselves off — tap here to record cash on the night.</p>
+  return `<div class="section-title">Payments · ${paidCount}/${roster.length} paid</div>
+    <p class="hint" style="margin-top:-2px">Players tick themselves off — tap here to record cash on the night. Tracks your team re-selections, and anyone who's already paid stays listed.</p>
     <div class="pay-list">${rows || '<div class="empty">No one confirmed yet.</div>'}</div>`;
 }
 

@@ -253,8 +253,14 @@ function createLocalDB() {
     },
     async setPaid(playerId, gameId, paid) {
       const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
-      const s = g.signups.find(x => x.playerId === playerId && x.status !== 'withdrawn');
-      if (!s) throw new Error('Not signed up');
+      let s = g.signups.find(x => x.playerId === playerId && x.status !== 'withdrawn');
+      // A player the organiser added straight into the team sheet may have no
+      // sign-up yet — create one so their payment can be recorded.
+      if (!s) {
+        if (!paid) return; // nothing to clear
+        s = { playerId, status: 'in', joinedAt: new Date().toISOString() };
+        g.signups.push(s);
+      }
       s.paid = !!paid; s.paidAt = paid ? new Date().toISOString() : null;
       persist();
     },
@@ -614,7 +620,13 @@ async function createFirestoreDB() {
       return { penalty: tier.penalty, label: tier.label };
     },
     async setPaid(playerId, gameId, paid) {
-      await setDoc(doc(signupsCol(gameId), playerId), { paid: !!paid, paidAt: paid ? new Date().toISOString() : null }, { merge: true });
+      const ref = doc(signupsCol(gameId), playerId);
+      const patch = { paid: !!paid, paidAt: paid ? new Date().toISOString() : null };
+      // A player added straight into the team sheet may have no sign-up yet —
+      // seed status/joinedAt on create so the record is well-formed.
+      const snap = await getDoc(ref);
+      if (!snap.exists()) { patch.status = 'in'; patch.joinedAt = new Date().toISOString(); }
+      await setDoc(ref, patch, { merge: true });
     },
     async lockGame(id) { await updateDoc(gameRef(id), { status: 'locked' }); },
     async setCapacity(id, capacity) { await updateDoc(gameRef(id), { capacity: Math.max(2, Number(capacity) || 0) }); },
