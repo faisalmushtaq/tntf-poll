@@ -238,6 +238,19 @@ export function rankSignups(signups = [], playersById = {}, capacity = 14, opts 
   }));
 }
 
+// The reserve list for a finalised line-up: available sign-ups (in loyalty
+// rank order) who are NOT on the team sheet. So anyone the organiser placed
+// into a team — even a waitlisted player promoted into the squad, or a
+// last-minute add-in — drops off the reserves, and anyone taken out of the
+// squad rejoins them. Keeps the announcement's reserves from duplicating
+// names already in the line-up. Returns player names.
+export function lineupReserves(signups = [], playersById = {}, teams = {}, capacity = 14, opts = {}) {
+  const inTeam = new Set([...(teams.bibs || []), ...(teams.nonbibs || [])]);
+  return rankSignups(signups, playersById, capacity, opts)
+    .filter(r => !inTeam.has(r.playerId))
+    .map(r => r.name);
+}
+
 // The "prompt sign-up" reward: a keen reserve who signed up promptly but didn't
 // make the squad gets the played reward PLUS the prompt bonus — i.e. one more
 // point than the players who actually played. This is the incentive that keeps
