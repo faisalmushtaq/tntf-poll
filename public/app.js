@@ -282,6 +282,22 @@ function weekScreen() {
   const g = state.game;
   const alert = state.alert ? `<div class="mine-banner ${state.alert.kind}">${state.alert.text}</div>` : '';
   if (!g) {
+    // Between games: show the most recent result (who played, who scored)
+    // instead of a blank slate, plus when the next poll opens.
+    if (history === null) ensureHistory();
+    const last = (history && history.length)
+      ? [...history].sort((a, b) => gameDateKey(b).localeCompare(gameDateKey(a)))[0]
+      : null;
+    const signin = state.me ? '' : `<div class="card">${identityPrompt()}</div>`;
+    if (last) {
+      const pollOpen = state.config.pollOpenDay
+        ? `<b>${esc(state.config.pollOpenDay)}${state.config.pollOpenTime ? ` at ${esc(state.config.pollOpenTime)}` : ''}</b>`
+        : 'soon';
+      return `${alert}
+        ${lastResultCard(last)}
+        <div class="card center"><p class="hint">That's this week wrapped up ⚽ — the next poll opens ${pollOpen} and you'll register here.</p></div>
+        ${signin}`;
+    }
     return `${alert}<div class="card center">
       <h2>No game open yet ⚽</h2>
       <p class="hint">The next poll opens after this week's game. When it's live you'll register here — your place is decided by loyalty, so there's no rush to be first.</p>
@@ -473,6 +489,38 @@ function teamsCard(g) {
     <h2>Teams — ${esc(g.dateLabel)}</h2>
     <p class="hint">The teams for this week. These can still change before kickoff.</p>
     <div class="teams-grid">${col(g.teams.bibs || [], 'Bibs', 'bibs')}${col(g.teams.nonbibs || [], 'Non-bibs', 'nonbibs')}</div>
+  </div>`;
+}
+
+// After a game's played — and before the next poll opens — This week shows the
+// most recent result instead of an empty state: the score, who scored, and the
+// two line-ups (who played), with a link to the full match report + highlights.
+function lastResultCard(g) {
+  const b = g.scores?.bibs, n = g.scores?.nonbibs;
+  const hasScore = Number.isFinite(b) && Number.isFinite(n);
+  const res = !hasScore ? '' : b > n ? 'Bibs win' : n > b ? 'Non-bibs win' : 'Draw';
+  const size = Math.max(g.teams?.bibs?.length || 0, g.teams?.nonbibs?.length || 0);
+  const scorerChip = (id, v) => `<span class="scorer">${playerLink(id, esc(abbrev(state.playersById[id]?.name || '—')))}${v > 1 ? ` <span class="mult">×${v}</span>` : ''}</span>`;
+  const scorers = g.goals && Object.keys(g.goals).length
+    ? Object.entries(g.goals).filter(([, v]) => Number(v) > 0).sort((a, b) => b[1] - a[1]).map(([id, v]) => scorerChip(id, v)).join(', ')
+    : '';
+  const col = (ids, label, cls) => `<div class="team-col">
+      <div class="team-head ${cls}">${bibIcon(cls)}<span class="th-label">${label}</span>${hasScore ? ` <span class="tscore">${cls === 'bibs' ? b : n}</span>` : ''}</div>
+      ${(ids || []).map((id, i) => {
+        const p = state.playersById[id]; const me = id === state.me?.id; const motm = logic.isMotm(g, id);
+        return `<div class="lu-row${me ? ' me' : ''}${motm ? ' motm' : ''}"><span class="lu-num">${i + 1}</span><span class="lu-name">${p ? playerLink(id, esc(abbrev(p.name))) : '—'}${me ? ' <span class="you">you</span>' : ''}${motm ? ' <span class="motm-badge" title="Man of the match">MOTM</span>' : ''}</span></div>`;
+      }).join('') || '<div class="empty">No line-up recorded.</div>'}
+    </div>`;
+  return `<div class="card">
+    <div class="kicker">Last result</div>
+    <h2 style="margin-top:2px">${esc(g.dateLabel || gameDateKey(g))}</h2>
+    ${hasScore
+      ? `<div class="scoreline"><span class="sl-side">Bibs</span><span class="sl-num">${b}</span><span class="sl-dash">–</span><span class="sl-num">${n}</span><span class="sl-side">Non-bibs</span></div>
+         <p class="hint center" style="margin-top:6px">${res}${size ? ` · ${size}-a-side` : ''}</p>`
+      : `<p class="hint center">Score not recorded yet${size ? ` · ${size}-a-side` : ''}.</p>`}
+    ${scorers ? `<p class="hint center scorers-line" style="margin-top:4px">${ICON('icon-goal', 'inline-ico')} ${scorers}</p>` : ''}
+    <div class="teams-grid detail mt">${col(g.teams?.bibs, 'Bibs', 'bibs')}${col(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
+    <button class="btn-ghost mt" onclick="viewGame('${g.id}')">Full match report &amp; highlights →</button>
   </div>`;
 }
 
