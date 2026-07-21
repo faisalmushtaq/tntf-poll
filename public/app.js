@@ -289,14 +289,28 @@ function weekScreen() {
     </div>${nextGamePreview()}`;
   }
 
+  // Once kickoff has passed the game is over: registration, withdrawal and the
+  // 7-vs-8 vote no longer apply — the screen switches to "kicked off, awaiting
+  // result" and points the organiser at entering the score.
+  const kickedOff = logic.hoursUntilKickoff(g.kickoffAt) <= 0;
   const pct = Math.min(100, Math.round(g.confirmed.length / g.capacity * 100));
   let mine = '';
   if (!state.me) mine = `<div class="card">${identityPrompt()}</div>`;
   else if (g.me) mine = g.me.status === 'confirmed'
     ? `<div class="mine-banner in">${ICON('icon-confirmed', 'inline-ico')} You're IN — squad place #${g.me.rank} of ${g.capacity}</div>`
-    : `<div class="mine-banner wait">⏳ You're ${ordinal(g.me.rank - g.capacity)} reserve. You'll move up if someone in the squad drops.</div>`;
+    : kickedOff
+      ? `<div class="mine-banner wait">You were ${ordinal(g.me.rank - g.capacity)} reserve this week.</div>`
+      : `<div class="mine-banner wait">⏳ You're ${ordinal(g.me.rank - g.capacity)} reserve. You'll move up if someone in the squad drops.</div>`;
   else if (g.iAmOut) mine = `<div class="mine-banner cant">You've said you can't make it this week — no problem, you won't be chased.</div>`;
   else mine = `<div class="mine-banner out">You haven't registered for this game yet.</div>`;
+
+  // Post-kickoff: no more sign-up/withdraw; nudge the organiser to the result.
+  const postGame = () => {
+    const cta = adminUnlocked
+      ? `<button class="btn-primary mt" onclick="go('admin')">Enter the result →</button>`
+      : `<p class="small mt center">The organiser will post the score soon.</p>`;
+    return `<p class="small mt center">⚽ This game has kicked off — registration's closed.</p>${cta}`;
+  };
 
   const actionBtn = () => {
     if (!state.me) return '';
@@ -333,7 +347,7 @@ function weekScreen() {
       <button class="btn-ghost mt" onclick="markUnavailable()">Can't make it this week</button>`;
   };
 
-  const kicker = g.status === 'open' ? 'Registration open' : g.status === 'locked' ? 'Squad locked' : g.status;
+  const kicker = kickedOff ? 'Kicked off' : g.status === 'open' ? 'Registration open' : g.status === 'locked' ? 'Squad locked' : g.status;
   const k = new Date(g.kickoffAt);
   const dateLine = k.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   const timeLine = k.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -350,7 +364,7 @@ function weekScreen() {
         <div class="capbar"><span style="width:${pct}%"></span></div>
       </div>
       ${mine}
-      ${actionBtn()}
+      ${kickedOff ? postGame() : actionBtn()}
       ${paymentControl(g)}
     </div>
     ${formatPrefControl()}
@@ -377,6 +391,7 @@ function round1(n) { return Math.round((Number(n) || 0) * 10) / 10; }
 function formatPrefControl() {
   const g = state.game;
   if (!g || !state.me || g.status !== 'open') return '';
+  if (logic.hoursUntilKickoff(g.kickoffAt) <= 0) return ''; // game's kicked off — vote's moot
   const pref = Number(state.me.formatPref) || 0;
   const btn = (val, label) => `<button type="button" class="aside-btn${pref === val ? ' on' : ''}" onclick="setFmtPref(${val})">${label}</button>`;
   const rec = formatRec();
