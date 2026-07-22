@@ -698,7 +698,7 @@ function tableScreen() {
 // Columns on the Performances page — priority order (goals first). Each maps to
 // a key on the playerPerformance() total. `pct` marks a percentage column.
 const PERF_COLS = [
-  { key: 'games', label: 'GP', title: 'Games with a goal or stats recorded' },
+  { key: 'appearances', label: 'GP', title: 'Games played' },
   { key: 'motm', label: 'MotM', title: 'Man-of-the-match awards' },
   { key: 'rating', label: '★', title: 'Average match rating (self + Statto)', rating: true },
   { key: 'g', label: 'G', title: 'Goals' },
@@ -724,7 +724,7 @@ function performancesScreen() {
   const { key, dir } = perfSort;
   const idx = getStatsIndex();
   const entries = state.roster.map(p => ({ p, perf: idx.players[p.id].performance }))
-    .filter(e => e.perf.games > 0 || e.perf.ratingGames > 0 || e.perf.motm > 0 || e.perf.og > 0);
+    .filter(e => e.perf.appearances > 0 || e.perf.games > 0 || e.perf.ratingGames > 0 || e.perf.motm > 0 || e.perf.og > 0);
   entries.sort((a, b) => {
     let cmp = key === 'name' ? a.p.name.localeCompare(b.p.name) : (a.perf[key] || 0) - (b.perf[key] || 0);
     cmp = dir === 'asc' ? cmp : -cmp;
@@ -743,7 +743,7 @@ function performancesScreen() {
   const th = (k, label, cls, attrs = '') => `<th class="${cls} sortable${key === k ? ' active' : ''}" ${attrs} onclick="sortPerf('${k}')">${label}${arrow(k)}</th>`;
   return `<div class="card">
     <h2>Performances</h2>
-    <p class="hint">Individual match stats — goals, assists and more — from games we've logged them for. Realistically it's mostly goals each week; the rest when someone's counting. <b>Tap a heading to sort.</b> Swipe sideways for every column.</p>
+    <p class="hint">Games played (GP) plus individual match stats — goals, assists and more. Realistically it's mostly goals each week; the rest when someone's counting. <b>Tap a heading to sort.</b> Swipe sideways for every column.</p>
     ${entries.length ? `<div class="table-scroll">
       <table class="stats-table">
         <thead><tr>

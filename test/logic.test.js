@@ -497,11 +497,30 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
       stats: { x: { g: 2 } }, goals: { x: 2 } }                        // both, as the full-stats flow saves
   ];
   const x = logic.playerPerformance('x', games);
-  ok('a goals-only game counts toward GP', x.games === 3);
+  ok('a goals-only game counts toward stats-games', x.games === 3);
   ok('goals-only goals add to the total with no double count (2+1+2=5)', x.g === 5);
   ok('assists still come only from full stat lines', x.a === 1);
   const z = logic.playerPerformance('z', games);
-  ok('a scorer with only a quick goal shows GP 1 and G 1', z.games === 1 && z.g === 1);
+  ok('a scorer with only a quick goal shows a stats-game and G 1', z.games === 1 && z.g === 1);
+}
+
+// --- GP = games played (appearances), scored or not ------------------------
+{
+  const games = [
+    { id: 'a1', status: 'completed', date: '2026-05-01', teams: { bibs: ['p', 'q'], nonbibs: ['r'] },
+      scores: { bibs: 1, nonbibs: 0 }, goals: { p: 1 } },            // p scored, q played (no goal)
+    { id: 'a2', status: 'completed', date: '2026-05-08', teams: { bibs: ['q'], nonbibs: ['r'] },
+      scores: { bibs: 0, nonbibs: 2 } },                             // q & r played, nobody logged a goal
+    { id: 'a3', status: 'open', teams: { bibs: ['q'], nonbibs: ['r'] } } // open → never counts
+  ];
+  ok('player who played but never scored still has GP (appearances)', logic.playerPerformance('q', games).appearances === 2);
+  ok('…and shows 0 goals', logic.playerPerformance('q', games).g === 0);
+  ok('a scorer’s appearances count too', logic.playerPerformance('p', games).appearances === 1 && logic.playerPerformance('p', games).g === 1);
+  ok('appearances ignore open games', logic.playerPerformance('r', games).appearances === 2);
+  ok('someone who never played has 0 appearances', logic.playerPerformance('nobody', games).appearances === 0);
+  // Falls back to result.confirmed when a completed game has no teams.
+  const legacy = [{ id: 'L', status: 'completed', date: '2026-06-01', result: { confirmed: ['q'], reserves: [] } }];
+  ok('appearances fall back to the result when there are no teams', logic.playerPerformance('q', legacy).appearances === 1);
 }
 
 // --- personal goals prefer stats over the legacy goals map -----------------
