@@ -500,9 +500,18 @@ export function playerPerformance(playerId, games = []) {
   let n = 0, ratingSum = 0, ratingGames = 0, motm = 0, og = 0;
   for (const g of games) {
     if (g.status !== 'completed') continue;
-    if (g.stats && g.stats[playerId]) {
-      n++; const st = g.stats[playerId];
+    const st = g.stats && g.stats[playerId];
+    if (st) {
+      // Full stat line. (When it's present, g.goals is derived from it, so we
+      // read goals from here — never both — to avoid double-counting.)
+      n++;
       for (const s of STATS) t[s.key] += Number(st[s.key]) || 0;
+    } else {
+      // No full line, but a goal logged via the quick scorer entry (g.goals)
+      // still counts the game as recorded and the goal toward the total —
+      // that's the usual weekly case where only goals get noted.
+      const gq = (g.goals && Number(g.goals[playerId])) || 0;
+      if (gq > 0) { n++; t.g += gq; }
     }
     const r = effectiveRating(g, playerId);
     if (r != null) { ratingSum += r; ratingGames++; }

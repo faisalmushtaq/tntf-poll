@@ -698,7 +698,7 @@ function tableScreen() {
 // Columns on the Performances page — priority order (goals first). Each maps to
 // a key on the playerPerformance() total. `pct` marks a percentage column.
 const PERF_COLS = [
-  { key: 'games', label: 'GP', title: 'Games with stats recorded' },
+  { key: 'games', label: 'GP', title: 'Games with a goal or stats recorded' },
   { key: 'motm', label: 'MotM', title: 'Man-of-the-match awards' },
   { key: 'rating', label: '★', title: 'Average match rating (self + Statto)', rating: true },
   { key: 'g', label: 'G', title: 'Goals' },

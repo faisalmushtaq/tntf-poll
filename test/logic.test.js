@@ -486,6 +486,24 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('STATS lists goals first (priority order)', logic.STATS[0].key === 'g' && logic.STATS[1].key === 'a');
 }
 
+// --- goals via the quick scorer entry count toward GP and G ----------------
+{
+  const games = [
+    { id: 'g1', status: 'completed', date: '2026-04-01', teams: { bibs: ['x'], nonbibs: ['z'] },
+      scores: { bibs: 3, nonbibs: 1 }, goals: { x: 2, z: 1 } },        // goals only, no stat line
+    { id: 'g2', status: 'completed', date: '2026-04-08', teams: { bibs: ['x'], nonbibs: ['z'] },
+      stats: { x: { g: 1, a: 1 } } },                                  // full stat line only
+    { id: 'g3', status: 'completed', date: '2026-04-15', teams: { bibs: ['x'], nonbibs: ['z'] },
+      stats: { x: { g: 2 } }, goals: { x: 2 } }                        // both, as the full-stats flow saves
+  ];
+  const x = logic.playerPerformance('x', games);
+  ok('a goals-only game counts toward GP', x.games === 3);
+  ok('goals-only goals add to the total with no double count (2+1+2=5)', x.g === 5);
+  ok('assists still come only from full stat lines', x.a === 1);
+  const z = logic.playerPerformance('z', games);
+  ok('a scorer with only a quick goal shows GP 1 and G 1', z.games === 1 && z.g === 1);
+}
+
 // --- personal goals prefer stats over the legacy goals map -----------------
 {
   const games = [
