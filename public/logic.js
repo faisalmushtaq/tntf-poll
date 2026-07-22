@@ -497,9 +497,13 @@ export function isMotm(g, playerId) {
 // season-long extras: average rating, man-of-the-match count and own goals.
 export function playerPerformance(playerId, games = []) {
   const t = {}; for (const s of STATS) t[s.key] = 0;
-  let n = 0, ratingSum = 0, ratingGames = 0, motm = 0, og = 0;
+  let n = 0, ratingSum = 0, ratingGames = 0, motm = 0, og = 0, appearances = 0;
   for (const g of games) {
     if (g.status !== 'completed') continue;
+    // Games played: on the team sheet (or the result) — counts whether or not
+    // any goals/stats were logged, so a player who turned out and didn't score
+    // still shows a game played.
+    if (gamePlayers(g).includes(playerId)) appearances++;
     const st = g.stats && g.stats[playerId];
     if (st) {
       // Full stat line. (When it's present, g.goals is derived from it, so we
@@ -519,6 +523,7 @@ export function playerPerformance(playerId, games = []) {
     og += (g.ownGoals && Number(g.ownGoals[playerId])) || 0;
   }
   t.games = n;
+  t.appearances = appearances;
   t.passPct = t.pass ? Math.round(t.passc / t.pass * 100) : 0;
   t.ppPct = t.pp ? Math.round(t.ppc / t.pp * 100) : 0;
   t.sotPct = t.sh ? Math.round(t.sot / t.sh * 100) : 0;
