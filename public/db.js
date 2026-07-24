@@ -251,6 +251,22 @@ function createLocalDB() {
       if (tier.penalty > 0) { db.players[playerId].loyalty -= tier.penalty; db.players[playerId].dropouts += 1; }
       persist(); return { penalty: tier.penalty, label: tier.label };
     },
+    // Undo a withdrawal penalty (organiser): refund the loyalty that was docked,
+    // clear the dropout, and treat it as a no-penalty "out" so it no longer
+    // counts against them. They still didn't play that game.
+    async reverseWithdrawal(playerId, gameId) {
+      const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
+      const s = (g.signups || []).find(x => x.playerId === playerId && x.status === 'withdrawn');
+      if (!s) throw new Error('No withdrawal to reverse');
+      const refund = Number(s.penaltyApplied) || 0;
+      const p = db.players[playerId];
+      if (p) { p.loyalty += refund; if (refund > 0) p.dropouts = Math.max(0, (p.dropouts || 0) - 1); }
+      s.status = 'out'; s.outAt = new Date().toISOString();
+      delete s.withdrawnAt; s.penaltyApplied = 0; s.penaltyWaived = true;
+      if (Array.isArray(g.withdrawnIds)) g.withdrawnIds = g.withdrawnIds.filter(id => id !== playerId);
+      if (g.withdrawnPenalties) delete g.withdrawnPenalties[playerId];
+      persist(); return { refunded: refund };
+    },
     async setPaid(playerId, gameId, paid) {
       const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
       let s = g.signups.find(x => x.playerId === playerId && x.status !== 'withdrawn');
@@ -318,6 +334,7 @@ function createLocalDB() {
         : logic.finalResult(ranked);
       // Denormalize who withdrew so history loads don't need the signups.
       g.withdrawnIds = (g.signups || []).filter(s => s.status === 'withdrawn').map(s => s.playerId);
+      g.withdrawnPenalties = Object.fromEntries((g.signups || []).filter(s => s.status === 'withdrawn').map(s => [s.playerId, Number(s.penaltyApplied) || 0]));
       if (opts.scores) g.scores = opts.scores;
       if (opts.weather) g.weather = opts.weather;
       if (Number(opts.bonus) > 0) { g.weatherBonus = Number(opts.bonus); g.bonusReasons = opts.reasons || []; }
@@ -404,7 +421,7 @@ async function createFirestoreDB() {
   const fs = await import(`https://www.gstatic.com/firebasejs/${FB_VERSION}/firebase-firestore.js`);
   const {
     getFirestore, doc, getDoc, setDoc, updateDoc, deleteField, deleteDoc,
-    collection, getDocs, onSnapshot, writeBatch, increment
+    collection, getDocs, onSnapshot, writeBatch, increment, arrayRemove
   } = fs;
 
   const app = await getFirebaseApp();
@@ -619,6 +636,23 @@ async function createFirestoreDB() {
       await batch.commit();
       return { penalty: tier.penalty, label: tier.label };
     },
+    // Undo a withdrawal penalty (organiser): refund the docked loyalty, clear
+    // the dropout, and turn it into a no-penalty "out". Reads the signup doc so
+    // it works on any past game without loading the whole signups subcollection.
+    async reverseWithdrawal(playerId, gameId) {
+      const ref = doc(signupsCol(gameId), playerId);
+      const snap = await getDoc(ref);
+      if (!snap.exists() || snap.data().status !== 'withdrawn') throw new Error('No withdrawal to reverse');
+      const refund = Number(snap.data().penaltyApplied) || 0;
+      const batch = writeBatch(dbf);
+      batch.update(ref, { status: 'out', outAt: new Date().toISOString(), withdrawnAt: deleteField(), penaltyApplied: 0, penaltyWaived: true });
+      const pPatch = { loyalty: increment(refund) };
+      if (refund > 0) pPatch.dropouts = increment(-1);
+      batch.update(doc(playersCol, playerId), pPatch);
+      batch.update(gameRef(gameId), { withdrawnIds: arrayRemove(playerId), [`withdrawnPenalties.${playerId}`]: deleteField() });
+      await batch.commit();
+      return { refunded: refund };
+    },
     async setPaid(playerId, gameId, paid) {
       const ref = doc(signupsCol(gameId), playerId);
       const patch = { paid: !!paid, paidAt: paid ? new Date().toISOString() : null };
@@ -684,8 +718,9 @@ async function createFirestoreDB() {
         ? { confirmed: [...playedIds], reserves: ranked.filter(r => !playedSet.has(r.playerId)).map(r => r.playerId) }
         : logic.finalResult(ranked);
       const gamePatch = { status: 'completed', completedAt: new Date().toISOString(), result };
-      // Denormalize who withdrew so history loads don't need the signups subcollection.
+      // Denormalize who withdrew (and their penalty) so history loads don't need the signups subcollection.
       gamePatch.withdrawnIds = (cache.signups || []).filter(s => s.status === 'withdrawn').map(s => s.playerId);
+      gamePatch.withdrawnPenalties = Object.fromEntries((cache.signups || []).filter(s => s.status === 'withdrawn').map(s => [s.playerId, Number(s.penaltyApplied) || 0]));
       if (opts.scores) gamePatch.scores = opts.scores;
       if (opts.weather) gamePatch.weather = opts.weather;
       if (Number(opts.bonus) > 0) { gamePatch.weatherBonus = Number(opts.bonus); gamePatch.bonusReasons = opts.reasons || []; }

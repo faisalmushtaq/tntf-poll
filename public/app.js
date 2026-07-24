@@ -168,6 +168,11 @@ function buildView() {
       payRoster,
       totalIn: ranked.length,
       unavailable, iAmOut,
+      // Players who withdrew this week (with the penalty docked), for the
+      // organiser's one-tap penalty reversal.
+      withdrawn: lastRaw.signups.filter(s => s.status === 'withdrawn')
+        .map(s => ({ playerId: s.playerId, name: lastRaw.playersById[s.playerId]?.name, penalty: Number(s.penaltyApplied) || 0 }))
+        .filter(x => x.name),
       me: mine ? { rank: mine.rank, status: mine.status, paid: !!paidBy[playerId] } : null,
       withdrawPenaltyNow: logic.penaltyForHours(hrs, lastRaw.config).penalty,
       // Each player's response this week: confirmed | waitlist | out | withdrawn
@@ -472,6 +477,30 @@ function paymentsAdmin(g) {
   return `<div class="section-title">Payments · ${paidCount}/${roster.length} paid</div>
     <p class="hint" style="margin-top:-2px">Players tick themselves off — tap here to record cash on the night. Tracks your team re-selections, and anyone who's already paid stays listed.</p>
     <div class="pay-list">${rows || '<div class="empty">No one confirmed yet.</div>'}</div>`;
+}
+
+// Players who withdrew from a game, with the penalty each was docked. Works
+// for the current game (inline signups) and any past game (denormalized
+// withdrawnIds/withdrawnPenalties, or inline signups in demo mode).
+function gameWithdrawals(g) {
+  const raw = (Array.isArray(g.signups) && g.signups.length)
+    ? g.signups.filter(s => s.status === 'withdrawn').map(s => ({ playerId: s.playerId, penalty: Number.isFinite(s.penaltyApplied) ? Number(s.penaltyApplied) : null }))
+    : (g.withdrawnIds || []).map(id => ({ playerId: id, penalty: (g.withdrawnPenalties && Number.isFinite(g.withdrawnPenalties[id])) ? Number(g.withdrawnPenalties[id]) : null }));
+  return raw.map(w => ({ ...w, name: state.playersById[w.playerId]?.name })).filter(w => w.name);
+}
+// Organiser control: one-tap reversal of a withdrawal penalty.
+function withdrawalReverseCard(gameId, list) {
+  if (!list || !list.length) return '';
+  const rows = list.map(w => {
+    const amt = w.penalty == null ? '' : w.penalty > 0 ? ` · −${w.penalty}` : ' · no penalty';
+    return `<div class="pay-line">
+      <span class="pay-name">${esc(w.name || '—')}${amt}</span>
+      <button class="pay-toggle" onclick="reverseWithdrawal('${gameId}','${w.playerId}')">reverse${w.penalty > 0 ? ` +${w.penalty}` : ''}</button>
+    </div>`;
+  }).join('');
+  return `<div class="section-title">Withdrawals</div>
+    <p class="hint" style="margin-top:-2px">Reverse a drop-out to refund the loyalty penalty and clear the dropout — e.g. a genuine reason. They still stay out of that game.</p>
+    <div class="pay-list">${rows}</div>`;
 }
 
 // Published teams (bibs vs non-bibs) shown once the organiser finalises them.
@@ -1633,6 +1662,7 @@ function adminScreen() {
       <p class="hint" style="margin-top:-2px">Christmas break, no pitch, whatever — call it off. The poll closes, This week shows no game, and no loyalty is banked. You can open a fresh game whenever you like.</p>
       <button class="btn-danger" onclick="cancelWeek('${g.id}')">Call off this week's game</button>
       ${paymentsAdmin(g)}
+      ${withdrawalReverseCard(g.id, g.withdrawn || [])}
       <div class="section-title">Enter the result</div>
       <p class="hint" style="margin-top:-2px">Type the final score, then bank loyalty. You can tweak the score and teams (Team builder) right up until you confirm.</p>
       <div class="btn-row">
@@ -1822,6 +1852,7 @@ function adminMatchEditor(g) {
         <input id="mAdjAmount" type="number" step="1" placeholder="e.g. 3 or -2" style="max-width:120px" />
         <button class="btn-ghost" onclick="applyMatchBonus()">Apply</button>
       </div>
+      ${withdrawalReverseCard(g.id, gameWithdrawals(g))}
       <p class="small" style="margin-top:10px">Goalscorers, ratings and man of the match are edited in the <b>Statto</b> tab.</p>
     </div>`;
 }
@@ -2451,6 +2482,15 @@ window.completeGame = async (id) => {
   } catch (e) { toast(e.message, true); }
 };
 window.adjust = async (id, delta) => { try { await db.adjustLoyalty(id, delta); } catch (e) { toast(e.message, true); } };
+window.reverseWithdrawal = async (gameId, playerId) => {
+  const name = state.playersById[playerId]?.name || 'player';
+  try {
+    const { refunded } = await db.reverseWithdrawal(playerId, gameId);
+    history = null; ensureHistory();       // reload history so the reversal reindexes
+    buildView(); render();
+    toast(refunded > 0 ? `Penalty reversed — +${refunded} refunded to ${name}` : `Withdrawal cleared for ${name} (no penalty had been applied)`);
+  } catch (e) { toast(e.message, true); }
+};
 const asBool = v => v === true || v === 'true';
 window.markPaid = async (gameId, paid) => {
   try { await db.setPaid(state.me.id, gameId, asBool(paid)); toast(asBool(paid) ? 'Payment confirmed 💸' : 'Marked unpaid'); }
