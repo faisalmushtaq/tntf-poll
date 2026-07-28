@@ -107,6 +107,25 @@ async function maybeDedupe() {
   catch (e) { console.error('dedupe', e); dedupeRan = false; }
 }
 
+// Client-side safety net for the weekly auto-open. The GitHub-Action notifier
+// is the primary opener, but its schedule is throttled/unreliable — so whenever
+// anyone loads the app past the poll-open time (default Friday 10am), with last
+// week settled and this week not yet opened, we open it right then. db.autoOpenPoll
+// is idempotent (a transaction + a stored marker), so concurrent visitors and the
+// server can't double-open. Attempts once per due kickoff per session.
+let autoOpenTriedFor = null;
+async function maybeAutoOpen() {
+  if (!db || !lastRaw || !state) return;
+  const plan = logic.autoOpenPlan(state.config, lastRaw.game, new Date(), state.config.autoOpenedKickoff || null);
+  if (!plan) return;                              // not due (before open time / already open / already opened)
+  if (autoOpenTriedFor === plan.kickoffAt) return; // don't re-attempt the same week this session
+  autoOpenTriedFor = plan.kickoffAt;
+  try {
+    const r = await db.autoOpenPoll();
+    if (r) toast(`This week's poll is open — sign up for ${r.dateLabel} ⚽`);
+  } catch (e) { console.error('auto-open failed', e); autoOpenTriedFor = null; }
+}
+
 // One-time config self-heal: bring an older stored config up to the current
 // defaults (venue name + pitch coordinates), so weather turns on and the venue
 // updates without anyone touching Settings. Runs once per session.
@@ -2814,7 +2833,7 @@ window.addEventListener('tntf-push', e => {
       await auth.complete().catch(err => console.error('sign-in redirect', err));
       auth.onChange(u => { user = u; history = null; if (u) ensureAccount(u); buildView(); render(); ensureHistory(); });
     }
-    db.subscribe(raw => { lastRaw = raw; buildView(); render(); maybeMigrateConfig(); maybeDedupe(); });
+    db.subscribe(raw => { lastRaw = raw; buildView(); render(); maybeMigrateConfig(); maybeDedupe(); maybeAutoOpen(); });
     ensureHistory(); // load past results for form/analytics on Table & You
   } catch (e) {
     console.error(e);
