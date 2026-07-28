@@ -306,6 +306,25 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('opponent mirror: Z 1W/2L/1D', z.wins === 1 && z.losses === 2 && z.draws === 1);
 }
 
+// --- form/streak order when games have no `date` (completed in-app) ---------
+{
+  // No `date` field — only completedAt/kickoffAt — and given out of order.
+  const games = [
+    { id: 'b', status: 'completed', completedAt: '2026-02-08T21:00:00Z', teams: { bibs: ['x'], nonbibs: ['z'] }, scores: { bibs: 0, nonbibs: 2 } }, // X loss (2nd)
+    { id: 'c', status: 'completed', completedAt: '2026-02-15T21:00:00Z', teams: { bibs: ['x'], nonbibs: ['z'] }, scores: { bibs: 3, nonbibs: 0 } }, // X win (3rd, newest)
+    { id: 'a', status: 'completed', completedAt: '2026-02-01T21:00:00Z', teams: { bibs: ['x'], nonbibs: ['z'] }, scores: { bibs: 1, nonbibs: 0 } }  // X win (1st, oldest)
+  ];
+  const a = logic.playerAnalytics('x', games);
+  ok('undated games order by completedAt (form newest-first W,L,W)', a.form.join('') === 'WLW');
+  ok('current streak reads the true most-recent game (W1, not L)', a.currentStreak.type === 'W' && a.currentStreak.count === 1);
+  // kickoffAt works as a fallback too
+  const byKick = [
+    { id: 'k2', status: 'completed', kickoffAt: '2026-03-08T19:00:00Z', teams: { bibs: ['x'], nonbibs: ['z'] }, scores: { bibs: 0, nonbibs: 1 } }, // loss, newest
+    { id: 'k1', status: 'completed', kickoffAt: '2026-03-01T19:00:00Z', teams: { bibs: ['x'], nonbibs: ['z'] }, scores: { bibs: 2, nonbibs: 1 } }  // win, oldest
+  ];
+  ok('kickoffAt fallback orders correctly (current streak L1)', logic.playerAnalytics('x', byKick).currentStreak.type === 'L');
+}
+
 // --- team balancer ----------------------------------------------------------
 {
   const P = {
