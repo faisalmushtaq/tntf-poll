@@ -205,6 +205,13 @@ needs the SMTP secrets. Set up either or both. The same Action also opens the
 weekly poll on schedule, so leaving it on is what makes auto-open work.
 (WhatsApp sharing needs none of this — it's a one-tap Share button in the app.)
 
+**Auto-open is also backed up client-side:** GitHub's scheduler is throttled and
+can lag, so as a safety net the app itself opens the poll the moment anyone
+loads it past the poll-open time (once last week's game is settled). It's
+idempotent — a Firestore transaction plus a stored marker mean concurrent
+visitors and the Action can't double-open — so the poll reliably appears on the
+day even if the robot is slow or off.
+
 #### Setting up email (SMTP)
 
 The notifier speaks plain SMTP, so any provider works — you just fill in the

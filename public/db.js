@@ -212,6 +212,24 @@ function createLocalDB() {
       db.announcement = logic.buildAnnouncement('poll-open', { game, recipients: Object.values(db.players), config: db.config });
       persist(); return game.id;
     },
+    // Client-side safety net for the weekly auto-open: if the poll is due
+    // (past the open time, last game settled, not already opened) open it now.
+    // Mirrors the notifier's logic so the two can't both open the same week
+    // (the "no open game" guard + the stored marker dedupe them).
+    async autoOpenPoll() {
+      const marker = db.config.autoOpenedKickoff || null;
+      const plan = logic.autoOpenPlan(db.config, currentGame(), new Date(), marker);
+      if (!plan) return null;
+      const game = {
+        id: uuid(), status: 'open', dateLabel: plan.dateLabel, kickoffAt: plan.kickoffAt,
+        capacity: Number(db.config.capacity) || 14, venue: db.config.venue || '',
+        signups: [], createdAt: new Date().toISOString(), autoOpened: true
+      };
+      db.games.push(game); db.currentGameId = game.id; db.config.autoOpenedKickoff = plan.kickoffAt;
+      db.announcement = logic.buildAnnouncement('poll-open', { game, recipients: Object.values(db.players), config: db.config });
+      persist();
+      return { id: game.id, kickoffAt: plan.kickoffAt, dateLabel: plan.dateLabel };
+    },
     async updateAnnouncement(patch) {
       if (!db.announcement) return;
       db.announcement = { ...db.announcement, ...patch }; persist();
@@ -421,7 +439,7 @@ async function createFirestoreDB() {
   const fs = await import(`https://www.gstatic.com/firebasejs/${FB_VERSION}/firebase-firestore.js`);
   const {
     getFirestore, doc, getDoc, setDoc, updateDoc, deleteField, deleteDoc,
-    collection, getDocs, onSnapshot, writeBatch, increment, arrayRemove
+    collection, getDocs, onSnapshot, writeBatch, increment, arrayRemove, runTransaction
   } = fs;
 
   const app = await getFirebaseApp();
@@ -611,6 +629,37 @@ async function createFirestoreDB() {
       // sends it once the grace window elapses (or when the organiser sends it).
       await setDoc(announceRef, logic.buildAnnouncement('poll-open', { game, recipients: Object.values(cache.players), config: cfg() }));
       return id;
+    },
+    // Client-side safety net for the weekly auto-open. Runs in a transaction on
+    // the current-game pointer so two visitors landing at once can't both open —
+    // whoever's transaction commits first wins; the other re-reads the now-open
+    // game and backs out. The stored marker (meta/config.autoOpenedKickoff) and
+    // the "no open game" guard also keep it from racing the server notifier.
+    async autoOpenPoll() {
+      const res = await runTransaction(dbf, async (tx) => {
+        const cs = await tx.get(cfgRef);
+        const cdata = cs.exists() ? cs.data() : {};
+        let curGame = null;
+        if (cdata.currentGameId) {
+          const gs = await tx.get(gameRef(cdata.currentGameId));
+          if (gs.exists()) curGame = { id: cdata.currentGameId, ...gs.data() };
+        }
+        const plan = logic.autoOpenPlan(logic.withDefaults(cdata), curGame, new Date(), cdata.autoOpenedKickoff || null);
+        if (!plan) return null;
+        const newRef = doc(collection(dbf, 'games'));
+        tx.set(newRef, {
+          status: 'open', dateLabel: plan.dateLabel, kickoffAt: plan.kickoffAt,
+          capacity: Number(cdata.capacity) || 14, venue: cdata.venue || '',
+          autoOpened: true, createdAt: new Date().toISOString()
+        });
+        tx.set(cfgRef, { currentGameId: newRef.id, autoOpenedKickoff: plan.kickoffAt }, { merge: true });
+        return { id: newRef.id, kickoffAt: plan.kickoffAt, dateLabel: plan.dateLabel };
+      });
+      if (res) {
+        const game = { id: res.id, dateLabel: res.dateLabel, kickoffAt: res.kickoffAt, capacity: Number(cfg().capacity) || 14, venue: cfg().venue || '' };
+        try { await setDoc(announceRef, logic.buildAnnouncement('poll-open', { game, recipients: Object.values(cache.players), config: cfg() })); } catch (e) { /* announcement is best-effort */ }
+      }
+      return res;
     },
     async updateAnnouncement(patch) { await setDoc(announceRef, patch, { merge: true }); },
     async signup(playerId, gameId) {
