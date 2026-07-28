@@ -2478,6 +2478,7 @@ window.completeGame = async (id) => {
   if (!confirm(msg)) return;
   try {
     await db.completeGame(id, { bonus, weather, reasons, scores, highlights, lateBonusIds });
+    history = null; ensureHistory();   // the just-completed game joins history — reload so This week shows it
     toast('Result saved · loyalty banked · archived');
   } catch (e) { toast(e.message, true); }
 };
