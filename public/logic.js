@@ -417,6 +417,12 @@ export function balanceTeams(playerIds = [], playersById = {}) {
 export function playerAnalytics(playerId, games = []) {
   const rel = games
     .filter(g => g.status === 'completed' && g.teams && g.scores)
+    // Oldest → newest. Games completed in-app have no `date`, so fall back to
+    // completedAt/kickoffAt — otherwise the chronological order (and with it the
+    // form guide and current streak) breaks. Sort before mapping so the entries
+    // stay clean.
+    .slice()
+    .sort((a, b) => new Date(a.date || a.completedAt || a.kickoffAt || 0) - new Date(b.date || b.completedAt || b.kickoffAt || 0))
     .map(g => {
       const side = (g.teams.bibs || []).includes(playerId) ? 'bibs'
         : (g.teams.nonbibs || []).includes(playerId) ? 'nonbibs' : null;
@@ -426,8 +432,7 @@ export function playerAnalytics(playerId, games = []) {
       const pg = (g.stats && g.stats[playerId] && Number(g.stats[playerId].g)) || (g.goals && Number(g.goals[playerId])) || 0; // personal goals this game
       return { date: g.date, dateLabel: g.dateLabel, gf, ga, pg, outcome: gf > ga ? 'W' : gf < ga ? 'L' : 'D' };
     })
-    .filter(Boolean)
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
+    .filter(Boolean);
 
   const played = rel.length;
   const wins = rel.filter(r => r.outcome === 'W').length;
