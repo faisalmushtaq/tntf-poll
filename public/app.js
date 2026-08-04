@@ -1567,6 +1567,27 @@ function lateCoverSection(g) {
     <div class="late-list">${rows || '<div class="empty">No confirmed players yet.</div>'}</div>`;
 }
 
+// Conditions (bad-weather / cold-season) bonus control in the completion form.
+// Auto-detection pre-ticks the boxes, but the organiser has the final say — so a
+// mild night gets no bonus even if the forecast reading was off.
+function conditionsBonusSection(g) {
+  const s = logic.withDefaults(state.config).scoring;
+  if (!s.weatherBonus && !s.coldSeasonBonus) return '';
+  const iso = gameISO(g);
+  const key = 'g-' + g.id;
+  ensureWeather(key, iso);                       // fetch so we can pre-tick weather
+  const w = weatherCache[key];
+  const wxRough = w ? weatherFlags(w).rough : false;
+  const cold = logic.isColdSeason(iso, state.config);
+  const wxRow = s.weatherBonus
+    ? `<label class="late-row"><input type="checkbox" id="cWxBonus"${wxRough ? ' checked' : ''} /><span class="late-name">Adverse weather (cold / wet) · +${s.weatherBonus}</span>${wxRough ? '<span class="late-auto">detected</span>' : ''}</label>` : '';
+  const coldRow = s.coldSeasonBonus
+    ? `<label class="late-row"><input type="checkbox" id="cColdBonus"${cold ? ' checked' : ''} /><span class="late-name">Cold season · +${s.coldSeasonBonus}</span>${cold ? '<span class="late-auto">in season</span>' : ''}</label>` : '';
+  return `<div class="section-title">Conditions bonus</div>
+    <p class="hint" style="margin-top:-2px">Tick only if tonight earned it — everyone who played gets this on top of the played reward. Pre-ticked from the forecast and the calendar, but you decide.</p>
+    <div class="late-list">${wxRow}${coldRow}</div>`;
+}
+
 // A staged group announcement (poll's open, game moved, no game this week, or
 // the line-up), awaiting the organiser's review before it emails/pushes the
 // group. Shows the message, who it's going to (deselect anyone), a countdown to
@@ -1688,6 +1709,7 @@ function adminScreen() {
         <div><label class="field">Bibs</label><input id="scoreBibs" type="number" inputmode="numeric" value="${g.scores && Number.isFinite(g.scores.bibs) ? g.scores.bibs : ''}" placeholder="0" /></div>
         <div><label class="field">Non-bibs</label><input id="scoreNonbibs" type="number" inputmode="numeric" value="${g.scores && Number.isFinite(g.scores.nonbibs) ? g.scores.nonbibs : ''}" placeholder="0" /></div>
       </div>
+      ${conditionsBonusSection(g)}
       ${lateCoverSection(g)}
       ${highlightsFields(g)}
       <button class="btn-primary mt" onclick="completeGame('${g.id}')">Confirm result → bank loyalty</button>
@@ -1872,8 +1894,29 @@ function adminMatchEditor(g) {
         <button class="btn-ghost" onclick="applyMatchBonus()">Apply</button>
       </div>
       ${withdrawalReverseCard(g.id, gameWithdrawals(g))}
+      ${matchConditionsCard(g)}
       <p class="small" style="margin-top:10px">Goalscorers, ratings and man of the match are edited in the <b>Statto</b> tab.</p>
     </div>`;
+}
+
+// Retroactive conditions-bonus toggle for a past game: turn the bad-weather /
+// cold-season bonus on or off after the fact. Reflects what's currently applied
+// (from the stored reasons); toggling re-applies the difference to everyone who
+// played.
+function matchConditionsCard(g) {
+  const s = logic.withDefaults(state.config).scoring;
+  if (!s.weatherBonus && !s.coldSeasonBonus) return '';
+  const reasons = g.bonusReasons || [];
+  const wxOn = reasons.some(r => /weather/i.test(r));
+  const coldOn = reasons.some(r => /cold/i.test(r));
+  const wxRow = s.weatherBonus
+    ? `<label class="late-row"><input type="checkbox" id="mcWxBonus"${wxOn ? ' checked' : ''} onchange="setMatchConditions('${g.id}')" /><span class="late-name">Adverse weather (cold / wet) · +${s.weatherBonus}</span></label>` : '';
+  const coldRow = s.coldSeasonBonus
+    ? `<label class="late-row"><input type="checkbox" id="mcColdBonus"${coldOn ? ' checked' : ''} onchange="setMatchConditions('${g.id}')" /><span class="late-name">Cold season · +${s.coldSeasonBonus}</span></label>` : '';
+  const cur = Number(g.weatherBonus) || 0;
+  return `<div class="section-title">Conditions bonus${cur > 0 ? ` · +${cur} applied` : ''}</div>
+    <p class="hint" style="margin-top:-2px">Toggle the bad-weather / cold-season bonus for this game — everyone who played is adjusted by the difference straight away.</p>
+    <div class="late-list">${wxRow}${coldRow}</div>`;
 }
 
 // ---- statto: stats-keeper (correct scores, log goalscorers) ----------------
@@ -2467,18 +2510,19 @@ window.cancelWeek = async (id) => {
 window.completeGame = async (id) => {
   const g = state.game && state.game.id === id ? state.game : null;
   const iso = g ? gameISO(g) : new Date().toISOString();
-  // Work out the adverse-conditions bonus: fetch the game's weather (if the
-  // pitch coords are set) and check the cold season.
+  // Fetch the game's weather for the record (frozen onto the result in History).
   let weather = null;
   const { lat, lon } = state.config;
   if (lat != null && lon != null) { try { weather = await fetchWeather(lat, lon, iso); } catch {} }
-  const adverse = weather ? weatherFlags(weather).rough : false;
-  const cold = logic.isColdSeason(iso, state.config);
-  const { bonus, reasons } = logic.completionBonus(state.config, { adverseWeather: adverse, coldSeason: cold });
-  const base = logic.withDefaults(state.config).scoring.playedReward;
+  const s = logic.withDefaults(state.config).scoring;
+  // Conditions bonus: the organiser's checkboxes decide (auto-detection only
+  // pre-ticked them), so a mild night gets no bonus even if the forecast was off.
+  const wxOn = !!document.getElementById('cWxBonus')?.checked;
+  const coldOn = !!document.getElementById('cColdBonus')?.checked;
+  const { bonus, reasons } = logic.completionBonus(state.config, { adverseWeather: wxOn, coldSeason: coldOn });
+  const base = s.playedReward;
   // Late-cover bonus: whoever the organiser has ticked in the completion form
   // (auto-detected are pre-ticked). Full late award each; empty array = none.
-  const s = logic.withDefaults(state.config).scoring;
   const lateEach = (s.playedReward || 0) * (s.lateSignupBonusGames || 0);
   const lateBonusIds = (g ? g.confirmed || [] : []).map(r => r.playerId)
     .filter(pid => document.getElementById('late-' + pid)?.checked);
@@ -2539,6 +2583,15 @@ window.applyMatchBonus = async () => {
   if (!amt) return toast('Enter an amount (e.g. 3 or -2)', true);
   try { await db.adjustLoyalty(id, amt); document.getElementById('mAdjAmount').value = ''; toast(`${amt > 0 ? '+' : ''}${amt} loyalty applied`); }
   catch (e) { toast(e.message, true); }
+};
+window.setMatchConditions = async (gameId) => {
+  const wxOn = !!document.getElementById('mcWxBonus')?.checked;
+  const coldOn = !!document.getElementById('mcColdBonus')?.checked;
+  try {
+    const { bonus, delta, players } = await db.setConditionsBonus(gameId, wxOn, coldOn);
+    history = null; ensureHistory();
+    toast(delta === 0 ? `Conditions bonus: +${bonus} each` : `Conditions bonus now +${bonus} each · ${delta > 0 ? '+' : ''}${delta} to ${players} player${players === 1 ? '' : 's'}`);
+  } catch (e) { toast(e.message, true); }
 };
 window.editPlayer = async (id) => {
   const cur = state.roster.find(p => p.id === id);
