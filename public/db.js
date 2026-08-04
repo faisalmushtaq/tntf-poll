@@ -360,6 +360,18 @@ function createLocalDB() {
       if (opts.ownGoals !== undefined) g.ownGoals = opts.ownGoals;
       if (db.currentGameId === id) db.currentGameId = null; persist();
     },
+    // Change a past game's conditions (weather / cold-season) bonus. Adjusts
+    // everyone who played by the difference and re-stamps the game record.
+    async setConditionsBonus(gameId, weatherOn, coldOn) {
+      const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
+      const { bonus, reasons } = logic.completionBonus(db.config, { adverseWeather: !!weatherOn, coldSeason: !!coldOn });
+      const delta = bonus - (Number(g.weatherBonus) || 0);
+      const ids = logic.gamePlayers(g);
+      if (delta !== 0) for (const pid of ids) if (db.players[pid]) db.players[pid].loyalty += delta;
+      g.weatherBonus = bonus; g.bonusReasons = reasons;
+      persist();
+      return { bonus, delta, players: ids.length };
+    },
     async setPlayerEmail(id, email, uid) { const p = db.players[id]; if (!p) throw new Error('Unknown player'); p.email = email || null; if (uid) p.uid = uid; persist(); },
     async savePushToken(id, token) { const p = db.players[id]; if (!p) return; p.pushTokens = { ...(p.pushTokens || {}), [token]: new Date().toISOString() }; persist(); },
     async loadHistory() { return db.games.filter(g => g.status === 'completed'); },
@@ -778,6 +790,21 @@ async function createFirestoreDB() {
       batch.update(gameRef(id), gamePatch);
       batch.update(cfgRef, { currentGameId: null });
       await batch.commit();
+    },
+    // Change a past game's conditions (weather / cold-season) bonus. Adjusts
+    // everyone who played by the difference and re-stamps the game record.
+    async setConditionsBonus(gameId, weatherOn, coldOn) {
+      const snap = await getDoc(gameRef(gameId));
+      if (!snap.exists()) throw new Error('No game');
+      const g = { id: gameId, ...snap.data() };
+      const { bonus, reasons } = logic.completionBonus(cfg(), { adverseWeather: !!weatherOn, coldSeason: !!coldOn });
+      const delta = bonus - (Number(g.weatherBonus) || 0);
+      const ids = logic.gamePlayers(g);
+      const batch = writeBatch(dbf);
+      batch.update(gameRef(gameId), { weatherBonus: bonus, bonusReasons: reasons });
+      if (delta !== 0) for (const pid of ids) batch.update(doc(playersCol, pid), { loyalty: increment(delta) });
+      await batch.commit();
+      return { bonus, delta, players: ids.length };
     },
     async setPlayerEmail(id, email, uid) {
       const patch = { email: email || null }; if (uid) patch.uid = uid;
