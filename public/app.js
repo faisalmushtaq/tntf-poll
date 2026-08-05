@@ -146,7 +146,10 @@ function buildView() {
   let game = null;
   const g = lastRaw.game;
   if (g && g.status !== 'completed' && g.status !== 'cancelled') {
-    const ranked = logic.rankSignups(lastRaw.signups, lastRaw.playersById, g.capacity, { pollOpenAt: g.createdAt, config: lastRaw.config });
+    // Squad size follows the recommended format live (10 → 14 → 16 as people
+    // sign up and vote) until the organiser locks it.
+    const cap = logic.effectiveCapacity(g, lastRaw.signups, lastRaw.playersById, lastRaw.config);
+    const ranked = logic.rankSignups(lastRaw.signups, lastRaw.playersById, cap, { pollOpenAt: g.createdAt, config: lastRaw.config });
     const mine = playerId ? ranked.find(r => r.playerId === playerId) : null;
     const hrs = logic.hoursUntilKickoff(g.kickoffAt);
     const paidBy = {};
@@ -178,7 +181,8 @@ function buildView() {
       return out;
     })();
     game = {
-      id: g.id, status: g.status, dateLabel: g.dateLabel, kickoffAt: g.kickoffAt, capacity: g.capacity,
+      id: g.id, status: g.status, dateLabel: g.dateLabel, kickoffAt: g.kickoffAt,
+      capacity: cap, capacityLocked: !!g.capacityLocked,
       createdAt: g.createdAt,
       venue: g.venue || lastRaw.config.venue,
       teams: g.teams || null, teamsFinalised: !!g.teamsFinalised,
@@ -450,11 +454,13 @@ function formatPrefControl() {
   </div>`;
 }
 
-// Organiser-facing recommendation card, shown above the manual squad-size control.
+// Organiser-facing recommendation card, shown above the squad-size control. In
+// auto mode the squad size already tracks this live; when the organiser has
+// locked a different size it offers a one-tap switch to the recommendation.
 function formatRecCard(g) {
   const rec = formatRec();
   if (!rec) return '';
-  const match = rec.capacity === g.capacity;
+  const followsRec = !g.capacityLocked;               // auto mode = squad already tracks the rec
   const pitchWarn = rec.needsPitch
     ? `<p class="small rec-warn">⚠ Needs an alternative (smaller) pitch — if none can be found, change the date/time or call the game off.</p>` : '';
   const vote = (rec.n7 || rec.n8)
@@ -465,9 +471,11 @@ function formatRecCard(g) {
     <p class="small" style="margin-top:2px">${esc(rec.note)}</p>
     ${rec.count >= 14 ? vote : ''}
     ${pitchWarn}
-    ${match
-      ? `<p class="small rec-ok">✓ This week's squad size already matches.</p>`
-      : `<button class="btn-ghost mt" onclick="setCapacity('${g.id}',${rec.capacity})">Apply ${rec.format}-a-side (${rec.capacity})</button>`}
+    ${followsRec
+      ? `<p class="small rec-ok">✓ Squad size is following this live${rec.capacity === g.capacity ? '' : ` (${rec.capacity})`}.</p>`
+      : (rec.capacity === g.capacity
+        ? `<p class="small rec-ok">✓ Your locked size matches the recommendation.</p>`
+        : `<button class="btn-ghost mt" onclick="setCapacity('${g.id}',${rec.capacity})">Switch to ${rec.format}-a-side (${rec.capacity})</button>`)}
   </div>`;
 }
 
@@ -850,7 +858,7 @@ function rulesScreen() {
   </div>
   <div class="card">
     <h2>5, 7 or 8 a side?</h2>
-    <p class="hint">The format is decided by turnout, and — for the 7-vs-8 question — by a loyalty-weighted preference vote. You can always override it by hand, but this is what the poll recommends automatically.</p>
+    <p class="hint">The format is decided by turnout, and — for the 7-vs-8 question — by a loyalty-weighted preference vote. The squad size <b>follows this live</b> (10 → 14 → 16) as people sign up and set their preference; the organiser finalises it before the game (or sets it by hand any time).</p>
     <ul class="penalty-scale">
       <li><span><b>14–15 in</b> — a full 7-a-side (the weekly default)</span><span class="pts free">7-a-side</span></li>
       <li><span><b>16+ in</b> — 7-a-side <em>unless</em> the 8-camp's loyalty wins the vote below</span><span class="pts free">7 or 8</span></li>
@@ -1676,10 +1684,17 @@ function adminScreen() {
       <h2>${esc(g.dateLabel)} — ${esc(g.status)}</h2>
       <p class="hint">${g.confirmed.length}/${g.capacity} confirmed · ${g.waitlist.length} waiting</p>
       ${formatRecCard(g)}
-      <div class="section-title">Squad size · ${g.capacity % 2 === 0 ? `${g.capacity / 2}-a-side` : `${g.capacity} players`}</div>
-      <p class="hint" style="margin-top:-2px">This week's format. The squad is the top ${g.capacity} by loyalty; the rest are reserves — change it any time and places recalc instantly.</p>
-      <div class="aside-row">
-        ${[5, 6, 7, 8].map(n => `<button type="button" class="aside-btn${g.capacity === n * 2 ? ' on' : ''}" onclick="setCapacity('${g.id}',${n * 2})">${n}-a-side</button>`).join('')}
+      <div class="section-title">Squad size · ${g.capacity % 2 === 0 ? `${g.capacity / 2}-a-side` : `${g.capacity} players`} ${g.capacityLocked ? '<span class="cap-tag locked">locked</span>' : '<span class="cap-tag auto">auto</span>'}</div>
+      <p class="hint" style="margin-top:-2px">${g.capacityLocked
+        ? `Locked at <b>${g.capacity}</b> — it won't move with the vote. Pick another size below, or follow the vote again.`
+        : `<b>Following the vote</b> — the squad size shifts (10 → 14 → 16) as people sign up and set their 7-vs-8 preference. Finalise it when you're ready, or set it by hand below.`}</p>
+      <div class="btn-row">
+        ${g.capacityLocked
+          ? `<button class="btn-ghost" onclick="unlockCapacity('${g.id}')">↺ Follow the vote</button>`
+          : `<button class="btn-primary" onclick="finaliseCapacity('${g.id}',${g.capacity})">Finalise at ${g.capacity} (${g.capacity % 2 === 0 ? `${g.capacity / 2}-a-side` : `${g.capacity}`})</button>`}
+      </div>
+      <div class="aside-row mt">
+        ${[5, 6, 7, 8].map(n => `<button type="button" class="aside-btn${g.capacityLocked && g.capacity === n * 2 ? ' on' : ''}" onclick="setCapacity('${g.id}',${n * 2})">${n}-a-side</button>`).join('')}
       </div>
       <div class="btn-row mt">
         <input id="capCustom" type="number" inputmode="numeric" min="2" value="${g.capacity}" />
@@ -2472,10 +2487,17 @@ window.pickOpenCap = (cap) => {
 window.setCapacity = async (id, cap) => {
   const n = Number(cap);
   if (!n || n < 2) return toast('Squad size must be at least 2', true);
-  try { await db.setCapacity(id, n); toast(`Squad size: ${n}${n % 2 === 0 ? ` (${n / 2}-a-side)` : ' players'}`); }
+  try { await db.setCapacity(id, n); toast(`Squad locked at ${n}${n % 2 === 0 ? ` (${n / 2}-a-side)` : ' players'}`); }
   catch (e) { toast(e.message, true); }
 };
 window.setCapacityCustom = (id) => window.setCapacity(id, document.getElementById('capCustom')?.value);
+// Finalise the current (live-recommended) squad size — locks it against the vote.
+window.finaliseCapacity = (id, cap) => window.setCapacity(id, cap);
+// Hand the squad size back to the live recommendation.
+window.unlockCapacity = async (id) => {
+  try { await db.setCapacityAuto(id); toast('Squad size now follows the vote'); }
+  catch (e) { toast(e.message, true); }
+};
 window.openGame = async () => {
   const dateLabel = document.getElementById('gLabel').value.trim();
   const capacity = Number(document.getElementById('gCap').value);

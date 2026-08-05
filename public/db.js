@@ -300,7 +300,8 @@ function createLocalDB() {
     },
     async lockGame(id) { db.games.find(g => g.id === id).status = 'locked'; persist(); },
     async reopenGame(id) { db.games.find(g => g.id === id).status = 'open'; persist(); },
-    async setCapacity(id, capacity) { const g = db.games.find(x => x.id === id); if (g) { g.capacity = Math.max(2, Number(capacity) || 0); persist(); } },
+    async setCapacity(id, capacity) { const g = db.games.find(x => x.id === id); if (g) { g.capacity = Math.max(2, Number(capacity) || 0); g.capacityLocked = true; persist(); } },
+    async setCapacityAuto(id) { const g = db.games.find(x => x.id === id); if (g) { g.capacityLocked = false; persist(); } },
     async rescheduleGame(id, { kickoffAt, dateLabel, venue }) {
       const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
       if (kickoffAt) g.kickoffAt = kickoffAt;
@@ -322,7 +323,9 @@ function createLocalDB() {
     },
     async completeGame(id, opts = {}) {
       const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
-      const ranked = logic.rankSignups(g.signups, db.players, g.capacity, { pollOpenAt: g.createdAt, config: db.config });
+      // Freeze the squad size that's in force (the live recommendation while auto).
+      const capacity = logic.effectiveCapacity(g, g.signups, db.players, db.config);
+      const ranked = logic.rankSignups(g.signups, db.players, capacity, { pollOpenAt: g.createdAt, config: db.config });
       const sc = logic.withDefaults(db.config).scoring;
       const flat = sc.playedReward + (Number(opts.bonus) || 0);
       // Late-cover: an explicit list from the organiser (each gets the full late
@@ -332,7 +335,7 @@ function createLocalDB() {
         const each = (sc.playedReward || 0) * (sc.lateSignupBonusGames || 0);
         awards = {}; for (const pid of opts.lateBonusIds) awards[pid] = each;
       } else {
-        awards = logic.lateSignupAwards(g.signups, db.players, db.config, g.kickoffAt, g.capacity, g.createdAt);
+        awards = logic.lateSignupAwards(g.signups, db.players, db.config, g.kickoffAt, capacity, g.createdAt);
       }
       // Who actually played: the finalised team sheet if the organiser built it
       // (they may have pulled people in or taken them out), else the ranked squad.
@@ -341,12 +344,13 @@ function createLocalDB() {
       const playedIds = teamSheet || ranked.filter(r => r.status === 'confirmed').map(r => r.playerId);
       const playedSet = new Set(playedIds);
       // Prompt reserves (signed up quickly but didn't play) bank the reward + bonus.
-      const promptAwards = logic.promptSignupAwards(g.signups, db.players, db.config, g.createdAt, g.capacity, teamSheet ? playedIds : null);
+      const promptAwards = logic.promptSignupAwards(g.signups, db.players, db.config, g.createdAt, capacity, teamSheet ? playedIds : null);
       for (const pid of playedIds) if (db.players[pid]) {
         db.players[pid].loyalty += flat + (awards[pid] || 0); db.players[pid].gamesPlayed += 1;
       }
       for (const [pid, amt] of Object.entries(promptAwards)) if (db.players[pid]) db.players[pid].loyalty += amt;
       g.status = 'completed'; g.completedAt = new Date().toISOString();
+      g.capacity = capacity; g.capacityLocked = true; // freeze the size onto the record
       g.result = teamSheet
         ? { confirmed: [...playedIds], reserves: ranked.filter(r => !playedSet.has(r.playerId)).map(r => r.playerId) }
         : logic.finalResult(ranked);
@@ -724,7 +728,8 @@ async function createFirestoreDB() {
       await setDoc(ref, patch, { merge: true });
     },
     async lockGame(id) { await updateDoc(gameRef(id), { status: 'locked' }); },
-    async setCapacity(id, capacity) { await updateDoc(gameRef(id), { capacity: Math.max(2, Number(capacity) || 0) }); },
+    async setCapacity(id, capacity) { await updateDoc(gameRef(id), { capacity: Math.max(2, Number(capacity) || 0), capacityLocked: true }); },
+    async setCapacityAuto(id) { await updateDoc(gameRef(id), { capacityLocked: false }); },
     async rescheduleGame(id, { kickoffAt, dateLabel, venue }) {
       const patch = {};
       if (kickoffAt) patch.kickoffAt = kickoffAt;
@@ -749,8 +754,9 @@ async function createFirestoreDB() {
     },
     async reopenGame(id) { await updateDoc(gameRef(id), { status: 'open' }); },
     async completeGame(id, opts = {}) {
-      const capacity = cache.game?.capacity || cfg().capacity;
       const pollOpenAt = cache.game?.createdAt || null;
+      // Freeze the squad size that's in force (the live recommendation while auto).
+      const capacity = logic.effectiveCapacity(cache.game, cache.signups, cache.players, cfg());
       const ranked = logic.rankSignups(cache.signups, cache.players, capacity, { pollOpenAt, config: cfg() });
       const sc = cfg().scoring;
       const flat = sc.playedReward + (Number(opts.bonus) || 0);
@@ -778,7 +784,7 @@ async function createFirestoreDB() {
       const result = teamSheet
         ? { confirmed: [...playedIds], reserves: ranked.filter(r => !playedSet.has(r.playerId)).map(r => r.playerId) }
         : logic.finalResult(ranked);
-      const gamePatch = { status: 'completed', completedAt: new Date().toISOString(), result };
+      const gamePatch = { status: 'completed', completedAt: new Date().toISOString(), result, capacity, capacityLocked: true };
       // Denormalize who withdrew (and their penalty) so history loads don't need the signups subcollection.
       gamePatch.withdrawnIds = (cache.signups || []).filter(s => s.status === 'withdrawn').map(s => s.playerId);
       gamePatch.withdrawnPenalties = Object.fromEntries((cache.signups || []).filter(s => s.status === 'withdrawn').map(s => [s.playerId, Number(s.penaltyApplied) || 0]));
