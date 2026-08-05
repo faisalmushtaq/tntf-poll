@@ -329,6 +329,17 @@ export function recommendedFormat(signups = [], playersById = {}, config = DEFAU
 
 function round1(n) { return Math.round(n * 10) / 10; }
 
+// The squad size to actually use for a game. While the organiser hasn't locked
+// it (game.capacityLocked), it follows the recommended format live — so the
+// squad grows/shrinks (10 → 14 → 16) as people sign up and register their 7-vs-8
+// preference. Once locked (a manual size, or "finalise"), the stored capacity
+// wins. Falls back to the config default when there's no game.
+export function effectiveCapacity(game, signups = [], playersById = {}, config = DEFAULT_CONFIG) {
+  if (!game) return withDefaults(config).capacity;
+  if (game.capacityLocked) return Number(game.capacity) || withDefaults(config).capacity;
+  return recommendedFormat(signups, playersById, config).capacity;
+}
+
 // Map a ranked list to { playerId: 'confirmed' | 'waitlist' } for diffing.
 export function statusMap(ranked = []) {
   const m = {};

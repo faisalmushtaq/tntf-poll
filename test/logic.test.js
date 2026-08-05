@@ -801,4 +801,19 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   }
 }
 
+// --- effectiveCapacity: follows the vote until locked -----------------------
+{
+  const mk = (n) => Array.from({ length: n }, (_, i) => ({ playerId: `p${i}`, status: 'in' }));
+  const pb = {}; for (let i = 0; i < 20; i++) pb[`p${i}`] = { id: `p${i}`, loyalty: 5 };
+  const cfg = { capacity: 14 };
+  // Auto (not locked): capacity tracks turnout via recommendedFormat.
+  ok('auto: 16 in → 14 (default 7-a-side, no strong 8 vote)', logic.effectiveCapacity({ capacity: 99 }, mk(16), pb, cfg) === 14);
+  ok('auto: 12 in → 10 (top-10 five-a-side)', logic.effectiveCapacity({ capacity: 99 }, mk(12), pb, cfg) === 10);
+  ok('auto: 14 in → 14', logic.effectiveCapacity({ capacity: 99 }, mk(14), pb, cfg) === 14);
+  // Locked: the stored capacity wins regardless of turnout.
+  ok('locked: stored capacity wins', logic.effectiveCapacity({ capacity: 16, capacityLocked: true }, mk(12), pb, cfg) === 16);
+  // No game → config default.
+  ok('no game → config default', logic.effectiveCapacity(null, [], {}, cfg) === 14);
+}
+
 console.log(`\n${pass} checks passed ✅`);
