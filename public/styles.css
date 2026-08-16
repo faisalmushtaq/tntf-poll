@@ -53,11 +53,12 @@ body {
   padding: calc(env(safe-area-inset-top) + 13px) 20px 13px;
 }
 .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; cursor: pointer; color: var(--ink); text-decoration: none; }
-.brand h1 { font-size: 20px; line-height: 1.05; margin: 0; font-weight: 600; letter-spacing: -.01em; color: var(--ink); white-space: nowrap; }
+button.brand { width: auto; background: transparent; border: none; border-radius: 0; padding: 0; margin: 0 auto 0 0; text-align: left; }
+.brand .brand-name { font-size: 20px; line-height: 1.05; font-weight: 600; letter-spacing: -.01em; color: var(--ink); white-space: nowrap; }
 .brand-crest { width: 30px; height: 30px; flex: none; display: block; }
 .menu-btn { display: none; width: auto; background: transparent; border: none; border-radius: 0; padding: 4px 6px; margin: 0; font-size: 21px; line-height: 1; color: var(--ink); }
 .topnav { display: flex; align-items: center; gap: 2px; }
-.navlink { cursor: pointer; padding: 8px 13px; font-size: 16px; color: var(--body); border-radius: 999px; white-space: nowrap; text-decoration: none; transition: color .12s; }
+.navlink { cursor: pointer; width: auto; margin: 0; padding: 8px 13px; font-size: 16px; font-weight: 400; color: var(--body); background: transparent; border: none; border-radius: 999px; white-space: nowrap; text-decoration: none; transition: color .12s; }
 .navlink:hover { color: var(--ink); }
 .navlink.active { color: var(--ink); font-weight: 600; }
 
@@ -70,7 +71,7 @@ body {
     padding: 4px 0;
   }
   #topbar.open .topnav { display: flex; }
-  .navlink { padding: 15px 20px; border-radius: 0; font-size: 17px; border-bottom: 1px solid var(--line-2); }
+  .navlink { width: 100%; padding: 15px 20px; border-radius: 0; font-size: 17px; text-align: left; border-bottom: 1px solid var(--line-2); }
   .navlink:last-child { border-bottom: none; }
 }
 
@@ -132,6 +133,7 @@ body {
 /* ---- Buttons (pill — like Alljoined's) ---- */
 button, .btn { font: inherit; font-family: var(--serif); border: none; border-radius: 999px; padding: 14px 22px; font-weight: 500; font-size: 16px; cursor: pointer; width: 100%; transition: transform .06s ease, background .15s, opacity .15s; }
 button:active { transform: scale(.99); }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--green); outline-offset: 3px; }
 .btn-primary { background: var(--ink); color: #f6f4ef; }
 .btn-primary:active { background: var(--ink-press); }
 .btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
@@ -254,7 +256,9 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 /* ---- Join page ---- */
 .how-list { margin: 4px 0 0; padding-left: 20px; color: var(--body); font-size: 15px; }
 .how-list li { padding: 6px 0; }
-.inline-link { color: var(--ink); text-decoration: underline; cursor: pointer; }
+.inline-link { display: inline; width: auto; margin: 0; padding: 0; color: var(--ink); background: transparent; border: none; border-radius: 0; font: inherit; font-weight: inherit; line-height: inherit; text-decoration: underline; cursor: pointer; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
 
 /* ---- History list ---- */
 .hist-list { margin-top: 4px; }

@@ -34,23 +34,86 @@ function seedGames() {
 }
 
 const dedupe = arr => [...new Set(arr)];
-// Remove a player id from every reference in a game (used by deletePlayer).
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+const PLAYER_MAP_FIELDS = ['stats', 'goals', 'selfRatings', 'stattoRatings', 'ownGoals', 'withdrawnPenalties'];
+const PLAYER_ARRAY_FIELDS = ['motm', 'withdrawnIds'];
+
+function sumValues(a, b) { return (Number(a) || 0) + (Number(b) || 0); }
+function mergeStatLines(keep = {}, drop = {}) {
+  const out = { ...drop, ...keep };
+  for (const key of new Set([...Object.keys(keep || {}), ...Object.keys(drop || {})])) {
+    if (Number.isFinite(Number(keep[key])) && Number.isFinite(Number(drop[key]))) out[key] = sumValues(keep[key], drop[key]);
+  }
+  return out;
+}
+function mergeSignupRecords(keep = {}, drop = {}) {
+  const priority = { in: 3, withdrawn: 2, out: 1 };
+  const status = (priority[keep.status] || 0) >= (priority[drop.status] || 0) ? keep.status : drop.status;
+  const joined = [keep.joinedAt, drop.joinedAt].filter(Boolean).sort()[0];
+  return {
+    ...drop, ...keep, status,
+    ...(joined ? { joinedAt: joined } : {}),
+    paid: !!(keep.paid || drop.paid),
+    paidAt: keep.paidAt || drop.paidAt || null
+  };
+}
+function dropMapEntry(g, field, id) {
+  if (!g[field] || !hasOwn(g[field], id)) return;
+  const next = { ...g[field] }; delete next[id]; g[field] = next;
+}
+function moveMapEntry(g, field, dropId, keepId, merge = (keep) => keep) {
+  if (!g[field] || !hasOwn(g[field], dropId)) return;
+  const next = { ...g[field] };
+  next[keepId] = hasOwn(next, keepId) ? merge(next[keepId], next[dropId]) : next[dropId];
+  delete next[dropId]; g[field] = next;
+}
+
+// Remove a player from every reference in a game (used by deletePlayer).
 function stripPlayer(g, id) {
   if (g.teams) { g.teams.bibs = (g.teams.bibs || []).filter(x => x !== id); g.teams.nonbibs = (g.teams.nonbibs || []).filter(x => x !== id); }
   if (g.result) { g.result.confirmed = (g.result.confirmed || []).filter(x => x !== id); g.result.reserves = (g.result.reserves || []).filter(x => x !== id); }
+  for (const field of PLAYER_MAP_FIELDS) dropMapEntry(g, field, id);
+  for (const field of PLAYER_ARRAY_FIELDS) if (Array.isArray(g[field])) g[field] = g[field].filter(x => x !== id);
   if (g.signups) g.signups = g.signups.filter(s => s.playerId !== id);
 }
 // Replace all references to dropId with keepId in a game (used by mergePlayers).
 function repointPlayer(g, dropId, keepId) {
   const swap = arr => dedupe((arr || []).map(x => x === dropId ? keepId : x));
-  if (g.teams) { g.teams.bibs = swap(g.teams.bibs); g.teams.nonbibs = swap(g.teams.nonbibs); }
-  if (g.result) { g.result.confirmed = swap(g.result.confirmed); g.result.reserves = swap(g.result.reserves); }
+  if (g.teams) {
+    g.teams.bibs = swap(g.teams.bibs);
+    g.teams.nonbibs = swap(g.teams.nonbibs).filter(id => !g.teams.bibs.includes(id));
+  }
+  if (g.result) {
+    g.result.confirmed = swap(g.result.confirmed);
+    g.result.reserves = swap(g.result.reserves).filter(id => !g.result.confirmed.includes(id));
+  }
+  moveMapEntry(g, 'stats', dropId, keepId, mergeStatLines);
+  for (const field of ['goals', 'ownGoals', 'withdrawnPenalties']) moveMapEntry(g, field, dropId, keepId, sumValues);
+  for (const field of ['selfRatings', 'stattoRatings']) moveMapEntry(g, field, dropId, keepId);
+  for (const field of PLAYER_ARRAY_FIELDS) if (Array.isArray(g[field])) g[field] = swap(g[field]);
   if (g.signups) {
-    const seen = new Set();
-    g.signups = g.signups.map(s => s.playerId === dropId ? { ...s, playerId: keepId } : s)
-      .filter(s => (seen.has(s.playerId) ? false : seen.add(s.playerId)));
+    const byPlayer = new Map();
+    for (const signup of g.signups) {
+      const mapped = signup.playerId === dropId ? { ...signup, playerId: keepId } : signup;
+      byPlayer.set(mapped.playerId, byPlayer.has(mapped.playerId) ? mergeSignupRecords(byPlayer.get(mapped.playerId), mapped) : mapped);
+    }
+    g.signups = [...byPlayer.values()];
   }
 }
+
+function gameRecordPatch(g) {
+  return {
+    teams: g.teams || null, result: g.result || null,
+    stats: g.stats || null, goals: g.goals || null,
+    selfRatings: g.selfRatings || null, stattoRatings: g.stattoRatings || null,
+    ownGoals: g.ownGoals || null, motm: g.motm || [],
+    withdrawnIds: g.withdrawnIds || [], withdrawnPenalties: g.withdrawnPenalties || null
+  };
+}
+
+// Exported only for the Node test suite. The production data layer uses the
+// same helpers immediately above, so fixture coverage protects both backends.
+export const __testGameRefs = { stripPlayer, repointPlayer };
 
 // Shared shape emitted to subscribers.
 function assemble(config, playersById, game, signups, announcement) {
@@ -575,7 +638,11 @@ async function createFirestoreDB() {
       const batch = writeBatch(dbf);
       for (const d of gs.docs) {
         const g = { id: d.id, ...d.data() }; stripPlayer(g, id);
-        batch.update(gameRef(d.id), { teams: g.teams || null, result: g.result || null });
+        batch.update(gameRef(d.id), gameRecordPatch(g));
+        // Sign-ups live in a subcollection, so remove this player from every
+        // fixture rather than only the currently cached game.
+        const signup = await getDoc(doc(signupsCol(d.id), id));
+        if (signup.exists()) batch.delete(doc(signupsCol(d.id), id));
       }
       batch.delete(doc(playersCol, id));
       await batch.commit();
@@ -604,20 +671,22 @@ async function createFirestoreDB() {
       const batch = writeBatch(dbf);
       for (const d of gs.docs) {
         const g = { id: d.id, ...d.data() }; repointPlayer(g, dropId, keepId);
-        batch.update(gameRef(d.id), { teams: g.teams || null, result: g.result || null });
-      }
-      // The current game's sign-ups live in a subcollection the loop above
-      // doesn't touch — migrate the dropped player's sign-up onto the kept one
-      // so a merge can't leave (or duplicate) a registration.
-      const cg = cache.game;
-      if (cg) {
-        const dropSu = cache.signups.find(s => s.playerId === dropId);
-        if (dropSu) {
-          if (!cache.signups.find(s => s.playerId === keepId)) {
-            const { playerId, ...data } = dropSu;
-            batch.set(doc(signupsCol(cg.id), keepId), data);
-          }
-          batch.delete(doc(signupsCol(cg.id), dropId));
+        batch.update(gameRef(d.id), gameRecordPatch(g));
+        // Migrate sign-ups in every fixture, including historic games that are
+        // outside the current-game cache. When both records responded, retain
+        // the earliest response and any payment marker.
+        const [dropSignup, keepSignup] = await Promise.all([
+          getDoc(doc(signupsCol(d.id), dropId)),
+          getDoc(doc(signupsCol(d.id), keepId))
+        ]);
+        if (dropSignup.exists()) {
+          const merged = mergeSignupRecords(
+            keepSignup.exists() ? { playerId: keepId, ...keepSignup.data() } : {},
+            { playerId: dropId, ...dropSignup.data() }
+          );
+          const { playerId, ...data } = merged;
+          batch.set(doc(signupsCol(d.id), keepId), data);
+          batch.delete(doc(signupsCol(d.id), dropId));
         }
       }
       const patch = {

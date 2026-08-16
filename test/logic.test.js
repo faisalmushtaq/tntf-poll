@@ -1,6 +1,7 @@
 // Minimal assertions for the selection/penalty logic. Run: npm test
 import assert from 'node:assert';
 import * as logic from '../public/logic.js';
+import { __testGameRefs } from '../public/db.js';
 
 let pass = 0;
 const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); pass++; };
@@ -824,6 +825,49 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('locked: stored capacity wins', logic.effectiveCapacity({ capacity: 16, capacityLocked: true }, mk(12), pb, cfg) === 16);
   // No game → config default.
   ok('no game → config default', logic.effectiveCapacity(null, [], {}, cfg) === 14);
+}
+
+// --- player merge / deletion preserve full historic record ------------------
+{
+  const original = {
+    teams: { bibs: ['keep', 'drop'], nonbibs: ['drop', 'other'] },
+    result: { confirmed: ['drop'], reserves: ['keep', 'drop'] },
+    stats: { keep: { g: 1, a: 1 }, drop: { g: 2, sv: 1 } },
+    goals: { keep: 1, drop: 2 },
+    selfRatings: { keep: 3, drop: 4 },
+    stattoRatings: { keep: 4, drop: 2 },
+    ownGoals: { keep: 1, drop: 2 },
+    motm: ['drop', 'other'],
+    withdrawnIds: ['drop'],
+    withdrawnPenalties: { drop: 3 },
+    signups: [
+      { playerId: 'keep', status: 'out', joinedAt: '2026-01-01T09:00:00Z' },
+      { playerId: 'drop', status: 'in', joinedAt: '2026-01-01T10:00:00Z', paid: true, paidAt: '2026-01-01T11:00:00Z' }
+    ]
+  };
+  const merged = structuredClone(original);
+  __testGameRefs.repointPlayer(merged, 'drop', 'keep');
+  ok('merge de-duplicates team and result references across sides',
+    merged.teams.bibs.join(',') === 'keep' && merged.teams.nonbibs.join(',') === 'other'
+    && merged.result.confirmed.join(',') === 'keep' && merged.result.reserves.length === 0);
+  ok('merge combines stats, goals, own goals and withdrawal penalties',
+    merged.stats.keep.g === 3 && merged.stats.keep.a === 1 && merged.stats.keep.sv === 1
+    && merged.goals.keep === 3 && merged.ownGoals.keep === 3 && merged.withdrawnPenalties.keep === 3);
+  ok('merge retains existing ratings and migrates awards and withdrawals',
+    merged.selfRatings.keep === 3 && merged.stattoRatings.keep === 4
+    && merged.motm.join(',') === 'keep,other' && merged.withdrawnIds.join(',') === 'keep');
+  ok('merge retains one paid active sign-up with the earliest response time',
+    merged.signups.length === 1 && merged.signups[0].playerId === 'keep' && merged.signups[0].status === 'in'
+    && merged.signups[0].joinedAt === '2026-01-01T09:00:00Z' && merged.signups[0].paid === true);
+
+  const removed = structuredClone(original);
+  __testGameRefs.stripPlayer(removed, 'drop');
+  ok('delete removes all player-keyed historical data',
+    !removed.teams.bibs.includes('drop') && !removed.teams.nonbibs.includes('drop')
+    && !removed.result.confirmed.includes('drop') && !removed.result.reserves.includes('drop')
+    && !removed.stats.drop && !removed.goals.drop && !removed.selfRatings.drop && !removed.stattoRatings.drop
+    && !removed.ownGoals.drop && !removed.motm.includes('drop') && !removed.withdrawnIds.includes('drop')
+    && !removed.withdrawnPenalties.drop && !removed.signups.some(s => s.playerId === 'drop'));
 }
 
 console.log(`\n${pass} checks passed ✅`);

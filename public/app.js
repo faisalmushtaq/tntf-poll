@@ -232,7 +232,11 @@ function statusAlert(game, playerId) {
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function toast(msg, isErr = false) {
   let t = document.getElementById('toast');
-  if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); }
+  if (!t) {
+    t = document.createElement('div'); t.id = 'toast';
+    t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite'); t.setAttribute('aria-atomic', 'true');
+    document.body.appendChild(t);
+  }
   t.textContent = msg; t.className = isErr ? 'err show' : 'show';
   clearTimeout(t._t); t._t = setTimeout(() => t.className = t.className.replace('show', ''), 2600);
 }
@@ -290,10 +294,10 @@ function renderTopbar() {
     return true;
   }).map(([k, label]) => {
     const active = tab === k || (tab === 'game' && k === 'history');
-    return `<a class="navlink${active ? ' active' : ''}" role="button" tabindex="0" onclick="go('${k}')">${label}</a>`;
+    return `<button type="button" class="navlink${active ? ' active' : ''}"${active ? ' aria-current="page"' : ''} onclick="go('${k}')">${label}</button>`;
   }).join('');
-  bar.innerHTML = `<div class="bar">
-    <a class="brand" role="button" tabindex="0" onclick="go('week')">${BRAND_CREST}<h1>${esc(c.clubName)}</h1></a>
+  bar.innerHTML = `<h1 class="sr-only">${esc(c.clubName)}</h1><div class="bar">
+    <button type="button" class="brand" onclick="go('week')">${BRAND_CREST}<span class="brand-name">${esc(c.clubName)}</span></button>
     <button class="menu-btn" aria-label="Menu" aria-expanded="${menuOpen}" onclick="toggleMenu()">${menuOpen ? '✕' : '☰'}</button>
     <nav class="topnav">${links}</nav>
   </div>`;
@@ -648,6 +652,7 @@ function identityPrompt() {
   }
   return `<h2>What's your name?</h2>
     <p class="hint">Pick your name so we can track your loyalty. One tap and you're set on this phone.</p>
+    <label class="sr-only" for="nameInput">Your name</label>
     <input id="nameInput" placeholder="e.g. ${esc((state.roster[0] && state.roster[0].name) || 'Your name')}" autocomplete="name" />
     <div class="mt"><button class="btn-primary" onclick="join()">Continue</button></div>
     <p class="small center mt">Already on the roster? Type your exact name to link up.</p>`;
@@ -666,21 +671,25 @@ function providerIcon(name) {
 // (with a name) or sign in to an existing one.
 function emailAuthForm() {
   if (authMode === 'signin') {
-    return `<label class="field">Email</label>
-      <input id="authEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com" />
-      <label class="field">Password</label>
-      <input id="authPassword" type="password" autocomplete="current-password" placeholder="Your password" />
-      <button class="btn-primary mt" onclick="emailSignIn()">Sign in</button>
-      <p class="small center mt"><a role="button" tabindex="0" class="inline-link" onclick="resetPw()">Forgot password?</a> · New here? <a role="button" tabindex="0" class="inline-link" onclick="setAuthMode('signup')">Create an account</a></p>`;
+    return `<form onsubmit="emailSignIn(); return false;">
+      <label class="field" for="authEmail">Email</label>
+      <input id="authEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com" required />
+      <label class="field" for="authPassword">Password</label>
+      <input id="authPassword" type="password" autocomplete="current-password" placeholder="Your password" required />
+      <button type="submit" class="btn-primary mt">Sign in</button>
+      <p class="small center mt"><button type="button" class="inline-link" onclick="resetPw()">Forgot password?</button> · New here? <button type="button" class="inline-link" onclick="setAuthMode('signup')">Create an account</button></p>
+    </form>`;
   }
-  return `<label class="field">Your name</label>
-    <input id="authName" autocomplete="name" placeholder="e.g. ${esc((state.roster[0] && state.roster[0].name) || 'Your name')}" />
-    <label class="field">Email</label>
-    <input id="authEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com" />
-    <label class="field">Password</label>
-    <input id="authPassword" type="password" autocomplete="new-password" placeholder="At least 6 characters" />
-    <button class="btn-primary mt" onclick="emailSignUp()">Create account</button>
-    <p class="small center mt">Already have an account? <a role="button" tabindex="0" class="inline-link" onclick="setAuthMode('signin')">Sign in</a></p>`;
+  return `<form onsubmit="emailSignUp(); return false;">
+    <label class="field" for="authName">Your name</label>
+    <input id="authName" autocomplete="name" placeholder="e.g. ${esc((state.roster[0] && state.roster[0].name) || 'Your name')}" required />
+    <label class="field" for="authEmail">Email</label>
+    <input id="authEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@email.com" required />
+    <label class="field" for="authPassword">Password</label>
+    <input id="authPassword" type="password" autocomplete="new-password" placeholder="At least 6 characters" minlength="6" required />
+    <button type="submit" class="btn-primary mt">Create account</button>
+    <p class="small center mt">Already have an account? <button type="button" class="inline-link" onclick="setAuthMode('signin')">Sign in</button></p>
+  </form>`;
 }
 
 // The number behind each sortable column (0 when a player has no games yet).
@@ -918,7 +927,7 @@ function joinScreen() {
         <li>Register with your name${auth?.enabled ? ' and email' : ''} — takes a second.</li>
         <li>When the poll's open, tap <b>I'm in</b> on This week.</li>
         <li>The squad is the top ${state.config.capacity} by loyalty, so there's no rush to be first.</li>
-        <li>Play to earn loyalty; last-minute drop-outs cost you. See <a role="button" tabindex="0" class="inline-link" onclick="go('rules')">Rules</a>.</li>
+        <li>Play to earn loyalty; last-minute drop-outs cost you. See <button type="button" class="inline-link" onclick="go('rules')">Rules</button>.</li>
       </ol>
     </div>`;
 }
@@ -1254,7 +1263,7 @@ function performanceStatsCard(p, isMe) {
       <div class="stat"><div class="statnum">${perf.motm}</div><div class="statlbl">MOTM</div></div>
       <div class="stat"><div class="statnum">${perf.ratingGames ? perf.rating.toFixed(1) + '★' : '—'}</div><div class="statlbl">avg rating</div></div>
     </div>
-    <p class="small mt">See the <a role="button" tabindex="0" class="inline-link" onclick="go('performances')">Performances</a> page for everyone's numbers.</p>
+    <p class="small mt">See the <button type="button" class="inline-link" onclick="go('performances')">Performances</button> page for everyone's numbers.</p>
   </div>`;
 }
 
