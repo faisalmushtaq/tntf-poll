@@ -164,7 +164,10 @@ async function main() {
 
   const susSnap = await db.collection(`games/${gameId}/signups`).get();
   const signups = susSnap.docs.map(d => ({ playerId: d.id, ...d.data() }));
-  const ranked = logic.rankSignups(signups, players, game.capacity, { pollOpenAt: game.createdAt, config });
+  // Match the browser exactly: an unlocked game follows the live recommended
+  // format, while a finalised game uses its stored capacity.
+  const capacity = logic.effectiveCapacity(game, signups, players, config);
+  const ranked = logic.rankSignups(signups, players, capacity, { pollOpenAt: game.createdAt, config });
   const curr = logic.statusMap(ranked);
 
   const events = [];
@@ -188,20 +191,20 @@ async function main() {
   let autoLockedGameId = notify.autoLockedGameId || null;
   const confirmed = ranked.filter(r => r.status === 'confirmed');
   const cutoff = closeCutoff(game.kickoffAt);
-  if (game.status === 'open' && Date.now() >= cutoff.getTime() && confirmed.length >= game.capacity && autoLockedGameId !== gameId) {
+  if (game.status === 'open' && Date.now() >= cutoff.getTime() && confirmed.length >= capacity && autoLockedGameId !== gameId) {
     console.log('Auto-closing: squad full and past cutoff.');
-    await db.doc(`games/${gameId}`).update({ status: 'locked', lockedAt: new Date().toISOString(), autoLocked: true });
+    await db.doc(`games/${gameId}`).update({ status: 'locked', capacity, capacityLocked: true, lockedAt: new Date().toISOString(), autoLocked: true });
     autoLockedGameId = gameId;
-    await sendSquadAlert(config, game, confirmed, ranked.filter(r => r.status === 'waitlist'), players);
+    await sendSquadAlert(config, { ...game, capacity }, confirmed, ranked.filter(r => r.status === 'waitlist'), players);
   }
 
   // Close the poll once the game has kicked off — no more sign-ups mid-match.
   if (logic.pastKickoff(game, new Date()) && game.status === 'open') {
     console.log('Kick-off passed — locking registration.');
-    await db.doc(`games/${gameId}`).update({ status: 'locked', lockedAt: new Date().toISOString(), autoLocked: true });
+    await db.doc(`games/${gameId}`).update({ status: 'locked', capacity, capacityLocked: true, lockedAt: new Date().toISOString(), autoLocked: true });
     if (autoLockedGameId !== gameId) {
       autoLockedGameId = gameId;
-      await sendSquadAlert(config, game, confirmed, ranked.filter(r => r.status === 'waitlist'), players);
+      await sendSquadAlert(config, { ...game, capacity }, confirmed, ranked.filter(r => r.status === 'waitlist'), players);
     }
   }
 

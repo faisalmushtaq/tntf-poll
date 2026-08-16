@@ -812,6 +812,12 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   const cfg = { capacity: 14 };
   // Auto (not locked): capacity tracks turnout via recommendedFormat.
   ok('auto: 16 in → 14 (default 7-a-side, no strong 8 vote)', logic.effectiveCapacity({ capacity: 99 }, mk(16), pb, cfg) === 14);
+  ok('auto: 16 with an 8-a-side vote → 16', logic.effectiveCapacity(
+    { capacity: 14 },
+    mk(16).map(s => ({ ...s, formatPref: 8 })),
+    pb,
+    cfg
+  ) === 16);
   ok('auto: 12 in → 10 (top-10 five-a-side)', logic.effectiveCapacity({ capacity: 99 }, mk(12), pb, cfg) === 10);
   ok('auto: 14 in → 14', logic.effectiveCapacity({ capacity: 99 }, mk(14), pb, cfg) === 14);
   // Locked: the stored capacity wins regardless of turnout.
