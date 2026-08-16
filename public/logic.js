@@ -682,6 +682,12 @@ export function pastKickoff(game, now = new Date()) {
 // 'lineup'. `teams` (line-up only) is { bibs: [names], nonbibs: [names] }.
 export function buildAnnouncement(kind, { game = {}, recipients = [], config = {}, teams = null, reserves = [] } = {}, now = new Date()) {
   const c = withDefaults(config);
+  // A published line-up can contain more or fewer players than the stored game
+  // capacity. Price the announcement from the actual unique team-sheet size.
+  const lineupSize = kind === 'lineup' && teams
+    ? new Set([...(teams.bibs || []), ...(teams.nonbibs || [])]).size
+    : 0;
+  const capacity = lineupSize || game.capacity || null;
   const grace = Number(c.announceGraceMinutes);
   const mins = Number.isFinite(grace) && grace >= 0 ? grace : 60;
   // The line-up goes out a set time before kickoff (default 2h); everything else
@@ -702,7 +708,7 @@ export function buildAnnouncement(kind, { game = {}, recipients = [], config = {
     venue: game.venue || '',
     teams: teams || null,
     reserves: reserves || [],
-    capacity: game.capacity ?? null,
+    capacity,
     pitchCost: Number(c.pitchCost) || 0,
     recipients: recipients.map(r => ({ id: r.id, name: r.name, email: r.email || null })),
     excludedIds: [],

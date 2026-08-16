@@ -220,12 +220,16 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   const gameCap = { id: 'g9', dateLabel: 'Tue 21', kickoffAt: '2026-07-21T19:00:00Z', venue: 'Pitch 10', capacity: 14 };
   const withCost = logic.buildAnnouncement('lineup', {
     game: gameCap, recipients: roster, config: logic.withDefaults({ pitchCost: 113 }),
-    teams: { bibs: ['Al'], nonbibs: ['Bo'] }, reserves: ['Cy', 'Di']
+    teams: {
+      bibs: ['B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8'],
+      nonbibs: ['N1', 'N2', 'N3', 'N4', 'N5', 'N6', 'N7', 'N8']
+    },
+    reserves: ['Cy', 'Di']
   }, now);
-  ok('per-player cost is total / squad size', Math.abs(logic.perPlayerCost(withCost) - 113 / 14) < 1e-9);
+  ok('per-player cost follows the published 16-player line-up, not stored capacity 14', Math.abs(logic.perPlayerCost(withCost) - 113 / 16) < 1e-9);
   const wc = logic.announcementContent(withCost, 'TNTF');
   ok('lineup lists reserves in order', wc.paragraphs.some(p => /Reserves: Cy, Di/.test(p)));
-  ok('lineup states the per-player cost', wc.paragraphs.some(p => /£8\.07 each/.test(p) && /£113\.00 split 14 ways/.test(p)));
+  ok('lineup states the per-player cost from the published line-up size', wc.paragraphs.some(p => /£7\.06 each/.test(p) && /£113\.00 split 16 ways/.test(p)));
   ok('no cost line when pitch cost is zero', !logic.announcementContent(logic.buildAnnouncement('lineup', { game: gameCap, config: logic.withDefaults({ pitchCost: 0 }) }, now), 'TNTF').paragraphs.some(p => /each this week/.test(p)));
 }
 

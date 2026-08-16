@@ -68,9 +68,12 @@ function buildLineupAnnouncement(game, playersById, config, prev = null, reserve
   const teams = game.teams || { bibs: [], nonbibs: [] };
   const bibIds = teams.bibs || [], nonbibIds = teams.nonbibs || [];
   const playingIds = [...new Set([...bibIds, ...nonbibIds])];
+  // A published team sheet can differ from the game capacity when the organiser
+  // adds or removes players. The price must follow the people actually playing.
+  const lineupSize = playingIds.length || Number(game.capacity) || 0;
   const recipients = playingIds.map(id => playersById[id]).filter(Boolean);
   const ann = logic.buildAnnouncement('lineup', {
-    game: { id: game.id, dateLabel: game.dateLabel, kickoffAt: game.kickoffAt, venue: game.venue, capacity: game.capacity },
+    game: { id: game.id, dateLabel: game.dateLabel, kickoffAt: game.kickoffAt, venue: game.venue, capacity: lineupSize },
     recipients, config,
     teams: { bibs: bibIds.map(nameOf), nonbibs: nonbibIds.map(nameOf) },
     reserves
