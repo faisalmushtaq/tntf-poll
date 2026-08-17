@@ -49,6 +49,7 @@ let lineupDraft = null;        // organiser lineupDraft builder state { bibs:[],
 let lineupGameId = null;  // which game `lineupDraft` was built for
 let lineupAdded = new Set();    // players the organiser pulled in who didn't respond on the poll
 let lineupRemoved = new Set();  // players the organiser took out (won't be auto-re-added)
+let profilePhotoDraft = undefined; // undefined keeps the saved photo; data URL previews a new choice; null clears a custom photo
 
 // Top-nav definition: [tab key, label]. Order is left→right on web,
 // top→bottom in the mobile menu.
@@ -243,6 +244,13 @@ function toast(msg, isErr = false) {
 function ordinal(n) { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
 function avatarColor(name) { let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360; return `hsl(${h} 20% 56%)`; }
 function initials(name) { return name.split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase(); }
+function avatarMarkup(p, { big = false } = {}) {
+  const cls = `avatar${big ? ' big' : ''}`;
+  const photo = p?.photoHidden ? null : (p?.photoData || p?.photoURL);
+  if (photo) return `<img class="${cls} photo" src="${esc(photo)}" alt="${esc(p.name)}" />`;
+  if (big && p?.photoHidden) return `<div class="${cls} crest-avatar" role="img" aria-label="${esc(p.name)}"><img src="./assets/crest-primary.svg" alt="" /></div>`;
+  return `<div class="${cls}" style="background:${avatarColor(p.name)}" aria-label="${esc(p.name)}">${initials(p.name)}</div>`;
+}
 function fmtCountdown(iso) {
   const ms = new Date(iso) - Date.now();
   if (ms <= 0) return 'kicked off';
@@ -256,7 +264,7 @@ function playerRow(p, opts = {}) {
   const me = p.playerId === LS.id || p.id === LS.id;
   return `<div class="player ${me ? 'me' : ''}">
     ${opts.num != null ? `<div class="num">${opts.num}</div>` : ''}
-    <div class="avatar" style="background:${avatarColor(p.name)}">${initials(p.name)}</div>
+    ${avatarMarkup(p)}
     <div class="info">
       <div class="name">${esc(p.name)}${me ? ' <span class="small">(you)</span>' : ''}</div>
       <div class="meta">${opts.meta ?? `${p.gamesPlayed ?? 0} games played`}</div>
@@ -1275,10 +1283,27 @@ function playerProfileScreen() {
   const isMe = !!state.me && p.id === state.me.id;
   return `<button class="back-link screen-back" onclick="navBack()">← Back</button>
     <div class="card hero-you">
-      <img class="you-crest" src="./assets/crest-primary.svg" alt="" aria-hidden="true" />
-      <div class="you-name">${esc(p.name)}${isMe ? ' <span class="small">(you)</span>' : ''}</div>
-      <p class="small">${p.loyalty} loyalty · ${p.gamesPlayed} games</p>
+      <div class="profile-hero-row">${avatarMarkup(p, { big: true })}<div class="profile-hero-copy"><div class="you-name">${esc(p.name)}${isMe ? ' <span class="small">(you)</span>' : ''}</div><p class="small">${p.loyalty} loyalty · ${p.gamesPlayed} games</p></div><img class="you-crest" src="./assets/crest-primary.svg" alt="Tuesday Night Total Football crest" /></div>
     </div>${formRecordCard(p)}${formOverTimeCard(p)}${playsWithCard(p, isMe)}${upAgainstCard(p, isMe)}${performanceStatsCard(p, isMe)}${recordStatsCard(p, isMe)}`;
+}
+
+function profileEditorCard(me) {
+  const preview = profilePhotoDraft === undefined ? me : { ...me, photoData: profilePhotoDraft || null, photoHidden: profilePhotoDraft === null };
+  const hasVisiblePhoto = profilePhotoDraft !== undefined ? profilePhotoDraft !== null : !me.photoHidden && !!(me.photoData || me.photoURL);
+  return `<div class="card profile-editor">
+    <h2>Your profile</h2>
+    <p class="hint">Choose the name and picture shown beside your player record. Photos are resized on this device before they are saved.</p>
+    <div class="profile-edit-preview">${avatarMarkup(preview, { big: true })}</div>
+    <form onsubmit="saveOwnProfile(); return false;">
+      <label class="field" for="profileName">Display name</label>
+      <input id="profileName" value="${esc(me.name)}" autocomplete="name" maxlength="40" required />
+      <label class="field" for="profilePhoto">Profile picture</label>
+      <input id="profilePhoto" type="file" accept="image/jpeg,image/png,image/webp" onchange="profilePhotoSelected(event)" />
+      <p class="small">Choose a square or portrait photo. TNTF makes a small 320 px copy, so the original remains on your phone.</p>
+      ${hasVisiblePhoto ? '<button type="button" class="btn-ghost mt" onclick="clearOwnProfilePhoto()">Use the crest instead</button>' : ''}
+      <button type="submit" class="btn-primary mt">Save profile</button>
+    </form>
+  </div>`;
 }
 
 // ---- you: your profile + notifications + account --------------------------
@@ -1311,10 +1336,8 @@ function youScreen() {
     : `<div class="card"><h2>You</h2><p class="hint">Playing as ${esc(me.name)} on this device.</p><button class="btn-ghost" onclick="forgetMe()">Not you? Switch name</button></div>`;
 
   return `<div class="card hero-you">
-      <img class="you-crest" src="./assets/crest-primary.svg" alt="Tuesday Night Total Football crest" />
-      <div class="you-name">${esc(me.name)}</div>
-      <p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p>
-    </div>${formRecordCard(me)}${formOverTimeCard(me)}${playsWithCard(me, true)}${upAgainstCard(me, true)}${performanceStatsCard(me, true)}${recordStatsCard(me, true)}${notif}${account}`;
+      <div class="profile-hero-row">${avatarMarkup(me, { big: true })}<div class="profile-hero-copy"><div class="you-name">${esc(me.name)}</div><p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p></div><img class="you-crest" src="./assets/crest-primary.svg" alt="Tuesday Night Total Football crest" /></div>
+    </div>${profileEditorCard(me)}${formRecordCard(me)}${formOverTimeCard(me)}${playsWithCard(me, true)}${upAgainstCard(me, true)}${performanceStatsCard(me, true)}${recordStatsCard(me, true)}${notif}${account}`;
 }
 
 // Guardian-style form guide: coloured W/D/L chips, newest first.
@@ -2255,6 +2278,69 @@ window.enablePushNow = async () => {
     await db.savePushToken(state.me.id, token);
     localStorage.setItem('tntf.pushOn', '1');
     render(); toast('Push notifications on 🔔');
+  } catch (e) { toast(e.message, true); }
+};
+
+function dataUrlFromBlob(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Could not read the resized picture'));
+    reader.readAsDataURL(blob);
+  });
+}
+async function prepareProfilePhoto(file) {
+  if (!file || !/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error('Choose a JPEG, PNG or WebP picture');
+  if (file.size > 12 * 1024 * 1024) throw new Error('Choose a picture smaller than 12 MB');
+  const sourceUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error('That picture could not be opened'));
+      img.src = sourceUrl;
+    });
+    const side = Math.min(image.naturalWidth, image.naturalHeight);
+    if (!side) throw new Error('That picture has no usable image data');
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 320;
+    const context = canvas.getContext('2d');
+    context.drawImage(image, (image.naturalWidth - side) / 2, (image.naturalHeight - side) / 2, side, side, 0, 0, 320, 320);
+    for (const quality of [.84, .72, .60]) {
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+      if (!blob) continue;
+      const dataUrl = await dataUrlFromBlob(blob);
+      if (dataUrl.length <= 230000) return dataUrl;
+    }
+    throw new Error('That picture could not be made small enough. Try a different photo.');
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
+window.profilePhotoSelected = async (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    toast('Preparing your picture…');
+    profilePhotoDraft = await prepareProfilePhoto(file);
+    render(); toast('Picture ready. Save profile to use it.');
+  } catch (e) {
+    event.target.value = '';
+    toast(e.message, true);
+  }
+};
+window.clearOwnProfilePhoto = () => { profilePhotoDraft = null; render(); };
+window.saveOwnProfile = async () => {
+  if (!state?.me) return;
+  const name = document.getElementById('profileName')?.value.trim().replace(/\s+/g, ' ') || '';
+  if (name.length < 2) return toast('Use at least two characters for your display name', true);
+  try {
+    await db.updatePlayerProfile(state.me.id, {
+      name,
+      ...(profilePhotoDraft !== undefined ? { photoData: profilePhotoDraft, photoHidden: profilePhotoDraft === null } : {})
+    });
+    profilePhotoDraft = undefined;
+    toast('Profile saved');
   } catch (e) { toast(e.message, true); }
 };
 

@@ -223,6 +223,14 @@ function createLocalDB() {
       persist();
     },
     async renamePlayer(id, name) { db.players[id].name = String(name).trim(); persist(); },
+    async updatePlayerProfile(id, { name, photoData, photoHidden } = {}) {
+      const p = db.players[id]; if (!p) throw new Error('Unknown player');
+      if (name != null) p.name = String(name).trim();
+      if (photoData === null) delete p.photoData;
+      else if (photoData) p.photoData = String(photoData);
+      if (photoHidden != null) p.photoHidden = !!photoHidden;
+      persist();
+    },
     async adjustLoyalty(id, delta) { db.players[id].loyalty += Number(delta) || 0; persist(); },
     async deletePlayer(id) {
       delete db.players[id];
@@ -632,6 +640,14 @@ async function createFirestoreDB() {
       await batch.commit();
     },
     async renamePlayer(id, name) { await updateDoc(doc(playersCol, id), { name: String(name).trim() }); },
+    async updatePlayerProfile(id, { name, photoData, photoHidden } = {}) {
+      const patch = {};
+      if (name != null) patch.name = String(name).trim();
+      if (photoData === null) patch.photoData = null;
+      else if (photoData) patch.photoData = String(photoData);
+      if (photoHidden != null) patch.photoHidden = !!photoHidden;
+      if (Object.keys(patch).length) await updateDoc(doc(playersCol, id), patch);
+    },
     async adjustLoyalty(id, delta) { await updateDoc(doc(playersCol, id), { loyalty: increment(Number(delta) || 0) }); },
     async deletePlayer(id) {
       const gs = await getDocs(collection(dbf, 'games'));
