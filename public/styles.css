@@ -451,7 +451,14 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 
 /* ---- New icon set (public/assets/*.svg) ---- */
 .ico { display: inline-block; height: 1em; width: auto; vertical-align: -0.15em; }
-.inline-ico { height: 1.25em; width: auto; vertical-align: -0.28em; margin-right: 3px; }
+.inline-ico { height: 1.25em; width: auto; vertical-align: -0.28em; margin-right: 4px; }
+.head-ico { height: 1.32em; width: 1.32em; vertical-align: -0.28em; margin-right: 8px; }
+.insight-line { line-height: 1.65; }
+.insight-ico { height: 1.28em; width: 1.28em; vertical-align: -0.31em; margin-right: 4px; }
+.insight-sep { color: var(--muted); margin: 0 5px; }
+.notif-ico { height: 1.3em; width: 1.3em; vertical-align: -0.3em; margin-right: 5px; }
+.button-ico { height: 1.3em; width: 1.3em; vertical-align: -0.3em; margin-right: 6px; }
+.icon-btn .ico { width: 18px; height: 18px; vertical-align: -0.25em; }
 /* Fixture info (date / kickoff / venue / squad) on This week */
 .fx-ico { width: 16px; height: 16px; vertical-align: -3px; margin-right: 5px; opacity: .95; }
 .hero .date .fx-ico { width: 18px; height: 18px; vertical-align: -3px; }

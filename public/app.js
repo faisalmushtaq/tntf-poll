@@ -225,8 +225,8 @@ function statusAlert(game, playerId) {
   const now = game.me.status;
   if (prev !== now) localStorage.setItem(key, now);
   if (!prev || prev === now) return null;
-  if (now === 'confirmed') return { kind: 'in', text: "🎉 You've been promoted — you're now IN the squad!" };
-  return { kind: 'wait', text: "⚠️ You've been bumped to the reserves — you'll move up if someone drops." };
+  if (now === 'confirmed') return { kind: 'in', text: "You've been promoted — you're now in the squad." };
+  return { kind: 'wait', text: "You've moved to the reserves — you'll move up if someone drops." };
 }
 
 // ---- ui helpers -----------------------------------------------------------
@@ -497,7 +497,7 @@ function paymentControl(g) {
   if (g.me.status !== 'confirmed' && !g.me.paid) return ''; // only once you're actually in
   const paid = g.me.paid;
   return `<div class="pay-row${paid ? ' paid' : ''}">
-    <span class="pay-label">${paid ? `${ICON('icon-confirmed', 'inline-ico')} Payment confirmed — thanks!` : '💸 Have you paid the match fee?'}</span>
+    <span class="pay-label">${paid ? `${ICON('icon-confirmed', 'inline-ico')} Payment confirmed — thanks!` : `${ICON('icon-payment', 'inline-ico')}Have you paid the match fee?`}</span>
     <button class="btn-ghost pay-btn" onclick="markPaid('${g.id}', ${paid ? 'false' : 'true'})">${paid ? 'Mark unpaid' : "Yes, I've paid"}</button>
   </div>`;
 }
@@ -1040,7 +1040,7 @@ function gameDetailScreen() {
   if (g.weather) weatherCache['h-' + g.id] = g.weather;
   else ensureWeather('h-' + g.id, gameISO(g));
   const bonusNote = g.weatherBonus > 0
-    ? `<p class="hint center wx-bonus">🏅 Tough conditions — everyone who played earned +${g.weatherBonus} bonus loyalty.</p>` : '';
+    ? `<p class="hint center wx-bonus">${ICON('icon-achievement', 'inline-ico')}Tough conditions — everyone who played earned +${g.weatherBonus} bonus loyalty.</p>` : '';
 
   // "Name ×N" per scorer, abbreviated (S. Rodaina) and kept whole so the line
   // wraps between scorers, never mid-name.
@@ -1240,7 +1240,7 @@ function formRecordCard(p) {
   if (!an || !an.played) return '';
   const cs = an.currentStreak;
   const streakText = cs && cs.type
-    ? (cs.type === 'W' ? `${cs.count}-game win streak 🔥` : cs.type === 'L' ? `${cs.count}-game losing run` : `${cs.count} draws in a row`)
+    ? (cs.type === 'W' ? `${cs.count}-game winning streak` : cs.type === 'L' ? `${cs.count}-game losing run` : `${cs.count} draws in a row`)
     : '—';
   return `<div class="card">
     <h2>Form &amp; record</h2>
@@ -1317,13 +1317,13 @@ function youScreen() {
   let notif = '';
   if (auth?.enabled) {
     const emailLine = me.email
-      ? `<div class="notif-row"><span>📧 Email alerts</span><span class="pill in">on</span></div><p class="small">Sent to ${esc(me.email)} when your spot changes.</p>`
+      ? `<div class="notif-row"><span>${ICON('icon-email', 'notif-ico')}Email alerts</span><span class="pill in">on</span></div><p class="small">Sent to ${esc(me.email)} when your spot changes.</p>`
       : `<p class="small">Your account has no email, so email alerts are off.</p>`;
     let pushLine;
     if (!pushConfigured()) pushLine = `<p class="small">Push notifications aren't set up yet (organiser: add a messaging key — see README).</p>`;
-    else if (localStorage.getItem('tntf.pushOn')) pushLine = `<div class="notif-row"><span>🔔 Push notifications</span><span class="pill in">on</span></div>`;
+    else if (localStorage.getItem('tntf.pushOn')) pushLine = `<div class="notif-row"><span>${ICON('icon-bell', 'notif-ico')}Push notifications</span><span class="pill in">on</span></div>`;
     else if (isIOS() && !isStandalone()) pushLine = `<div class="ios-hint"><b>To get push on iPhone:</b> tap the Share icon in Safari → <b>Add to Home Screen</b>, then open TNTF from your home screen and turn on push here.</div>`;
-    else pushLine = `<button class="btn-primary" onclick="enablePushNow()">🔔 Turn on push notifications</button>`;
+    else pushLine = `<button class="btn-primary" onclick="enablePushNow()">${ICON('icon-bell', 'button-ico')}Turn on push notifications</button>`;
     notif = `<div class="card"><h2>Notifications</h2>${emailLine}${pushLine}</div>`;
   } else {
     notif = `<div class="card"><h2>Notifications</h2><p class="hint">Email & push alerts activate once the organiser connects Firebase (see README). For now this device shows in-app alerts when your status changes.</p></div>`;
@@ -1416,7 +1416,7 @@ function playsWithCard(p, isMe) {
   if (eligible.length >= 2) {
     const best = eligible.reduce((a, b) => (b.winPct > a.winPct ? b : a));
     const worst = eligible.reduce((a, b) => (b.winPct < a.winPct ? b : a));
-    if (best.id !== worst.id) extra = `<p class="small mt">🍀 Best together: <b>${esc(nameOf(best.id))}</b> (${best.winPct}% in ${best.games}) · 😬 toughest: <b>${esc(nameOf(worst.id))}</b> (${worst.winPct}% in ${worst.games})</p>`;
+    if (best.id !== worst.id) extra = `<p class="small mt insight-line">${ICON('icon-together', 'insight-ico')}Best together: <b>${esc(nameOf(best.id))}</b> (${best.winPct}% in ${best.games}) <span class="insight-sep">·</span> ${ICON('icon-challenge', 'insight-ico')}Toughest: <b>${esc(nameOf(worst.id))}</b> (${worst.winPct}% in ${worst.games})</p>`;
   }
   return `<div class="card">
     <h2>${isMe ? 'You play with' : 'Plays with'} most</h2>
@@ -1481,7 +1481,7 @@ function ratingsCard() {
   const d = ratingsImport || {};
   const preview = d.resolved ? ratingsPreview(d.resolved) : '';
   return `<div class="card">
-    <h2>Player ratings 🔒</h2>
+    <h2>${ICON('icon-lock', 'head-ico')}Player ratings</h2>
     <p class="hint">Only you (the organiser) see these. Rate each player /20 for Fitness, Skill, Strength, Speed — used to auto-balance the teams. Blank counts as 10.</p>
     <div class="rate-head"><div class="rate-name">Player</div><div>Fit</div><div>Skl</div><div>Str</div><div>Spd</div><div class="rate-ov">Ovr</div></div>
     ${rows}
@@ -1574,7 +1574,7 @@ function lineupBuilderCard(g) {
   return `<div class="card">
     <h2>Team builder ${finalisedTag}</h2>
     <p class="hint">Auto-balance by rating, then tap a player (or drag on a computer) to switch sides. Rating gap: <b>${diff}</b>. Publish to show the teams on This Week — you can keep tweaking after.</p>
-    <button class="btn-ghost" onclick="autoBalance()">⚖️ Auto-balance</button>
+    <button class="btn-ghost" onclick="autoBalance()">Auto-balance teams</button>
     <div class="teams-grid build mt">${column('bibs', 'Bibs', 'bibs')}${column('nonbibs', 'Non-bibs', 'nonbibs')}</div>
     <div class="section-title">Add a player</div>
     <p class="hint" style="margin-top:-2px">Someone reply on WhatsApp but not the poll? Pull anyone from the squad straight into the teams. Tap the <b>×</b> on a player to take them out.</p>
@@ -1671,7 +1671,7 @@ function announceCard(a) {
       ? `<div class="lu-reserves"><div class="lu-h2">Reserves</div>${reserves.map((n, i) => `<div class="lu-nm">${i + 1}. ${esc(n)}</div>`).join('')}</div>`
       : '';
     const per = logic.perPlayerCost(a);
-    const costBlock = per ? `<p class="ann-cost">💷 £${per.toFixed(2)} each this week — pitch is £${Number(a.pitchCost).toFixed(2)} split ${a.capacity} ways.</p>` : '';
+    const costBlock = per ? `<p class="ann-cost">${ICON('icon-payment', 'inline-ico')}£${per.toFixed(2)} each this week — pitch is £${Number(a.pitchCost).toFixed(2)} split ${a.capacity} ways.</p>` : '';
     previewBody = `<div class="ann-teams">${col('bibs', 'Bibs', teams.bibs)}${col('nonbibs', 'Non-bibs', teams.nonbibs)}</div>
       ${reservesBlock}${costBlock}
       <p class="ann-note">Goes out as it stands now — it also tells everyone there may be late changes, so check the app.</p>`;
@@ -1680,7 +1680,7 @@ function announceCard(a) {
   }
 
   return `<div class="card ann-card">
-      <h2>📣 ${isLineup ? 'Line-up announcement' : 'Announcement'} — review before it sends</h2>
+      <h2>${ICON('icon-announcement', 'head-ico')}${isLineup ? 'Line-up announcement' : 'Announcement'} — review before it sends</h2>
       <p class="hint" style="margin-top:-2px">${countdown}</p>
       <div class="ann-preview">
         <div class="ann-h">${esc(content.heading)}</div>
@@ -1704,7 +1704,7 @@ function announceCard(a) {
 function adminScreen() {
   if (!adminUnlocked) {
     return `<div class="card">
-      <h2>Organiser area 🔒</h2>
+      <h2>${ICON('icon-lock', 'head-ico')}Organiser area</h2>
       <p class="hint">Open the weekly game, lock the squad, mark it played, and manage the roster.</p>
       <input id="pinInput" type="password" inputmode="numeric" placeholder="Admin PIN" />
       <button class="btn-primary" onclick="adminLogin()">Unlock</button>
@@ -1781,10 +1781,10 @@ function adminScreen() {
     : '';
   const roster = state.roster.map(p => `<div class="player">
       <div class="info"><div class="name">${esc(p.name)}</div><div class="meta">${p.loyalty} loyalty · ${p.gamesPlayed} games · ${p.dropouts} dropouts ${linkTag(p)}</div></div>
-      <button class="icon-btn" title="Edit name" onclick="editPlayer('${p.id}')">✎</button>
+      <button class="icon-btn" title="Edit ${esc(p.name)}" aria-label="Edit ${esc(p.name)}" onclick="editPlayer('${p.id}')">${ICON('icon-edit')}</button>
       <button class="icon-btn" title="+1 loyalty" onclick="adjust('${p.id}',1)">＋</button>
       <button class="icon-btn" title="-1 loyalty" onclick="adjust('${p.id}',-1)">－</button>
-      <button class="icon-btn danger" title="Delete" onclick="removePlayer('${p.id}','${esc(p.name).replace(/'/g, "\\'")}')">🗑</button>
+      <button class="icon-btn danger" title="Delete ${esc(p.name)}" aria-label="Delete ${esc(p.name)}" onclick="removePlayer('${p.id}','${esc(p.name).replace(/'/g, "\\'")}')">${ICON('icon-trash')}</button>
     </div>`).join('');
 
   const mergeOptions = state.roster.map(p => `<option value="${p.id}">${esc(p.name)} (${p.gamesPlayed})</option>`).join('');
@@ -1800,7 +1800,7 @@ function adminScreen() {
 
   const playersTab = `<div class="card">
       <h2>Roster</h2>
-      <p class="hint">Edit a name (✎), nudge loyalty (＋/－), or remove a player (🗑). Deleting also removes them from past game records.</p>
+      <p class="hint">Edit a name, nudge loyalty, or remove a player. Deleting also removes them from past game records.</p>
       ${roster}
       <label class="field mt">Add a player</label><input id="newPlayer" placeholder="Name" />
       <button class="btn-ghost" onclick="addPlayer()">Add to roster</button>
@@ -1970,7 +1970,7 @@ function matchConditionsCard(g) {
 function stattoScreen() {
   if (!stattoUnlocked) {
     return `<div class="card">
-      <h2>Statto area 📊</h2>
+      <h2>${ICON('icon-chart', 'head-ico')}Statto area</h2>
       <p class="hint">For the stats-keeper — correct scores and log who scored the goals. Ask the organiser for the Statto PIN.</p>
       <input id="stattoPin" type="password" inputmode="numeric" placeholder="Statto PIN" />
       <button class="btn-primary" onclick="stattoLogin()">Unlock</button>
@@ -1995,7 +1995,7 @@ function stattoScreen() {
     </a>`;
   }).join('');
   return `<div class="card">
-      <h2>Match records 📊</h2>
+      <h2>${ICON('icon-chart', 'head-ico')}Match records</h2>
       <p class="hint">Tap a game to correct the score and log who scored, plus assists and the full stat set, and add highlight links.</p>
       <div class="hist-list">${rows || '<div class="empty">No completed games yet.</div>'}</div>
     </div>
@@ -2266,7 +2266,7 @@ window.emailSignIn = async () => {
 window.resetPw = async () => {
   const email = document.getElementById('authEmail')?.value.trim();
   if (!email) return toast('Enter your email first, then tap reset', true);
-  try { await auth.resetPassword(email); toast('Password reset link sent — check your inbox 📧'); }
+  try { await auth.resetPassword(email); toast('Password reset link sent. Check your inbox.'); }
   catch (e) { toast(authErrorMessage(e), true); }
 };
 window.signOutUser = async () => { try { await auth.signOut(); LS.id = ''; toast('Signed out'); } catch (e) { toast(e.message, true); } };
@@ -2277,7 +2277,7 @@ window.enablePushNow = async () => {
     const token = await enablePush();
     await db.savePushToken(state.me.id, token);
     localStorage.setItem('tntf.pushOn', '1');
-    render(); toast('Push notifications on 🔔');
+    render(); toast('Push notifications on');
   } catch (e) { toast(e.message, true); }
 };
 
@@ -2387,7 +2387,7 @@ window.adminLogout = () => { adminUnlocked = false; render(); toast('Logged out'
 // ---- statto actions --------------------------------------------------------
 window.stattoLogin = async () => {
   const pin = document.getElementById('stattoPin').value;
-  try { if (!(await db.checkStattoPin(pin))) return toast('Wrong PIN', true); stattoUnlocked = true; render(); toast('Statto unlocked 📊'); }
+  try { if (!(await db.checkStattoPin(pin))) return toast('Wrong PIN', true); stattoUnlocked = true; render(); toast('Statto unlocked'); }
   catch (e) { toast(e.message, true); }
 };
 window.stattoLogout = () => { stattoUnlocked = false; stattoGameId = null; render(); toast('Statto locked'); };
@@ -2449,12 +2449,12 @@ window.saveStattoGame = async (id) => {
     if (mEl && mEl.dataset.on) motm.push(pid);
   }
   const highlights = readHighlights(g);
-  try { await db.saveGameStats(id, { scores, goals, stats, highlights, stattoRatings, motm, ownGoals }); history = null; ensureHistory(); stattoGameId = null; render(); toast('Record saved 📊'); }
+  try { await db.saveGameStats(id, { scores, goals, stats, highlights, stattoRatings, motm, ownGoals }); history = null; ensureHistory(); stattoGameId = null; render(); toast('Record saved'); }
   catch (e) { toast(e.message, true); }
 };
 window.importPerf = async () => {
   if (!confirm('Import the recorded stats from the spreadsheet into the last two games? This overwrites those games’ current goals & stats.')) return;
-  try { const n = await db.importPerf(); history = null; ensureHistory(); render(); toast(`Imported stats for ${n} game${n === 1 ? '' : 's'} 📊`); }
+  try { const n = await db.importPerf(); history = null; ensureHistory(); render(); toast(`Imported stats for ${n} game${n === 1 ? '' : 's'}`); }
   catch (e) { toast(e.message, true); }
 };
 // --- generic spreadsheet import (import.js) --------------------------------
@@ -2466,7 +2466,7 @@ function stashImportInputs() {
   importDraft = { ...(importDraft || {}), url, text, targetGameId };
 }
 window.copyTemplate = async () => {
-  try { await navigator.clipboard.writeText(sheet.templateText()); toast('Template copied — paste it into a new sheet 📋'); }
+  try { await navigator.clipboard.writeText(sheet.templateText()); toast('Template copied — paste it into a new sheet'); }
   catch { stashImportInputs(); importDraft.text = sheet.templateText(); render(); toast('Template dropped into the paste box'); }
 };
 function resolveImportText(text) {
@@ -2504,7 +2504,7 @@ window.importApply = async () => {
   try {
     const { games } = await db.applyImport(res.byGame);
     importDraft = null; history = null; ensureHistory(); render();
-    toast(`Imported ${res.summary.matched} record${res.summary.matched === 1 ? '' : 's'} into ${games} game${games === 1 ? '' : 's'} 📊`);
+    toast(`Imported ${res.summary.matched} record${res.summary.matched === 1 ? '' : 's'} into ${games} game${games === 1 ? '' : 's'}`);
   } catch (e) { toast(e.message, true); }
 };
 // Read a chosen CSV/TSV file's text (shared by both importers).
@@ -2534,7 +2534,7 @@ function resolveRatingsText(text) {
   ratingsImport.resolved = sheet.resolveRatings(parsed, { players: state.playersById });
 }
 window.copyRatingsTemplate = async () => {
-  try { await navigator.clipboard.writeText(sheet.templateRatings()); toast('Ratings template copied 📋'); }
+  try { await navigator.clipboard.writeText(sheet.templateRatings()); toast('Ratings template copied'); }
   catch { stashRatingsInputs(); ratingsImport.text = sheet.templateRatings(); render(); toast('Template dropped into the paste box'); }
 };
 window.ratingsFile = async (ev) => {
@@ -2674,7 +2674,7 @@ window.reverseWithdrawal = async (gameId, playerId) => {
 };
 const asBool = v => v === true || v === 'true';
 window.markPaid = async (gameId, paid) => {
-  try { await db.setPaid(state.me.id, gameId, asBool(paid)); toast(asBool(paid) ? 'Payment confirmed 💸' : 'Marked unpaid'); }
+  try { await db.setPaid(state.me.id, gameId, asBool(paid)); toast(asBool(paid) ? 'Payment confirmed' : 'Marked unpaid'); }
   catch (e) { toast(e.message, true); }
 };
 window.togglePaid = async (playerId, gameId, paid) => {
