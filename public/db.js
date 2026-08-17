@@ -103,7 +103,7 @@ function repointPlayer(g, dropId, keepId) {
 
 function gameRecordPatch(g) {
   return {
-    teams: g.teams || null, result: g.result || null,
+    teams: g.teams || null, guests: g.guests || null, result: g.result || null,
     stats: g.stats || null, goals: g.goals || null,
     selfRatings: g.selfRatings || null, stattoRatings: g.stattoRatings || null,
     ownGoals: g.ownGoals || null, motm: g.motm || [],
@@ -111,15 +111,23 @@ function gameRecordPatch(g) {
   };
 }
 
+function guestPlayersForGame(game) {
+  return Object.fromEntries(Object.entries(game?.guests || {})
+    .map(([id, guest]) => [id, { id, name: typeof guest === 'string' ? guest : guest?.name, guest: true, loyalty: 0, gamesPlayed: 0, dropouts: 0 }])
+    .filter(([, guest]) => !!guest.name));
+}
+
 // Exported only for the Node test suite. The production data layer uses the
 // same helpers immediately above, so fixture coverage protects both backends.
-export const __testGameRefs = { stripPlayer, repointPlayer };
+export const __testGameRefs = { stripPlayer, repointPlayer, guestPlayersForGame };
 
-// Shared shape emitted to subscribers.
+// Shared shape emitted to subscribers. Guests are available for team sheets and
+// historic match display, while the roster deliberately remains registered players only.
 function assemble(config, playersById, game, signups, announcement) {
+  const guests = guestPlayersForGame(game);
   const roster = Object.values(playersById)
     .sort((a, b) => b.loyalty - a.loyalty || a.name.localeCompare(b.name));
-  return { config: logic.withDefaults(config), playersById, roster, game: game || null, signups: signups || [], announcement: announcement || null };
+  return { config: logic.withDefaults(config), playersById: { ...playersById, ...guests }, roster, game: game || null, signups: signups || [], announcement: announcement || null };
 }
 
 // Stage a line-up announcement to the players who are on the team sheet, with
@@ -127,7 +135,8 @@ function assemble(config, playersById, game, signups, announcement) {
 // kickoff. Used by both backends. `prev` (the current announcement) lets a
 // re-publish keep the organiser's recipient tweaks instead of resetting them.
 function buildLineupAnnouncement(game, playersById, config, prev = null, reserves = []) {
-  const nameOf = id => (playersById[id] && playersById[id].name) || 'Player';
+  const guests = guestPlayersForGame(game);
+  const nameOf = id => (playersById[id] && playersById[id].name) || (guests[id] && guests[id].name) || 'Player';
   const teams = game.teams || { bibs: [], nonbibs: [] };
   const bibIds = teams.bibs || [], nonbibIds = teams.nonbibs || [];
   const playingIds = [...new Set([...bibIds, ...nonbibIds])];
@@ -248,9 +257,11 @@ function createLocalDB() {
       if (v === 7 || v === 8) p.formatPref = v; else delete p.formatPref;
       persist();
     },
-    async saveLineup(gameId, teams, finalised) {
+    async saveLineup(gameId, teams, finalised, guests = {}) {
       const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
       g.teams = { bibs: teams.bibs || [], nonbibs: teams.nonbibs || [] };
+      const teamIds = new Set([...(g.teams.bibs || []), ...(g.teams.nonbibs || [])]);
+      g.guests = Object.fromEntries(Object.entries(guests || {}).filter(([id, name]) => teamIds.has(id) && String(name || '').trim()).map(([id, name]) => [id, String(name).trim()]));
       g.teamsFinalised = !!finalised;
       // Publishing (re)stages the line-up announcement to auto-send before kickoff.
       if (finalised) {
@@ -669,12 +680,14 @@ async function createFirestoreDB() {
       const v = Number(pref);
       await setDoc(doc(playersCol, id), { formatPref: (v === 7 || v === 8) ? v : null }, { merge: true });
     },
-    async saveLineup(gameId, teams, finalised) {
+    async saveLineup(gameId, teams, finalised, guests = {}) {
       const t = { bibs: teams.bibs || [], nonbibs: teams.nonbibs || [] };
-      await updateDoc(gameRef(gameId), { teams: t, teamsFinalised: !!finalised });
+      const teamIds = new Set([...(t.bibs || []), ...(t.nonbibs || [])]);
+      const savedGuests = Object.fromEntries(Object.entries(guests || {}).filter(([id, name]) => teamIds.has(id) && String(name || '').trim()).map(([id, name]) => [id, String(name).trim()]));
+      await updateDoc(gameRef(gameId), { teams: t, guests: savedGuests, teamsFinalised: !!finalised });
       // Publishing (re)stages the line-up announcement to auto-send before kickoff.
       if (finalised) {
-        const g = { ...(cache.game || {}), id: gameId, teams: t };
+        const g = { ...(cache.game || {}), id: gameId, teams: t, guests: savedGuests };
         const reserves = logic.lineupReserves(cache.signups, cache.players, t, g.capacity, { pollOpenAt: g.createdAt, config: cfg() });
         await setDoc(announceRef, buildLineupAnnouncement(g, cache.players, cfg(), cache.announcement, reserves));
       }
@@ -865,10 +878,10 @@ async function createFirestoreDB() {
       // Prompt reserves (signed up quickly but didn't play) bank the reward + bonus.
       const promptAwards = logic.promptSignupAwards(cache.signups, cache.players, cache.config, pollOpenAt, capacity, teamSheet ? playedIds : null);
       const batch = writeBatch(dbf);
-      for (const pid of playedIds) {
+      for (const pid of playedIds) if (cache.players[pid]) {
         batch.update(doc(playersCol, pid), { loyalty: increment(flat + (awards[pid] || 0)), gamesPlayed: increment(1) });
       }
-      for (const [pid, amt] of Object.entries(promptAwards)) batch.update(doc(playersCol, pid), { loyalty: increment(amt) });
+      for (const [pid, amt] of Object.entries(promptAwards)) if (cache.players[pid]) batch.update(doc(playersCol, pid), { loyalty: increment(amt) });
       const result = teamSheet
         ? { confirmed: [...playedIds], reserves: ranked.filter(r => !playedSet.has(r.playerId)).map(r => r.playerId) }
         : logic.finalResult(ranked);
@@ -896,7 +909,7 @@ async function createFirestoreDB() {
       const ids = logic.gamePlayers(g);
       const batch = writeBatch(dbf);
       batch.update(gameRef(gameId), { weatherBonus: bonus, bonusReasons: reasons });
-      if (delta !== 0) for (const pid of ids) batch.update(doc(playersCol, pid), { loyalty: increment(delta) });
+      if (delta !== 0) for (const pid of ids) if (cache.players[pid]) batch.update(doc(playersCol, pid), { loyalty: increment(delta) });
       await batch.commit();
       return { bonus, delta, players: ids.length };
     },

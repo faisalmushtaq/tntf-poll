@@ -870,4 +870,13 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
     && !removed.withdrawnPenalties.drop && !removed.signups.some(s => s.playerId === 'drop'));
 }
 
+// --- transient guest players stay on the match record, not the roster --------
+{
+  const guests = __testGameRefs.guestPlayersForGame({ guests: { guest_abc: 'Sam Guest' } });
+  ok('guest match records hydrate a display-only player',
+    guests.guest_abc && guests.guest_abc.name === 'Sam Guest' && guests.guest_abc.guest === true);
+  ok('guest match records have no loyalty or account history',
+    guests.guest_abc.loyalty === 0 && guests.guest_abc.gamesPlayed === 0 && guests.guest_abc.dropouts === 0);
+}
+
 console.log(`\n${pass} checks passed ✅`);

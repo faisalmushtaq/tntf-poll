@@ -49,6 +49,7 @@ let lineupDraft = null;        // organiser lineupDraft builder state { bibs:[],
 let lineupGameId = null;  // which game `lineupDraft` was built for
 let lineupAdded = new Set();    // players the organiser pulled in who didn't respond on the poll
 let lineupRemoved = new Set();  // players the organiser took out (won't be auto-re-added)
+let lineupGuests = {};          // guest id -> display name, persisted only on the game record
 let profilePhotoDraft = undefined; // undefined keeps the saved photo; data URL previews a new choice; null clears a custom photo
 
 // Top-nav definition: [tab key, label]. Order is left→right on web,
@@ -601,7 +602,7 @@ function abbrev(name) {
 // A tappable player name → opens their public profile. `labelHtml` is already
 // escaped/formatted; pass a falsy id to render plain text (no link).
 function playerLink(id, labelHtml) {
-  if (!id) return labelHtml;
+  if (!id || state?.playersById?.[id]?.guest) return labelHtml;
   return `<a class="pname" role="button" tabindex="0" onclick="event.stopPropagation();viewPlayer('${id}')">${labelHtml}</a>`;
 }
 // An ISO instant → the local "YYYY-MM-DDTHH:MM" a datetime-local input wants.
@@ -1535,7 +1536,7 @@ function initLineup(g) {
     return;
   }
   lineupGameId = g.id;
-  lineupAdded = new Set(); lineupRemoved = new Set();
+  lineupAdded = new Set(); lineupRemoved = new Set(); lineupGuests = { ...(g.guests || {}) };
   if (g.teams && (g.teams.bibs?.length || g.teams.nonbibs?.length)) {
     lineupDraft = { bibs: [...(g.teams.bibs || [])], nonbibs: [...(g.teams.nonbibs || [])] };
     // Anyone on the published team sheet who didn't respond on the poll was
@@ -1550,12 +1551,14 @@ function initLineup(g) {
 
 function lineupBuilderCard(g) {
   initLineup(g);
-  const total = ids => ids.reduce((s, id) => s + logic.attrOverall(state.playersById[id]), 0);
+  const lineupPlayers = { ...state.playersById, ...Object.fromEntries(Object.entries(lineupGuests).map(([id, name]) => [id, { id, name, guest: true, loyalty: 0, gamesPlayed: 0, attrs: {} }])) };
+  const total = ids => ids.reduce((s, id) => s + logic.attrOverall(lineupPlayers[id]), 0);
   const chip = (id, side) => {
-    const p = state.playersById[id];
+    const p = lineupPlayers[id];
     const extra = lineupAdded.has(id) ? ' pulled' : '';
+    const guest = p?.guest ? ' <span class="guest-tag">guest</span>' : '';
     return `<div class="pchip${extra}" draggable="true" ondragstart="lineupDragStart(event,'${id}')" onclick="flipSide('${id}')" title="Tap to switch sides">
-      <span class="pchip-name">${esc(p ? p.name : '—')}</span><span class="pchip-ov">${logic.attrOverall(p)}</span>
+      <span class="pchip-name">${esc(p ? p.name : '—')}${guest}</span><span class="pchip-ov">${logic.attrOverall(p)}</span>
       <button class="pchip-x" title="Remove from teams" onclick="event.stopPropagation();lineupRemove('${id}')">×</button></div>`;
   };
   const column = (side, label, cls) => `<div class="build-col ${cls}" ondragover="event.preventDefault()" ondrop="lineupDrop(event,'${side}')">
@@ -1581,6 +1584,13 @@ function lineupBuilderCard(g) {
     <div class="btn-row">
       <select id="lineupAddSel">${addable.length ? `<option value="">— add from the squad —</option>${addable.map(p => `<option value="${p.id}">${esc(p.name)}${respOf(p.id)}</option>`).join('')}` : '<option value="">— everyone is already in —</option>'}</select>
       <button class="btn-ghost" onclick="lineupAdd()" ${addable.length ? '' : 'disabled'}>Add to teams</button>
+    </div>
+    <div class="section-title">Add guest player</div>
+    <p class="hint" style="margin-top:-2px">A ringer can play this match without joining the roster, receiving loyalty, or appearing in the league table.</p>
+    <div class="btn-row guest-add">
+      <input id="lineupGuestName" maxlength="40" placeholder="Guest player name" />
+      <select id="lineupGuestSide"><option value="auto">Shortest side</option><option value="bibs">Bibs</option><option value="nonbibs">Non-bibs</option></select>
+      <button class="btn-ghost" onclick="addGuestToLineup()">Add guest</button>
     </div>
     <div class="btn-row mt">
       <button class="btn-ghost" onclick="saveLineup(false)">Save draft</button>
@@ -1748,7 +1758,6 @@ function adminScreen() {
       <div class="section-title">Skip this week</div>
       <p class="hint" style="margin-top:-2px">Christmas break, no pitch, whatever — call it off. The poll closes, This week shows no game, and no loyalty is banked. You can open a fresh game whenever you like.</p>
       <button class="btn-danger" onclick="cancelWeek('${g.id}')">Call off this week's game</button>
-      ${paymentsAdmin(g)}
       ${withdrawalReverseCard(g.id, g.withdrawn || [])}
       <div class="section-title">Enter the result</div>
       <p class="hint" style="margin-top:-2px">Type the final score, then bank loyalty. You can tweak the score and teams (Team builder) right up until you confirm.</p>
@@ -1794,9 +1803,9 @@ function adminScreen() {
   const otherAnn = pendingAnn && pendingAnn.kind !== 'lineup' ? pendingAnn : null;
 
   // --- tab bodies ---
-  const weekTab = `${announceCard(otherAnn)}
-    ${gameCard}
-    ${g ? `${announceCard(lineupAnn)}${lineupBuilderCard(g)}` : ''}`;
+  const weekTab = `${g ? `${lineupBuilderCard(g)}${paymentsAdmin(g)}${announceCard(lineupAnn)}` : ''}
+    ${announceCard(otherAnn)}
+    ${gameCard}`;
 
   const playersTab = `<div class="card">
       <h2>Roster</h2>
@@ -1911,7 +1920,7 @@ function adminMatchesTab() {
 
 // Editor for one past match: score + per-player loyalty adjustments.
 function adminMatchEditor(g) {
-  const players = logic.gamePlayers(g).map(id => state.playersById[id]).filter(Boolean)
+  const players = logic.gamePlayers(g).map(id => state.playersById[id]).filter(p => p && !p.guest)
     .sort((a, b) => a.name.localeCompare(b.name));
   const b = g.scores?.bibs, n = g.scores?.nonbibs;
   const rows = players.map(p => `<div class="madj-row">
@@ -2159,7 +2168,17 @@ function render() {
 async function ensureHistory() {
   if (history !== null) return;
   history = [];
-  try { history = await db.loadHistory(); render(); } catch (e) { console.error(e); }
+  try {
+    history = await db.loadHistory();
+    // Guests are stored only on match records. Hydrate their display records for
+    // history and stat views without adding them to the live roster or table.
+    if (state) for (const game of history) {
+      for (const [id, guest] of Object.entries(game.guests || {})) {
+        if (!state.playersById[id]) state.playersById[id] = { id, name: typeof guest === 'string' ? guest : guest?.name, guest: true, loyalty: 0, gamesPlayed: 0, dropouts: 0 };
+      }
+    }
+    render();
+  } catch (e) { console.error(e); }
 }
 
 // Per-player analytics, computed once per history change. `history` is a brand-new
@@ -2772,7 +2791,8 @@ window.autoBalance = () => {
   const g = state.game; if (!g || !lineupDraft) return;
   // Balance whoever is currently in the teams (keeps hand-added / hand-removed).
   const ids = [...new Set([...lineupDraft.bibs, ...lineupDraft.nonbibs])];
-  const b = logic.balanceTeams(ids, state.playersById);
+  const players = { ...state.playersById, ...Object.fromEntries(Object.entries(lineupGuests).map(([id, name]) => [id, { id, name, guest: true, attrs: {} }])) };
+  const b = logic.balanceTeams(ids, players);
   lineupDraft = { bibs: b.bibs, nonbibs: b.nonbibs }; render();
 };
 // Pull anyone from the squad into the teams (e.g. a last-minute WhatsApp reply).
@@ -2790,7 +2810,8 @@ window.lineupRemove = (id) => {
   if (!lineupDraft) return;
   lineupDraft.bibs = lineupDraft.bibs.filter(x => x !== id);
   lineupDraft.nonbibs = lineupDraft.nonbibs.filter(x => x !== id);
-  lineupRemoved.add(id); lineupAdded.delete(id);
+  if (lineupGuests[id]) { delete lineupGuests[id]; lineupAdded.delete(id); }
+  else { lineupRemoved.add(id); lineupAdded.delete(id); }
   render();
 };
 window.flipSide = (id) => {
@@ -2806,9 +2827,19 @@ window.lineupDrop = (ev, side) => {
   lineupDraft.bibs = lineupDraft.bibs.filter(x => x !== id); lineupDraft.nonbibs = lineupDraft.nonbibs.filter(x => x !== id);
   lineupDraft[side].push(id); render();
 };
+window.addGuestToLineup = () => {
+  const name = document.getElementById('lineupGuestName')?.value.trim().replace(/\s+/g, ' ') || '';
+  const sideChoice = document.getElementById('lineupGuestSide')?.value || 'auto';
+  if (name.length < 2) return toast('Enter the guest player’s name', true);
+  if (!lineupDraft) return;
+  const id = `guest_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+  lineupGuests[id] = name; lineupAdded.add(id);
+  const side = sideChoice === 'bibs' || sideChoice === 'nonbibs' ? sideChoice : (lineupDraft.bibs.length <= lineupDraft.nonbibs.length ? 'bibs' : 'nonbibs');
+  lineupDraft[side].push(id); render();
+};
 window.saveLineup = async (finalised) => {
   const g = state.game; if (!g || !lineupDraft) return;
-  try { await db.saveLineup(g.id, lineupDraft, finalised); toast(finalised ? 'Teams published to This Week ✅' : 'Draft saved'); }
+  try { await db.saveLineup(g.id, lineupDraft, finalised, lineupGuests); toast(finalised ? 'Teams published to This Week' : 'Draft saved'); }
   catch (e) { toast(e.message, true); }
 };
 window.saveConfig = async () => {

@@ -435,6 +435,11 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .pchip-x { flex: none; width: 22px; height: 22px; padding: 0; margin: 0 -2px 0 0; border: none; border-radius: 999px; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
 .pchip-x:hover { color: var(--danger); }
 .pchip.pulled { border-color: var(--green); box-shadow: inset 2px 0 0 var(--green); }
+.guest-tag { display: inline-block; margin-left: 5px; padding: 1px 5px; border: 1px solid var(--line); color: var(--muted); font-size: 10px; font-variant: small-caps; letter-spacing: .04em; vertical-align: 1px; }
+.guest-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(132px, .62fr) auto; align-items: end; }
+.guest-add > * { flex: none; }
+.guest-add .btn-ghost { width: auto; white-space: nowrap; }
+@media (max-width: 560px) { .guest-add { grid-template-columns: 1fr; } .guest-add .btn-ghost { width: 100%; } }
 
 /* ---- Ratings table (square inputs) ---- */
 .rate-head, .rate-row { display: grid; grid-template-columns: 1fr 40px 40px 40px 40px 34px; gap: 6px; align-items: center; }
