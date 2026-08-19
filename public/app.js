@@ -561,9 +561,9 @@ function teamsCard(g) {
   </div>`;
 }
 
-// After a game's played — and before the next poll opens — This week shows the
-// most recent result instead of an empty state: the score, who scored, and the
-// two line-ups (who played), with a link to the full match report + highlights.
+// After a game's played — and before the next poll opens — This week presents
+// the complete most recent report in place: score, scorers, conditions, teams,
+// ratings and highlights. There is no separate details step to take.
 function lastResultCard(g) {
   const b = g.scores?.bibs, n = g.scores?.nonbibs;
   const hasScore = Number.isFinite(b) && Number.isFinite(n);
@@ -573,13 +573,28 @@ function lastResultCard(g) {
   const scorers = g.goals && Object.keys(g.goals).length
     ? Object.entries(g.goals).filter(([, v]) => Number(v) > 0).sort((a, b) => b[1] - a[1]).map(([id, v]) => scorerChip(id, v)).join(', ')
     : '';
+  const ownGoals = g.ownGoals && Object.keys(g.ownGoals).length
+    ? Object.entries(g.ownGoals).filter(([, v]) => Number(v) > 0).map(([id, v]) => scorerChip(id, v)).join(', ')
+    : '';
   const col = (ids, label, cls) => `<div class="team-col">
       <div class="team-head ${cls}">${bibIcon(cls)}<span class="th-label">${label}</span>${hasScore ? ` <span class="tscore">${cls === 'bibs' ? b : n}</span>` : ''}</div>
       ${(ids || []).map((id, i) => {
-        const p = state.playersById[id]; const me = id === state.me?.id; const motm = logic.isMotm(g, id);
-        return `<div class="lu-row${me ? ' me' : ''}${motm ? ' motm' : ''}"><span class="lu-num">${i + 1}</span><span class="lu-name">${p ? playerLink(id, esc(abbrev(p.name))) : '—'}${me ? ' <span class="you">you</span>' : ''}${motm ? ' <span class="motm-badge" title="Man of the match">MOTM</span>' : ''}</span></div>`;
+        const p = state.playersById[id]; const me = id === state.me?.id; const motm = logic.isMotm(g, id); const rating = logic.effectiveRating(g, id);
+        return `<div class="lu-row${me ? ' me' : ''}${motm ? ' motm' : ''}"><span class="lu-num">${i + 1}</span><div class="lu-body"><span class="lu-name">${p ? playerLink(id, esc(p.name)) : '—'}${me ? ' <span class="you">you</span>' : ''}${motm ? ' <span class="motm-badge" title="Man of the match">MOTM</span>' : ''}</span>${rating != null ? `<span class="lu-rating">${starDisplay(rating)}</span>` : ''}</div></div>`;
       }).join('') || '<div class="empty">No line-up recorded.</div>'}
     </div>`;
+  const weatherKey = 'last-' + g.id;
+  if (g.weather) weatherCache[weatherKey] = g.weather;
+  else ensureWeather(weatherKey, gameISO(g));
+  const bonusNote = g.weatherBonus > 0
+    ? `<p class="hint center wx-bonus">${ICON('icon-achievement', 'inline-ico')}Tough conditions: everyone who played earned +${g.weatherBonus} bonus loyalty.</p>` : '';
+  const played = state.me && logic.gamePlayers(g).includes(state.me.id);
+  const myRating = state.me && g.selfRatings ? Number(g.selfRatings[state.me.id]) || 0 : 0;
+  const selfCard = played ? `<div class="card rate-self">
+      <h2>Rate your game</h2>
+      <p class="hint">How did you play? Tap a star, then tap it again to clear. Saved instantly; edit any time.${g.stattoRatings && g.stattoRatings[state.me.id] ? ' The Statto has also rated you, and your match rating is the average of the two.' : ''}</p>
+      <div class="self-stars">${starInput('self-' + g.id, myRating, 'rateSelf')}</div>
+    </div>` : '';
   return `<div class="card">
     <div class="kicker">Last result</div>
     <h2 style="margin-top:2px">${esc(g.dateLabel || gameDateKey(g))}</h2>
@@ -588,9 +603,13 @@ function lastResultCard(g) {
          <p class="hint center" style="margin-top:6px">${res}${size ? ` · ${size}-a-side` : ''}</p>`
       : `<p class="hint center">Score not recorded yet${size ? ` · ${size}-a-side` : ''}.</p>`}
     ${scorers ? `<p class="hint center scorers-line" style="margin-top:4px">${ICON('icon-goal', 'inline-ico')} ${scorers}</p>` : ''}
+    ${ownGoals ? `<p class="hint center og-line" style="margin-top:2px">${ICON('icon-own-goal', 'inline-ico')} Own goal: ${ownGoals}</p>` : ''}
+    <div class="wx-center">${weatherLine(weatherKey)}</div>
+    ${bonusNote}
     <div class="teams-grid detail mt">${col(g.teams?.bibs, 'Bibs', 'bibs')}${col(g.teams?.nonbibs, 'Non-bibs', 'nonbibs')}</div>
-    <button class="btn-ghost mt" onclick="viewGame('${g.id}')">Full match report &amp; highlights →</button>
-  </div>`;
+  </div>
+  ${selfCard}
+  ${mediaCard(g)}`;
 }
 
 // Abbreviate to Guardian lineupDraft style: "Darren Ellis" → "D. Ellis"; single
@@ -1184,7 +1203,7 @@ async function loadGameMedia(key) {
     mediaCache[key] = r.ok ? parseGameMedia(await r.text()) : null;
   } catch { mediaCache[key] = null; }
   delete mediaPending[key];
-  if (tab === 'game' || tab === 'history') render();
+  if (tab === 'game' || tab === 'history' || tab === 'week') render();
 }
 // Parse a single game's media file: video:/clip:/note: lines, everything else
 // treated as note (markdown). Lines starting with # or <!-- are ignored.
