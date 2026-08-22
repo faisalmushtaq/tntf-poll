@@ -59,7 +59,6 @@ const NAV = [
   ['week', 'This week'],
   ['join', 'Join'],
   ['you', 'You'],
-  ['install', 'Install'],
   ['history', 'History'],
   ['table', 'Table'],
   ['performances', 'Performances'],
@@ -941,8 +940,11 @@ function installScreen() {
   const installedNote = installed
     ? `<div class="install-status"><b>TNTF is already installed on this phone.</b> Open it from your Home Screen whenever you want to check the squad or update your availability.</div>`
     : '';
-  return `<div class="card install-guide">
-    <h2>Install TNTF on your phone</h2>
+  return `<div class="card install-guide settings-help">
+    <h2>Settings &amp; help</h2>
+    <p class="hint">Useful app help and a quick way to invite a teammate.</p>
+    <div class="btn-row"><button type="button" class="btn-ghost" onclick="shareTNTF()">Share TNTF</button></div>
+    <div class="section-title">Install TNTF on your phone</div>
     <p class="hint">Adding TNTF to your Home Screen makes it open like an app, rather than as another browser tab. It also prepares iPhone users for push notifications.</p>
     ${installedNote}
     ${androidPrompt}
@@ -1396,7 +1398,7 @@ function youScreen() {
 
   return `<div class="card hero-you">
       <div class="profile-hero-row">${avatarMarkup(me, { big: true })}<div class="profile-hero-copy"><div class="you-name">${esc(me.name)}</div><p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p></div><img class="you-crest" src="./assets/crest-primary.svg" alt="Tuesday Night Total Football crest" /></div>
-    </div>${profileEditorCard(me)}${formRecordCard(me)}${formOverTimeCard(me)}${playsWithCard(me, true)}${upAgainstCard(me, true)}${performanceStatsCard(me, true)}${recordStatsCard(me, true)}${notif}${account}`;
+    </div>${profileEditorCard(me)}${formRecordCard(me)}${formOverTimeCard(me)}${playsWithCard(me, true)}${upAgainstCard(me, true)}${performanceStatsCard(me, true)}${recordStatsCard(me, true)}${notif}${account}${installScreen()}`;
 }
 
 // Guardian-style form guide: coloured W/D/L chips, newest first.
@@ -2215,7 +2217,7 @@ function readHighlights(g) {
 const SCREENS = {
   week: weekScreen, join: joinScreen, history: historyScreen, game: gameDetailScreen,
   table: tableScreen, performances: performancesScreen, profile: playerProfileScreen,
-  you: youScreen, install: installScreen, rules: rulesScreen, admin: adminScreen, statto: stattoScreen
+  you: youScreen, rules: rulesScreen, admin: adminScreen, statto: stattoScreen
 };
 function render() {
   if (!state) return;
@@ -2265,6 +2267,16 @@ window.installAppNow = async () => {
   } finally {
     installPromptEvent = null;
     render();
+  }
+};
+window.shareTNTF = async () => {
+  const share = { title: state?.config?.clubName || 'Tuesday Night Total Football', text: 'Join TNTF for the weekly game.', url: location.href };
+  try {
+    if (navigator.share) { await navigator.share(share); return; }
+    await navigator.clipboard.writeText(share.url);
+    toast('TNTF link copied');
+  } catch (e) {
+    if (e?.name !== 'AbortError') toast('Could not share the link', true);
   }
 };
 // Record the current view before drilling into a game or a player's profile.
@@ -3098,11 +3110,11 @@ window.shareAnnouncement = async () => {
 window.addEventListener('beforeinstallprompt', event => {
   event.preventDefault();
   installPromptEvent = event;
-  if (tab === 'install') render();
+  if (tab === 'you') render();
 });
 window.addEventListener('appinstalled', () => {
   installPromptEvent = null;
-  if (tab === 'install') render();
+  if (tab === 'you') render();
 });
 
 // foreground push → in-app toast
