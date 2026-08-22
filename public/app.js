@@ -1393,12 +1393,15 @@ function youScreen() {
   const unmerged = me.account && me.gamesPlayed === 0
     ? `<p class="small mt">New account — the organiser will link this to your match history so your games and loyalty show up here.</p>` : '';
   const account = auth?.enabled
-    ? `<div class="card"><h2>Account</h2><p class="hint">Signed in${user?.email ? ` as ${esc(user.email)}` : ''} · you're <b>${esc(me.name)}</b>.</p>${unmerged}<button class="btn-ghost mt" onclick="signOutUser()">Sign out</button></div>`
-    : `<div class="card"><h2>You</h2><p class="hint">Playing as ${esc(me.name)} on this device.</p><button class="btn-ghost" onclick="forgetMe()">Not you? Switch name</button></div>`;
+    ? `<div class="card"><h2>Account</h2><p class="hint">Signed in${user?.email ? ` as ${esc(user.email)}` : ''} · you're <b>${esc(me.name)}</b>.</p>${unmerged}</div>`
+    : `<div class="card"><h2>You</h2><p class="hint">Playing as ${esc(me.name)} on this device.</p></div>`;
+  const finalAccountAction = auth?.enabled
+    ? `<div class="card account-final-action"><button class="btn-ghost" onclick="signOutUser()">Sign out</button></div>`
+    : `<div class="card account-final-action"><button class="btn-ghost" onclick="forgetMe()">Not you? Switch name</button></div>`;
 
   return `<div class="card hero-you">
       <div class="profile-hero-row">${avatarMarkup(me, { big: true })}<div class="profile-hero-copy"><div class="you-name">${esc(me.name)}</div><p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p></div><img class="you-crest" src="./assets/crest-primary.svg" alt="Tuesday Night Total Football crest" /></div>
-    </div>${profileEditorCard(me)}${formRecordCard(me)}${formOverTimeCard(me)}${playsWithCard(me, true)}${upAgainstCard(me, true)}${performanceStatsCard(me, true)}${recordStatsCard(me, true)}${notif}${account}${installScreen()}`;
+    </div>${profileEditorCard(me)}${formRecordCard(me)}${formOverTimeCard(me)}${playsWithCard(me, true)}${upAgainstCard(me, true)}${performanceStatsCard(me, true)}${recordStatsCard(me, true)}${notif}${account}${installScreen()}${finalAccountAction}`;
 }
 
 // Guardian-style form guide: coloured W/D/L chips, newest first.
