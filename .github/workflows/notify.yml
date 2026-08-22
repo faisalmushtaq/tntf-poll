@@ -38,7 +38,10 @@ jobs:
         env:
           TZ: Europe/London   # so kickoff/poll-open times are read in UK time
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          APP_URL: ${{ secrets.APP_URL }}
+          # A repository variable can override this later for a custom domain.
+          # The Pages URL is safe as the current default, so email links do not
+          # disappear when no APP_URL secret has been configured.
+          APP_URL: ${{ vars.APP_URL || 'https://faisalmushtaq.github.io/tntf-poll/' }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}

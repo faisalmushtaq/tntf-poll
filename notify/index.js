@@ -190,7 +190,7 @@ async function main() {
   // full, lock registration and send the organiser the squad list (once).
   let autoLockedGameId = notify.autoLockedGameId || null;
   const confirmed = ranked.filter(r => r.status === 'confirmed');
-  const cutoff = closeCutoff(game.kickoffAt);
+  const cutoff = new Date(logic.squadLockCutoffISO(game.kickoffAt, config));
   if (game.status === 'open' && Date.now() >= cutoff.getTime() && confirmed.length >= capacity && autoLockedGameId !== gameId) {
     console.log('Auto-closing: squad full and past cutoff.');
     await db.doc(`games/${gameId}`).update({ status: 'locked', capacity, capacityLocked: true, lockedAt: new Date().toISOString(), autoLocked: true });
@@ -243,15 +243,6 @@ async function processAnnouncement(gameId, game, players) {
   }
   await ref.set({ status: 'sent', sentAt: new Date().toISOString(), sentCount: audience.length }, { merge: true });
   console.log('Announcement sent.');
-}
-
-// The auto-close moment: 17:00 on the day before kickoff (e.g. Monday 5pm for
-// a Tuesday game).
-function closeCutoff(kickoffAt) {
-  const c = new Date(kickoffAt);
-  c.setDate(c.getDate() - 1);
-  c.setHours(17, 0, 0, 0);
-  return c;
 }
 
 // Email + push the finalised squad to the organiser.

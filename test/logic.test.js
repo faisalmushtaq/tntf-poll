@@ -68,13 +68,21 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('no-show (already kicked off) → -10', logic.penaltyForHours(-2).penalty === 10);
 }
 
-// --- next kickoff lands on the configured game-day --------------------------
+// --- next kickoff uses the club's wall clock, through BST/GMT --------------
 {
-  const cfg = logic.withDefaults({ gameDay: 'Tuesday', kickoff: '20:00' });
-  const from = new Date('2026-07-15T09:00:00'); // a Wednesday
-  const next = new Date(logic.nextKickoffISO(cfg, from));
-  ok('next kickoff is a Tuesday', next.getDay() === 2);
-  ok('next kickoff is in the future', next > from);
+  const cfg = logic.withDefaults({ gameDay: 'Tuesday', kickoff: '20:00', timeZone: 'Europe/London' });
+  const summerFrom = new Date('2026-07-15T09:00:00Z'); // Wednesday 10am BST
+  const summerKickoff = logic.nextKickoffISO(cfg, summerFrom);
+  ok('summer kickoff is Tuesday 8pm London (7pm UTC)', summerKickoff === '2026-07-21T19:00:00.000Z');
+  ok('summer kickoff is in the future', new Date(summerKickoff) > summerFrom);
+  const winterFrom = new Date('2026-12-02T10:00:00Z'); // Wednesday 10am GMT
+  ok('winter kickoff is Tuesday 8pm London (8pm UTC)', logic.nextKickoffISO(cfg, winterFrom) === '2026-12-08T20:00:00.000Z');
+  ok('summer organiser entry converts from London wall clock', logic.clubDateTimeToISO('2026-07-21T20:00', cfg) === '2026-07-21T19:00:00.000Z');
+  ok('winter organiser entry converts from London wall clock', logic.clubDateTimeToISO('2026-12-08T20:00', cfg) === '2026-12-08T20:00:00.000Z');
+  ok('club date-time input round-trips a summer kickoff', logic.clubDateTimeInput('2026-07-21T19:00:00.000Z', cfg) === '2026-07-21T20:00');
+  ok('summer squad lock is 5pm London on the day before', logic.squadLockCutoffISO('2026-07-21T19:00:00.000Z', cfg) === '2026-07-20T16:00:00.000Z');
+  ok('winter squad lock is 5pm London on the day before', logic.squadLockCutoffISO('2026-12-08T20:00:00.000Z', cfg) === '2026-12-07T17:00:00.000Z');
+  ok('invalid organiser entry is rejected', logic.clubDateTimeToISO('not-a-date', cfg) === null);
 }
 
 // --- prompt window: late sign-ups' loyalty counts half ---------------------
@@ -131,28 +139,27 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
 
 // --- auto-open: most-recent weekly moment ----------------------------------
 {
-  // Saturday 18 Jul 2026, 14:00 — most recent Friday 10:00 is the day before.
-  const now = new Date('2026-07-18T14:00:00');
-  const m = logic.mostRecentWeekly('Friday', '10:00', now);
-  ok('mostRecentWeekly lands on a Friday', m.getDay() === 5);
-  ok('mostRecentWeekly is at 10:00', m.getHours() === 10 && m.getMinutes() === 0);
+  // Saturday 18 Jul 2026, 14:00 UTC — Friday 10am London was 09:00 UTC.
+  const now = new Date('2026-07-18T14:00:00Z');
+  const m = logic.mostRecentWeekly('Friday', '10:00', now, 'Europe/London');
+  ok('mostRecentWeekly lands on Friday 10am London', m.toISOString() === '2026-07-17T09:00:00.000Z');
   ok('mostRecentWeekly is in the past', m <= now);
-  // Friday 09:00 — the 10:00 slot has not arrived yet, so go back a full week.
-  const early = new Date('2026-07-17T09:00:00'); // a Friday
-  const m2 = logic.mostRecentWeekly('Friday', '10:00', early);
-  ok('before the slot on the day itself → previous week', m2 < early && m2.getDay() === 5);
-  // Friday 10:00 exactly counts as now.
-  const onTime = new Date('2026-07-17T10:00:00');
-  const m3 = logic.mostRecentWeekly('Friday', '10:00', onTime);
-  ok('exactly on the slot counts as today', m3.getTime() === onTime.getTime());
+  // Friday 09:00 London has not arrived at 08:00 UTC, so go back one week.
+  const early = new Date('2026-07-17T08:00:00Z');
+  const m2 = logic.mostRecentWeekly('Friday', '10:00', early, 'Europe/London');
+  ok('before the London slot on the day itself → previous week', m2.toISOString() === '2026-07-10T09:00:00.000Z');
+  // Friday 10:00 London exactly counts as now.
+  const onTime = new Date('2026-07-17T09:00:00Z');
+  const m3 = logic.mostRecentWeekly('Friday', '10:00', onTime, 'Europe/London');
+  ok('exactly on the London slot counts as today', m3.getTime() === onTime.getTime());
 }
 
 // --- auto-open: whether to open a new poll ---------------------------------
 {
   const cfg = logic.withDefaults({ gameDay: 'Tuesday', kickoff: '20:00', pollOpenDay: 'Friday', pollOpenTime: '10:00' });
-  const now = new Date('2026-07-18T14:00:00'); // Saturday, after Fri 10:00 open
+  const now = new Date('2026-07-18T14:00:00Z'); // Saturday, after Fri 10am London open
   const plan = logic.autoOpenPlan(cfg, { status: 'completed' }, now, null);
-  ok('opens once last game completed', plan && new Date(plan.kickoffAt).getDay() === 2);
+  ok('opens once last game completed', plan && plan.kickoffAt === '2026-07-21T19:00:00.000Z');
   ok('open plan carries a date label', plan && typeof plan.dateLabel === 'string' && plan.dateLabel.length > 0);
   ok('blocks while last game still open', logic.autoOpenPlan(cfg, { status: 'open' }, now, null) === null);
   ok('blocks while last game locked', logic.autoOpenPlan(cfg, { status: 'locked' }, now, null) === null);
@@ -163,8 +170,8 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('does not re-open the same week twice', logic.autoOpenPlan(cfg, { status: 'completed' }, now, plan.kickoffAt) === null);
   // Before the Friday 10:00 slot the most-recent open moment is a week ago,
   // whose kickoff has already passed — so nothing new opens until the slot lands.
-  const beforeOpen = new Date('2026-07-17T09:00:00'); // Fri 09:00, slot not reached
-  ok('does not open before the poll-open slot arrives', logic.autoOpenPlan(cfg, { status: 'completed' }, beforeOpen, null) === null);
+  const beforeOpen = new Date('2026-07-17T08:00:00Z'); // Fri 09:00 London, slot not reached
+  ok('does not open before the London poll-open slot arrives', logic.autoOpenPlan(cfg, { status: 'completed' }, beforeOpen, null) === null);
 }
 
 // --- announcement: staged, reviewable, auto-sends after grace --------------
@@ -420,23 +427,24 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   const old = logic.configMigrationPatch({ venue: 'Pitch 10', lat: null, lon: null });
   ok('old placeholder venue is migrated', old.venue === 'Pitch 10 - Nou Camp');
   ok('null coords are filled from defaults', typeof old.lat === 'number' && typeof old.lon === 'number');
-  const done = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 53.81928, lon: -1.74367, configVersion: 3 });
+  const done = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 53.81928, lon: -1.74367, configVersion: 4, timeZone: 'Europe/London' });
   ok('already-current config needs no patch', Object.keys(done).length === 0);
   const custom = logic.configMigrationPatch({ venue: 'Powerleague', lat: 51.5, lon: -0.1, configVersion: 3 });
   ok('a custom venue is left untouched', !('venue' in custom) && !('lat' in custom));
   const absent = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', configVersion: 3 }); // no lat/lon keys → defaults apply
-  ok('absent coords already resolve to defaults (no patch)', Object.keys(absent).length === 0);
+  ok('version-three config receives only the timezone upgrade', absent.timeZone === 'Europe/London' && absent.configVersion === 4);
   // v2 one-time PIN reset + v3 tier reset for a pre-versioned config
   const pins = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 1, lon: 1, adminPin: '1234', stattoPin: '2468' });
   ok('pre-v2 config adopts the new organiser PIN', pins.adminPin === '07525418924');
   ok('pre-v2 config adopts the new Statto PIN', pins.stattoPin === '7869');
-  ok('migration stamps configVersion 3', pins.configVersion === 3);
+  ok('migration stamps configVersion 4', pins.configVersion === 4);
   ok('pre-v3 config adopts the new penalty tiers', pins.scoring.dropoutTiers.some(t => t.penalty === 10));
-  const kept = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 1, lon: 1, adminPin: '9999', configVersion: 3 });
+  ok('older configs gain the London timezone', pins.timeZone === 'Europe/London');
+  const kept = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 1, lon: 1, adminPin: '9999', configVersion: 4, timeZone: 'Europe/London' });
   ok('a current config keeps its organiser PIN (no re-reset)', !('adminPin' in kept));
   // a v2 config (PINs done) still gets the v3 tier bump, but not the PINs again
   const v2 = logic.configMigrationPatch({ venue: 'Pitch 10 - Nou Camp', lat: 1, lon: 1, adminPin: '9999', configVersion: 2 });
-  ok('v2 config gets tiers but not PINs', !('adminPin' in v2) && !!v2.scoring && v2.configVersion === 3);
+  ok('v2 config gets tiers but not PINs', !('adminPin' in v2) && !!v2.scoring && v2.configVersion === 4 && v2.timeZone === 'Europe/London');
 }
 
 // --- duplicate account detection (same uid) --------------------------------

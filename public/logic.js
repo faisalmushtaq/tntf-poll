@@ -11,9 +11,10 @@ export const DEFAULT_CONFIG = {
   capacity: 14,            // 7-a-side default
   adminPin: '07525418924', // organiser PIN; change from Settings
   stattoPin: '7869',       // stats-keeper role: edit scores + enter goalscorers
-  configVersion: 3,        // bump to trigger a one-time config self-heal (see configMigrationPatch)
+  configVersion: 4,        // bump to trigger a one-time config self-heal (see configMigrationPatch)
   pollOpenDay: 'Friday',   // the notifier auto-opens the next poll on this day…
   pollOpenTime: '10:00',   // …at this time (once last week's result is recorded)
+  timeZone: 'Europe/London', // club wall-clock time for schedules, labels and automated cut-offs
   announceGraceMinutes: 60, // review window before most announcement emails auto-send
   lineupHoursBefore: 2,     // the line-up email auto-sends this many hours before kickoff
   pitchCost: 113,           // total £ to hire the pitch; split across the squad for per-player cost
@@ -65,7 +66,8 @@ export function configMigrationPatch(config = {}) {
   if (v < 3) { // adopt the current dropout-penalty tiers
     patch.scoring = { ...(patch.scoring || {}), dropoutTiers: DEFAULT_CONFIG.scoring.dropoutTiers };
   }
-  if (v < 3) patch.configVersion = 3;
+  if (v < 4) patch.timeZone = DEFAULT_CONFIG.timeZone;
+  if (v < 4) patch.configVersion = 4;
   return patch;
 }
 
@@ -619,33 +621,120 @@ export function buildStatsIndex(games = [], playersById = {}) {
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+// Scheduling is club-local rather than device-local. This keeps the browser,
+// GitHub Actions and organisers travelling outside the UK aligned through DST.
+export function clubTimeZone(config = DEFAULT_CONFIG) {
+  const candidate = String(withDefaults(config).timeZone || DEFAULT_CONFIG.timeZone).trim();
+  try {
+    Intl.DateTimeFormat('en-GB', { timeZone: candidate }).format();
+    return candidate;
+  } catch {
+    return DEFAULT_CONFIG.timeZone;
+  }
+}
+
+function zonedParts(date, timeZone) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone, weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).formatToParts(date);
+  const get = type => parts.find(p => p.type === type)?.value;
+  return {
+    year: Number(get('year')), month: Number(get('month')), day: Number(get('day')),
+    hour: Number(get('hour')), minute: Number(get('minute')), second: Number(get('second')),
+    weekday: get('weekday')
+  };
+}
+
+function civilDateShift({ year, month, day }, days) {
+  const d = new Date(Date.UTC(year, month - 1, day + days));
+  return { year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate() };
+}
+
+// Convert a club-wall-clock date and time into an absolute ISO time. Weekly
+// evening sessions avoid ambiguous DST transition hours; a second pass still
+// ensures the current offset is used after a seasonal clock change.
+function zonedISO({ year, month, day, hour, minute }, timeZone) {
+  const wallUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const offsetAt = instant => {
+    const p = zonedParts(new Date(instant), timeZone);
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - instant;
+  };
+  let instant = wallUtc - offsetAt(wallUtc);
+  instant = wallUtc - offsetAt(instant);
+  return new Date(instant).toISOString();
+}
+
+function timeParts(value, fallbackHour) {
+  const [rawHour, rawMinute] = String(value || '').split(':').map(Number);
+  return {
+    hour: Number.isInteger(rawHour) && rawHour >= 0 && rawHour <= 23 ? rawHour : fallbackHour,
+    minute: Number.isInteger(rawMinute) && rawMinute >= 0 && rawMinute <= 59 ? rawMinute : 0
+  };
+}
+
+// Convert a datetime-local field into an absolute instant using the club clock,
+// not the organiser's browser clock. Returns null for an invalid entry.
+export function clubDateTimeToISO(value, config = DEFAULT_CONFIG) {
+  const m = String(value || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const [year, month, day, hour, minute] = m.slice(1).map(Number);
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) return null;
+  return zonedISO({ year, month, day, hour, minute }, clubTimeZone(config));
+}
+
+// Format an absolute instant for a datetime-local field in the club timezone.
+export function clubDateTimeInput(iso, config = DEFAULT_CONFIG) {
+  const d = new Date(iso); if (Number.isNaN(d.getTime())) return '';
+  const p = zonedParts(d, clubTimeZone(config));
+  const pad = n => String(n).padStart(2, '0');
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`;
+}
+
+// The weekly auto-lock time: 17:00 on the club-calendar day before kickoff.
+export function squadLockCutoffISO(kickoffAt, config = DEFAULT_CONFIG) {
+  const d = new Date(kickoffAt); if (Number.isNaN(d.getTime())) return null;
+  const timeZone = clubTimeZone(config);
+  const local = zonedParts(d, timeZone);
+  const prior = civilDateShift(local, -1);
+  return zonedISO({ ...prior, hour: 17, minute: 0 }, timeZone);
+}
+
 export function nextKickoffISO(config = DEFAULT_CONFIG, now = new Date()) {
-  const c = withDefaults(config);
+  const c = withDefaults(config), timeZone = clubTimeZone(c);
+  const local = zonedParts(now, timeZone);
   const targetDow = DAYS.indexOf(c.gameDay);
-  const [hh, mm] = String(c.kickoff).split(':').map(Number);
-  const result = new Date(now);
-  result.setHours(hh || 20, mm || 0, 0, 0);
-  let add = (targetDow - now.getDay() + 7) % 7;
-  if (add === 0 && result <= now) add = 7;
-  result.setDate(result.getDate() + add);
-  return result.toISOString();
+  const { hour, minute } = timeParts(c.kickoff, 20);
+  let add = ((targetDow < 0 ? 2 : targetDow) - DAYS.indexOf(local.weekday) + 7) % 7;
+  let civil = civilDateShift(local, add);
+  let result = zonedISO({ ...civil, hour, minute }, timeZone);
+  if (new Date(result) <= now) {
+    civil = civilDateShift(civil, 7);
+    result = zonedISO({ ...civil, hour, minute }, timeZone);
+  }
+  return result;
 }
 
 export function nextGameLabel(config = DEFAULT_CONFIG, now = new Date()) {
-  const d = new Date(nextKickoffISO(config, now));
-  return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' });
+  const c = withDefaults(config);
+  const d = new Date(nextKickoffISO(c, now));
+  return d.toLocaleDateString('en-GB', { timeZone: clubTimeZone(c), weekday: 'long', day: 'numeric', month: 'short' });
 }
 
-// The most recent occurrence of `dayName` at HH:MM at or before `now`.
-export function mostRecentWeekly(dayName, time, now = new Date()) {
+// The most recent occurrence of `dayName` at HH:MM in the club's timezone.
+export function mostRecentWeekly(dayName, time, now = new Date(), timeZone = DEFAULT_CONFIG.timeZone) {
+  const zone = clubTimeZone({ timeZone });
+  const local = zonedParts(now, zone);
   const dow = DAYS.indexOf(dayName);
-  const [hh, mm] = String(time || '00:00').split(':').map(Number);
-  const d = new Date(now);
-  d.setHours(hh || 0, mm || 0, 0, 0);
-  let back = (now.getDay() - (dow < 0 ? 5 : dow) + 7) % 7;
-  if (back === 0 && d > now) back = 7;
-  d.setDate(d.getDate() - back);
-  return d;
+  const { hour, minute } = timeParts(time, 0);
+  let back = (DAYS.indexOf(local.weekday) - (dow < 0 ? 5 : dow) + 7) % 7;
+  let civil = civilDateShift(local, -back);
+  let result = zonedISO({ ...civil, hour, minute }, zone);
+  if (back === 0 && new Date(result) > now) {
+    civil = civilDateShift(civil, -7);
+    result = zonedISO({ ...civil, hour, minute }, zone);
+  }
+  return new Date(result);
 }
 
 // Decide whether the notifier should auto-open a new poll right now.
@@ -656,7 +745,7 @@ export function mostRecentWeekly(dayName, time, now = new Date()) {
 export function autoOpenPlan(config, currentGame, now = new Date(), alreadyOpenedKickoff = null) {
   const c = withDefaults(config);
   if (currentGame && currentGame.status !== 'completed' && currentGame.status !== 'cancelled') return null;
-  const openMoment = mostRecentWeekly(c.pollOpenDay, c.pollOpenTime, now);
+  const openMoment = mostRecentWeekly(c.pollOpenDay, c.pollOpenTime, now, clubTimeZone(c));
   const kickoffAt = nextKickoffISO(c, openMoment);
   if (alreadyOpenedKickoff === kickoffAt) return null; // already opened this week's poll
   if (new Date(kickoffAt) <= now) return null;         // kickoff already passed — nothing to open

@@ -51,6 +51,7 @@ let lineupAdded = new Set();    // players the organiser pulled in who didn't re
 let lineupRemoved = new Set();  // players the organiser took out (won't be auto-re-added)
 let lineupGuests = {};          // guest id -> display name, persisted only on the game record
 let profilePhotoDraft = undefined; // undefined keeps the saved photo; data URL previews a new choice; null clears a custom photo
+let installPromptEvent = null; // captured browser install prompt, when Android offers one
 
 // Top-nav definition: [tab key, label]. Order is left→right on web,
 // top→bottom in the mobile menu.
@@ -58,6 +59,7 @@ const NAV = [
   ['week', 'This week'],
   ['join', 'Join'],
   ['you', 'You'],
+  ['install', 'Install'],
   ['history', 'History'],
   ['table', 'Table'],
   ['performances', 'Performances'],
@@ -624,11 +626,9 @@ function playerLink(id, labelHtml) {
   if (!id || state?.playersById?.[id]?.guest) return labelHtml;
   return `<a class="pname" role="button" tabindex="0" onclick="event.stopPropagation();viewPlayer('${id}')">${labelHtml}</a>`;
 }
-// An ISO instant → the local "YYYY-MM-DDTHH:MM" a datetime-local input wants.
+// An ISO instant → the club-local YYYY-MM-DDTHH:MM a datetime-local input wants.
 function toLocalInput(iso) {
-  const d = new Date(iso); if (isNaN(d)) return '';
-  const p = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  return logic.clubDateTimeInput(iso, state?.config || {});
 }
 
 // Two-column "Lineups / Substitutes" style list (Guardian match-report look).
@@ -933,6 +933,45 @@ function prevDay(day) {
 }
 
 // ---- join -----------------------------------------------------------------
+function installScreen() {
+  const installed = isStandalone();
+  const androidPrompt = installPromptEvent
+    ? `<button type="button" class="btn-primary mt" onclick="installAppNow()">Install TNTF now</button>`
+    : '';
+  const installedNote = installed
+    ? `<div class="install-status"><b>TNTF is already installed on this phone.</b> Open it from your Home Screen whenever you want to check the squad or update your availability.</div>`
+    : '';
+  return `<div class="card install-guide">
+    <h2>Install TNTF on your phone</h2>
+    <p class="hint">Adding TNTF to your Home Screen makes it open like an app, rather than as another browser tab. It also prepares iPhone users for push notifications.</p>
+    ${installedNote}
+    ${androidPrompt}
+    <div class="install-steps">
+      <section class="install-platform">
+        <h3>Android</h3>
+        <ol class="how-list">
+          <li>Open TNTF in <b>Chrome</b>. If the link opened inside WhatsApp, Instagram or another app, tap its menu and choose <b>Open in Chrome</b>.</li>
+          <li>Tap Chrome's <b>three dots</b> in the top-right corner.</li>
+          <li>Tap <b>Add to Home screen</b> or <b>Install app</b>. If the button above appears, you can use that instead.</li>
+          <li>Tap <b>Add</b> or <b>Install</b> to confirm.</li>
+          <li>Return to your Home Screen and open the new <b>TNTF</b> icon. Sign in once, then use the icon in future.</li>
+        </ol>
+      </section>
+      <section class="install-platform">
+        <h3>iPhone</h3>
+        <ol class="how-list">
+          <li>Open TNTF in <b>Safari</b>. If the link opened inside WhatsApp or another app, use its share/menu option to open it in Safari first.</li>
+          <li>Tap Safari's <b>Share</b> button, the square with an upward arrow.</li>
+          <li>Scroll down and tap <b>Add to Home Screen</b>.</li>
+          <li>Leave <b>Open as Web App</b> switched on, then tap <b>Add</b>.</li>
+          <li>Open the new <b>TNTF</b> icon from your Home Screen. For push alerts, then visit <b>You</b> and tap <b>Turn on push notifications</b>.</li>
+        </ol>
+      </section>
+    </div>
+    <div class="install-tip"><b>Important:</b> installation does not automatically enable notifications. TNTF must also have its notification delivery service configured, and you must allow the permission prompt when the app asks. If you previously blocked alerts, use your phone's browser or notification settings to allow TNTF again.</div>
+  </div>`;
+}
+
 function joinScreen() {
   if (state.me) {
     return `<div class="card">
@@ -1855,9 +1894,11 @@ function adminScreen() {
       <label class="field">8-a-side bias (7 is the default; the 8-camp's loyalty must beat the 7-camp's by this multiple to switch)</label><input id="cEightBias" type="number" min="1" step="0.05" value="${state.config.eightASideBias ?? 1.25}" />
       <label class="field">Game day</label>
       <select id="cDay">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `<option ${d === state.config.gameDay ? 'selected' : ''}>${d}</option>`).join('')}</select>
-      <label class="field">Kickoff (HH:MM)</label><input id="cKick" value="${esc(state.config.kickoff)}" />
+        <label class="field">Kickoff (HH:MM)</label><input id="cKick" value="${esc(state.config.kickoff)}" />
+        <label class="field">Club time zone</label><input id="cTimeZone" value="${esc(state.config.timeZone || 'Europe/London')}" placeholder="Europe/London" />
+        <p class="small">Schedules, automated poll opening and cut-offs use this club time, even if an organiser is travelling.</p>
 
-      <details class="fold-sec">
+       <details class="fold-sec">
         <summary>Poll timing &amp; announcements</summary>
         <label class="field">Poll opens automatically on</label>
         <div class="btn-row">
@@ -2174,7 +2215,7 @@ function readHighlights(g) {
 const SCREENS = {
   week: weekScreen, join: joinScreen, history: historyScreen, game: gameDetailScreen,
   table: tableScreen, performances: performancesScreen, profile: playerProfileScreen,
-  you: youScreen, rules: rulesScreen, admin: adminScreen, statto: stattoScreen
+  you: youScreen, install: installScreen, rules: rulesScreen, admin: adminScreen, statto: stattoScreen
 };
 function render() {
   if (!state) return;
@@ -2216,6 +2257,16 @@ function getStatsIndex() {
 // ---- actions --------------------------------------------------------------
 // Top-nav navigation is a fresh context — clears the back-button history.
 window.go = t => { tab = t; menuOpen = false; pendingAction = null; navStack = []; if (t !== 'game') detailId = null; render(); window.scrollTo(0, 0); };
+window.installAppNow = async () => {
+  if (!installPromptEvent) return toast('Use your browser menu and choose Add to Home screen', true);
+  try {
+    installPromptEvent.prompt();
+    await installPromptEvent.userChoice;
+  } finally {
+    installPromptEvent = null;
+    render();
+  }
+};
 // Record the current view before drilling into a game or a player's profile.
 function pushView() { navStack.push({ tab, detailId, profileId }); }
 // Back button: return to wherever we came from (or This week as a fallback).
@@ -2637,7 +2688,10 @@ window.openGame = async () => {
   const venue = document.getElementById('gVenue').value.trim();
   const kick = document.getElementById('gKick').value;
   const body = { dateLabel, capacity, venue };
-  if (kick) body.kickoffAt = new Date(kick).toISOString();
+  if (kick) {
+    body.kickoffAt = logic.clubDateTimeToISO(kick, state.config);
+    if (!body.kickoffAt) return toast('Enter a valid kickoff date and time', true);
+  }
   // Stay on Organiser so the announcement review card (who it's going to,
   // countdown to auto-send) is right in front of the organiser.
   try { await db.openGame(body); render(); toast('Game opened ⚽ — review the announcement below'); }
@@ -2649,8 +2703,10 @@ window.rescheduleGame = async (id) => {
   const venue = document.getElementById('reVenue').value.trim();
   const dateLabel = document.getElementById('reLabel').value.trim();
   if (!kick) return toast('Pick a new kickoff date & time', true);
+  const kickoffAt = logic.clubDateTimeToISO(kick, state.config);
+  if (!kickoffAt) return toast('Enter a valid kickoff date and time', true);
   try {
-    await db.rescheduleGame(id, { kickoffAt: new Date(kick).toISOString(), venue, dateLabel });
+    await db.rescheduleGame(id, { kickoffAt, venue, dateLabel });
     delete weatherCache['g-' + id]; delete weatherCache['h-' + id]; // refetch for the new kickoff
     toast('Kickoff updated ⏰');
   } catch (e) { toast(e.message, true); }
@@ -2871,6 +2927,7 @@ window.saveConfig = async () => {
     lon: lonRaw === '' ? null : Number(lonRaw),
     gameDay: document.getElementById('cDay').value,
     kickoff: document.getElementById('cKick').value.trim(),
+    timeZone: document.getElementById('cTimeZone').value.trim(),
     pollOpenDay: document.getElementById('cOpenDay').value,
     pollOpenTime: document.getElementById('cOpenTime').value.trim(),
     announceGraceMinutes: Number(document.getElementById('cGrace').value),
@@ -3037,6 +3094,16 @@ window.shareAnnouncement = async () => {
     window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
   }
 };
+
+window.addEventListener('beforeinstallprompt', event => {
+  event.preventDefault();
+  installPromptEvent = event;
+  if (tab === 'install') render();
+});
+window.addEventListener('appinstalled', () => {
+  installPromptEvent = null;
+  if (tab === 'install') render();
+});
 
 // foreground push → in-app toast
 window.addEventListener('tntf-push', e => {
