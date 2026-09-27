@@ -118,6 +118,18 @@ for 8-a-side). It **auto-sends 2 hours before kick-off** (also configurable)
 unless you send or hold it, and the message says it's the line-up "as it stands
 right now" and to check the app for late changes.
 
+**The line-up won't be stranded by a slow robot.** Only the notifier can send
+email/push, and GitHub throttles scheduled workflows on a repo with no recent
+pushes — a cron asking for every 5 minutes can really run only a handful of times
+a day, which is wider than the 2-hour window the line-up waits in. So the
+notifier measures the real gaps between its own runs (kept in `meta/notify`) and,
+if it can see it might not get another turn before kick-off, sends the line-up
+*then* instead of waiting. Earlier than intended beats never. When the schedule
+is healthy nothing changes — it still goes out exactly 2 hours before. And if the
+send time passes with the announcement still pending, the organiser's review card
+says so in amber and points at **Share to WhatsApp**, which posts from your phone
+and needs no robot at all.
+
 Every review card also has a **Share to WhatsApp** button: it opens WhatsApp
 with the message ready so you can post it into the group in one tap (pick the
 group and send — it doesn't affect the email). For the **line-up** it attaches a

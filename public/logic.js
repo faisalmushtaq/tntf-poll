@@ -853,9 +853,84 @@ export function announcementContent(ann = {}, clubName = 'the club') {
   }
 }
 
-// A pending announcement is due to send once its grace window has elapsed.
-export function announcementReady(ann, now = new Date()) {
-  return !!(ann && ann.status === 'pending' && ann.sendAfter && new Date(ann.sendAfter) <= now);
+// How long until the notifier gets another turn. GitHub throttles scheduled
+// workflows on repositories with no recent pushes, so the every-5-minutes cron
+// in notify.yml is aspirational — in practice the gap between runs can stretch
+// to hours. We therefore measure the real gaps rather than trust the schedule.
+// The estimate is the worst recent gap, because that's the one that makes us miss
+// a deadline — but with the single largest sample discarded once we have a few,
+// so that one outage (a workflow switched off for a fortnight, say) doesn't have
+// us sending every line-up half a day early for the next dozen runs. Floored at
+// the nominal interval so a healthy notifier stays responsive, and capped so a
+// wild sample can't push the estimate past all usefulness.
+export const MAX_RUN_ESTIMATE_MINUTES = 720; // 12h
+export const RUN_ESTIMATE_TRIM_FROM = 4;     // samples needed before we trim
+export function nextRunEstimateMinutes(recentGaps = [], nominalMinutes = 5) {
+  const nominal = Number(nominalMinutes) > 0 ? Number(nominalMinutes) : 5;
+  const gaps = (Array.isArray(recentGaps) ? recentGaps : [])
+    .map(Number).filter(n => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b);
+  if (gaps.length >= RUN_ESTIMATE_TRIM_FROM) gaps.pop();
+  const worst = gaps.length ? gaps[gaps.length - 1] : 0;
+  return Math.min(MAX_RUN_ESTIMATE_MINUTES, Math.max(nominal, worst));
+}
+
+// A pending announcement is due to send once its grace window has elapsed — or,
+// for the line-up, once we can no longer count on getting another run in before
+// kick-off (see announcementDeadlineDue).
+export function announcementReady(ann, now = new Date(), opts = {}) {
+  if (!ann || ann.status !== 'pending' || !ann.sendAfter) return false;
+  if (new Date(ann.sendAfter).getTime() <= asTime(now)) return true;
+  return announcementDeadlineDue(ann, now, opts);
+}
+
+// The line-up has a hard deadline the other announcements don't: once the game
+// has kicked off it's no use to anybody. Only the notifier can actually email or
+// push, so if it won't be back before kick-off, waiting for `sendAfter` means the
+// line-up never goes out at all. Send it now instead — a line-up that arrives
+// earlier than intended beats one that arrives after the final whistle.
+//
+// Pass `nextRunMinutes` (from nextRunEstimateMinutes) to enable this; without it
+// the behaviour is exactly the plain grace-window rule, so callers that can't
+// measure the cadence — the browser, which isn't allowed to read meta/notify —
+// are unaffected.
+export function announcementDeadlineDue(ann, now = new Date(), opts = {}) {
+  if (!ann || ann.kind !== 'lineup' || !ann.kickoffAt) return false;
+  const nextRun = Number(opts.nextRunMinutes);
+  if (!Number.isFinite(nextRun) || nextRun <= 0) return false;
+  const t = asTime(now);
+  const kickoff = new Date(ann.kickoffAt).getTime();
+  // Kick-off already gone: `sendAfter` has necessarily passed too, so the plain
+  // rule in announcementReady has already decided this one.
+  if (!Number.isFinite(kickoff) || kickoff <= t) return false;
+  return t + nextRun * 60000 >= kickoff;
+}
+
+// Where a pending announcement stands, for the organiser's review card. The app
+// can't see the notifier's bookkeeping (meta/notify is Admin-SDK only), but
+// "sendAfter has passed and this is *still* pending" is proof the robot hasn't
+// been round yet — worth saying out loud, because the organiser can post it to
+// WhatsApp themselves in one tap instead of waiting on a late cron.
+//   held    — waiting on its grace window / pre-kickoff time, as designed.
+//   due     — its moment has come; the next notifier run should carry it.
+//   late    — overdue by more than `overdueAfterMinutes`; the notifier is behind.
+//   missed  — a line-up still sitting here after kick-off. Too late to matter.
+export function announcementProgress(ann, now = new Date(), overdueAfterMinutes = 10) {
+  if (!ann || ann.status !== 'pending' || !ann.sendAfter) return null;
+  const t = asTime(now);
+  const kickoff = ann.kickoffAt ? new Date(ann.kickoffAt).getTime() : NaN;
+  const minutesToKickoff = Number.isFinite(kickoff) ? Math.round((kickoff - t) / 60000) : null;
+  const overdueMinutes = Math.round((t - new Date(ann.sendAfter).getTime()) / 60000);
+  let state;
+  if (ann.kind === 'lineup' && Number.isFinite(kickoff) && kickoff <= t) state = 'missed';
+  else if (overdueMinutes < 0) state = 'held';
+  else if (overdueMinutes <= Math.max(0, Number(overdueAfterMinutes) || 0)) state = 'due';
+  else state = 'late';
+  return { state, overdueMinutes: Math.max(0, overdueMinutes), minutesToKickoff };
+}
+
+function asTime(now) {
+  return now instanceof Date ? now.getTime() : new Date(now).getTime();
 }
 
 // Whether a staged announcement still matches the game it was for (so we don't

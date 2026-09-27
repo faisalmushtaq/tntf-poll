@@ -224,6 +224,83 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('lineup lead time is configurable', new Date(line1.sendAfter).getTime() === new Date(game.kickoffAt).getTime() - 1 * 3600000);
   ok('lineup heading is just "Line-up"', lc.heading === 'Line-up');
 
+  // --- a throttled notifier must not strand the line-up past kick-off -------
+  // GitHub deprioritises scheduled workflows on quiet repos, so the every-5-min
+  // cron can really be every few hours. The line-up's window is only 2h wide by
+  // default, so waiting for sendAfter can mean never sending at all.
+  {
+    const kickoff = new Date(game.kickoffAt).getTime();
+    const at = ms => new Date(kickoff + ms);
+    const healthy = { nextRunMinutes: 5 };
+    const throttled = { nextRunMinutes: 240 };  // 4h between runs
+
+    ok('estimate falls back to the nominal interval with no history',
+      logic.nextRunEstimateMinutes([], 5) === 5);
+    ok('estimate takes the worst recent gap while samples are few',
+      logic.nextRunEstimateMinutes([6, 190, 42], 5) === 190);
+    ok('estimate never dips below the nominal interval',
+      logic.nextRunEstimateMinutes([1, 2], 5) === 5);
+    ok('estimate ignores junk values',
+      logic.nextRunEstimateMinutes([null, -3, 'x', 30], 5) === 30);
+    ok('estimate is capped so a wild sample cannot dominate',
+      logic.nextRunEstimateMinutes([60 * 24 * 14], 5) === logic.MAX_RUN_ESTIMATE_MINUTES);
+    // With enough samples the single worst is discarded, so one outage doesn't
+    // leave us sending line-ups half a day early for the next dozen runs.
+    ok('estimate discards the worst of several samples',
+      logic.nextRunEstimateMinutes([100, 200, 300, 60 * 24 * 14], 5) === 300);
+    ok('estimate trims only once, keeping the rest conservative',
+      logic.nextRunEstimateMinutes([100, 200, 300, 9999, 9999], 5) === 9999
+        ? false : logic.nextRunEstimateMinutes([100, 200, 300, 9999, 9999], 5) === logic.MAX_RUN_ESTIMATE_MINUTES);
+    ok('estimate on the real measured cadence clears a 2h line-up window',
+      logic.nextRunEstimateMinutes([197, 412, 100, 241, 322, 206, 137, 348, 294], 5) === 348);
+
+    // 6h before kickoff: nothing is due yet either way.
+    ok('healthy notifier holds the line-up 6h out',
+      !logic.announcementReady(line, at(-6 * 3600000), healthy));
+    ok('throttled notifier still holds the line-up 6h out',
+      !logic.announcementReady(line, at(-6 * 3600000), throttled));
+
+    // 3h before kickoff: sendAfter is 2h before, so the plain rule says "hold".
+    // A 4h-gap notifier won't be back in time, so it must send now.
+    ok('healthy notifier holds until its send time',
+      !logic.announcementReady(line, at(-3 * 3600000), healthy));
+    ok('throttled notifier sends early rather than miss kick-off',
+      logic.announcementReady(line, at(-3 * 3600000), throttled));
+    ok('the early-send branch is what fired',
+      logic.announcementDeadlineDue(line, at(-3 * 3600000), throttled));
+
+    // Past its send time, both send — the normal path is unchanged.
+    ok('healthy notifier sends once its send time arrives',
+      logic.announcementReady(line, at(-1 * 3600000), healthy));
+
+    // No estimate supplied → exactly the old behaviour, so the browser (which
+    // can't read meta/notify) sees no change.
+    ok('no estimate means the plain grace-window rule',
+      !logic.announcementReady(line, at(-3 * 3600000)));
+
+    // The early send is for the line-up only: the others have no hard deadline.
+    ok('poll-open is never sent early', !logic.announcementDeadlineDue(ann, now, throttled));
+    ok('reschedule is never sent early', !logic.announcementDeadlineDue(resc, now, throttled));
+    ok('a held announcement is never sent early',
+      !logic.announcementReady({ ...line, status: 'held' }, at(-3 * 3600000), throttled));
+
+    // --- what the organiser's card says about a late notifier ---------------
+    ok('progress: held before its send time',
+      logic.announcementProgress(line, at(-3 * 3600000)).state === 'held');
+    ok('progress: due right on its send time',
+      logic.announcementProgress(line, at(-2 * 3600000)).state === 'due');
+    ok('progress: still due a few minutes later',
+      logic.announcementProgress(line, at(-2 * 3600000 + 5 * 60000)).state === 'due');
+    const lateP = logic.announcementProgress(line, at(-30 * 60000));
+    ok('progress: late once well past its send time', lateP.state === 'late');
+    ok('progress: reports how overdue it is', lateP.overdueMinutes === 90);
+    ok('progress: counts down to kick-off', lateP.minutesToKickoff === 30);
+    ok('progress: missed once kick-off has gone',
+      logic.announcementProgress(line, at(10 * 60000)).state === 'missed');
+    ok('progress: nothing to report once sent',
+      logic.announcementProgress({ ...line, status: 'sent' }, at(-30 * 60000)) === null);
+  }
+
   // reserves + per-player pitch cost
   const gameCap = { id: 'g9', dateLabel: 'Tue 21', kickoffAt: '2026-07-21T19:00:00Z', venue: 'Pitch 10', capacity: 14 };
   const withCost = logic.buildAnnouncement('lineup', {

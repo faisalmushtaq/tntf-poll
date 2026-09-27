@@ -110,6 +110,8 @@ button.brand { width: auto; background: transparent; border: none; border-radius
 
 /* ---- Announcement review card ---- */
 .ann-card { border-color: var(--green); box-shadow: inset 3px 0 0 var(--green); }
+.ann-card.late { border-color: var(--amber); box-shadow: inset 3px 0 0 var(--amber); }
+.ann-late { background: var(--amber-soft); border: 1px solid #ddcca0; border-radius: 6px; margin: 2px 0 8px; padding: 10px 12px; color: var(--amber); font-size: 14px; line-height: 1.5; }
 .ann-preview { background: var(--green-soft); border: 1px solid #cfdccf; border-radius: 6px; padding: 14px 16px; margin: 4px 0 4px; }
 .ann-preview .ann-h { font-weight: 600; color: var(--ink); margin-bottom: 4px; }
 .ann-preview p { margin: 0; color: var(--ink); font-size: 15.5px; line-height: 1.5; }

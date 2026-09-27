@@ -1722,9 +1722,23 @@ function announceCard(a) {
       <span class="ann-contact">${r.email ? esc(r.email) : 'push / in-app only'}</span>
     </label>`).join('');
 
+  // Only the notifier can email/push, and it runs on GitHub's schedule — which
+  // throttles hard on a quiet repository. So don't promise "a few minutes": if
+  // its moment has passed and it's still sitting here, say so and point at the
+  // WhatsApp button, which sends from this device and needs no robot at all.
+  const progress = logic.announcementProgress(a, new Date());
+  const late = progress && (progress.state === 'late' || progress.state === 'missed');
+  const forHuman = mins => mins < 60
+    ? (mins === 1 ? '1 minute' : `${mins} minutes`)
+    : (Math.round(mins / 60) === 1 ? 'about an hour' : `about ${Math.round(mins / 60)} hours`);
+
   let countdown;
-  if (ready) {
-    countdown = 'Going out on the next check (within a few minutes)…';
+  if (progress && progress.state === 'missed') {
+    countdown = `<b>Kick-off has passed and this never went out.</b> Too late to email — but you can still post it to the group below.`;
+  } else if (late) {
+    countdown = `<b>Overdue by ${forHuman(progress.overdueMinutes)}</b> — the notifier hasn't collected it yet.`;
+  } else if (ready) {
+    countdown = 'Due now — it goes out on the notifier\'s next run.';
   } else if (isLineup) {
     const lead = state.config.lineupHoursBefore ?? 2;
     const sendTime = new Date(a.sendAfter).toLocaleString('en-GB', { weekday: 'long', hour: '2-digit', minute: '2-digit' });
@@ -1733,6 +1747,15 @@ function announceCard(a) {
     const mins = Math.round((new Date(a.sendAfter).getTime() - Date.now()) / 60000);
     countdown = `Auto-sends in <b>${mins < 1 ? 'under a minute' : mins === 1 ? '1 minute' : `${mins} minutes`}</b> unless you send or hold it.`;
   }
+
+  // The nudge. Nothing the browser can do will deliver an email, so the useful
+  // move is to tell the organiser plainly and hand them the one channel that
+  // works from here.
+  const lateNote = late ? `<p class="ann-late">${ICON('icon-bell', 'inline-ico')}${
+    progress.state === 'missed'
+      ? 'The scheduled notifier didn\'t run in time.'
+      : 'The scheduled notifier is behind — GitHub throttles it when the repo has been quiet.'
+  } It may still arrive, but don't wait on it: <b>Share to WhatsApp</b> below posts ${isLineup ? 'the line-up' : 'this'} to the group from this device straight away.</p>` : '';
 
   const content = logic.announcementContent(a, state.config.clubName);
   let previewBody;
@@ -1752,9 +1775,10 @@ function announceCard(a) {
     previewBody = content.paragraphs.map(p => `<p>${esc(p)}</p>`).join('');
   }
 
-  return `<div class="card ann-card">
+  return `<div class="card ann-card${late ? ' late' : ''}">
       <h2>${ICON('icon-announcement', 'head-ico')}${isLineup ? 'Line-up announcement' : 'Announcement'} — review before it sends</h2>
       <p class="hint" style="margin-top:-2px">${countdown}</p>
+      ${lateNote}
       <div class="ann-preview">
         <div class="ann-h">${esc(content.heading)}</div>
         ${previewBody}
