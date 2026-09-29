@@ -39,6 +39,10 @@ you exactly where you were.
   (so it's never a misfire), with the penalty shown up front, plus *Can't make
   it this week* — a no-penalty way to say you're out so
   nobody chases you; the out list shows for all to see (and you can undo it).
+  Once you're in, **upload proof of payment** — a screenshot of the transfer,
+  or a photo — straight from your phone, and you're ticked off as paid. No more
+  posting screenshots in the group chat. You can view or remove it afterwards;
+  "Paid another way" is still there for cash.
 - **Join / You** — one nav slot: **Join** (onboarding) when signed out, your
   **You** profile (attendance, games, record, history, notifications, account)
   once you're in.
@@ -65,6 +69,8 @@ you exactly where you were.
   - **This week** — open/lock/complete the game, **set the squad size** (5/6/7/8-a-side
     presets or a custom number, changeable live), **reschedule** the day/time/venue
     mid-week or **skip the week** entirely, review announcements, and build the teams.
+    The **Payments** tracker shows who's paid and who uploaded proof — tap
+    **proof** to see their screenshot, and untick anyone whose doesn't add up.
   - **Matches** — every past game, editable directly: fix the score and **adjust
     each player's loyalty / award bonus points as you see fit** (replaces the old
     bulk "recalculate").
@@ -147,6 +153,9 @@ You'll do this once. Times are rough. Everything's free.
 1. <https://console.firebase.google.com> → **Add project** (free Spark plan).
 2. **Build → Firestore Database → Create database** → *production mode* → a region near you.
 3. **Firestore → Rules** → paste [`firestore.rules`](./firestore.rules) → **Publish**.
+   Re-publish whenever this file changes — the rules live in the Firebase
+   console, not in this repo, so a merge alone doesn't apply them. (Proof-of-
+   payment uploads, for instance, are refused until the `proofs` rule is live.)
 4. **Project settings** (gear) → **Your apps** → Web (`</>`) → register → copy the `firebaseConfig`.
 
 ### 2. Turn on sign-in (~1 min)
@@ -346,6 +355,11 @@ guide. (Files whose names start with `_` are docs, never treated as a game.)
 - `public/` — static app, no build step:
   - `logic.js` — pure maths: ranking, penalties, status-change diff, stats, win/loss analytics (unit-tested).
   - `db.js` — Firestore when configured, `localStorage` otherwise. `seed-data.js` — generated history.
+    Proof-of-payment pictures are shrunk on the phone to a JPEG (under ~900 KB)
+    and stored in Firestore at `games/{game}/proofs/{player}` — the free plan has
+    no Cloud Storage bucket — apart from the sign-ups, so the live squad view
+    never downloads them. Only signed-in accounts can read them, and only the
+    player's own linked account can write theirs (see `firestore.rules`).
   - `auth.js` — email magic-link sign-in. `messaging.js` — FCM push tokens.
   - `import.js` — parse a stats spreadsheet (CSV/TSV / Google Sheets) and resolve names + dates to players + fixtures (unit-tested).
   - `app.js` — the responsive UI (top-bar nav, This week / Join / History / Table / You / Rules / Organiser). `firebase-messaging-sw.js` — push service worker.

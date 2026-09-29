@@ -964,4 +964,49 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
     guests.guest_abc.loyalty === 0 && guests.guest_abc.gamesPlayed === 0 && guests.guest_abc.dropouts === 0);
 }
 
+// --- proof of payment --------------------------------------------------------
+{
+  const jpeg = 'data:image/jpeg;base64,' + 'A'.repeat(1000) + '==';
+  const now = new Date('2026-09-29T17:30:00Z');
+
+  // Sizing: shrink the long edge, keep the ratio, never enlarge.
+  const phone = logic.proofDimensions(1179, 2556); // iPhone screenshot
+  ok('tall screenshot shrinks to the max long edge', phone.height === logic.PROOF_MAX_EDGE);
+  ok('aspect ratio is kept', Math.abs(phone.width / phone.height - 1179 / 2556) < 0.01);
+  const wide = logic.proofDimensions(4032, 3024, 1000); // camera photo, landscape
+  ok('wide photo shrinks by its width', wide.width === 1000 && wide.height === 750);
+  const small = logic.proofDimensions(600, 400);
+  ok('small image is never enlarged', small.width === 600 && small.height === 400);
+  ok('broken dimensions still give a drawable size', logic.proofDimensions(0, NaN).width === 1);
+
+  // Only sane raster data URLs are accepted or shown.
+  ok('jpeg data URL accepted', logic.isProofDataUrl(jpeg));
+  ok('png data URL accepted', logic.isProofDataUrl('data:image/png;base64,iVBORw0KGgo='));
+  ok('svg refused (can carry script)', !logic.isProofDataUrl('data:image/svg+xml;base64,PHN2Zz4='));
+  ok('remote URL refused', !logic.isProofDataUrl('https://example.com/x.jpg'));
+  ok('attribute breakout refused', !logic.isProofDataUrl('data:image/jpeg;base64,AAA" onerror="alert(1)'));
+  ok('empty canvas output refused', !logic.isProofDataUrl('data:,'));
+  ok('oversized image refused',
+    !logic.isProofDataUrl('data:image/jpeg;base64,' + 'A'.repeat(logic.PROOF_MAX_CHARS)));
+  ok('non-strings refused', !logic.isProofDataUrl(null) && !logic.isProofDataUrl({}));
+
+  // The stored record: exactly the fields the Firestore rule allows.
+  const rec = logic.buildProofRecord({ image: jpeg, uid: 'uid-1', width: 740.4, height: 1600 }, now);
+  ok('record keeps the image', rec.image === jpeg);
+  ok('record notes the type', rec.type === 'image/jpeg');
+  ok('record stamps the upload time', rec.uploadedAt === now.toISOString());
+  ok('record carries the uploader uid (checked by the rules)', rec.uid === 'uid-1');
+  ok('record rounds dimensions', rec.width === 740 && rec.height === 1600);
+  ok('record has only the fields the rules allow',
+    Object.keys(rec).sort().join() === ['height', 'image', 'type', 'uid', 'uploadedAt', 'width'].join());
+  let threw = false;
+  try { logic.buildProofRecord({ image: 'https://example.com/x.jpg' }); } catch { threw = true; }
+  ok('building a record from a bad image throws', threw);
+
+  // Uploading ticks the player off.
+  const patch = logic.proofSignupPatch(now);
+  ok('upload marks the player paid', patch.paid === true);
+  ok('upload records when', patch.paidAt === now.toISOString() && patch.proofAt === now.toISOString());
+}
+
 console.log(`\n${pass} checks passed ✅`);

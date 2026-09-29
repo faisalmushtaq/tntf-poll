@@ -949,6 +949,58 @@ export function announcementAudience(ann) {
   return ((ann && ann.recipients) || []).filter(r => !ex.has(r.id));
 }
 
+// --- proof of payment -------------------------------------------------------
+// Players upload a screenshot (or a photo) of their bank transfer instead of
+// posting it in the group chat. There's no Cloud Storage bucket on the free
+// plan, so the picture is shrunk on the phone and stored as a JPEG data URL in
+// its own Firestore doc (games/{gameId}/proofs/{playerId}) — kept apart from
+// the sign-ups so the live squad listener never has to download images.
+//
+// A Firestore document tops out at 1 MiB including field names, so we keep the
+// image comfortably under that. A banking-app screenshot is mostly flat colour
+// and text, and compresses to well under this at a readable size.
+export const PROOF_MAX_CHARS = 900000;
+export const PROOF_MAX_EDGE = 1600;
+
+// Scale (w, h) down so the longer edge is at most `maxEdge`, keeping the aspect
+// ratio. Never scales up.
+export function proofDimensions(width, height, maxEdge = PROOF_MAX_EDGE) {
+  const w = Math.max(1, Math.round(Number(width) || 0));
+  const h = Math.max(1, Math.round(Number(height) || 0));
+  const scale = Math.min(1, maxEdge / Math.max(w, h));
+  return { width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) };
+}
+
+// Is this a stored proof image we're prepared to show? Only raster data URLs of
+// a sane size — never an arbitrary URL, and never SVG (which can carry script).
+const PROOF_DATA_URL = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+export function isProofDataUrl(s) {
+  return typeof s === 'string' && s.length <= PROOF_MAX_CHARS && PROOF_DATA_URL.test(s);
+}
+
+// The proof document as written to Firestore. `uid` is the signed-in account
+// that uploaded it — the security rules check it matches the player's own
+// linked account, so nobody can file a proof on someone else's behalf.
+export function buildProofRecord({ image, uid = null, width = 0, height = 0 } = {}, now = new Date()) {
+  if (!isProofDataUrl(image)) throw new Error('That image couldn\'t be read — try a screenshot instead.');
+  return {
+    image,
+    type: image.slice(5, image.indexOf(';')),
+    width: Math.round(Number(width) || 0),
+    height: Math.round(Number(height) || 0),
+    uid: uid || null,
+    uploadedAt: now.toISOString()
+  };
+}
+
+// The sign-up fields an upload sets. Uploading proof ticks the player off as
+// paid straight away — the organiser can still untick them if it doesn't check
+// out, and the proof stays attached for them to look at.
+export function proofSignupPatch(now = new Date()) {
+  const at = now.toISOString();
+  return { paid: true, paidAt: at, proofAt: at };
+}
+
 // Seed roster from the group so the app is usable on day one.
 export const SEED_NAMES = [
   'Faisal', 'Haroon Hanif', 'Haseeb', 'Shergal Rodaina', 'Tom Exon',
