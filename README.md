@@ -41,8 +41,9 @@ you exactly where you were.
   nobody chases you; the out list shows for all to see (and you can undo it).
   Once you're in, **upload proof of payment** — a screenshot of the transfer,
   or a photo — straight from your phone, and you're ticked off as paid. No more
-  posting screenshots in the group chat. You can view or remove it afterwards;
-  "Paid another way" is still there for cash.
+  posting screenshots in the group chat. You can view or remove it afterwards,
+  and it's deleted automatically after 30 days. "Paid another way" is still
+  there for cash.
 - **Join / You** — one nav slot: **Join** (onboarding) when signed out, your
   **You** profile (attendance, games, record, history, notifications, account)
   once you're in.
@@ -360,6 +361,8 @@ guide. (Files whose names start with `_` are docs, never treated as a game.)
     no Cloud Storage bucket — apart from the sign-ups, so the live squad view
     never downloads them. Only signed-in accounts can read them, and only the
     player's own linked account can write theirs (see `firestore.rules`).
+    Receipts are **deleted 30 days after upload** by the notifier
+    (`PROOF_RETENTION_DAYS` in `logic.js`); the paid tick stays.
   - `auth.js` — email magic-link sign-in. `messaging.js` — FCM push tokens.
   - `import.js` — parse a stats spreadsheet (CSV/TSV / Google Sheets) and resolve names + dates to players + fixtures (unit-tested).
   - `app.js` — the responsive UI (top-bar nav, This week / Join / History / Table / You / Rules / Organiser). `firebase-messaging-sw.js` — push service worker.

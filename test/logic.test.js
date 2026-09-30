@@ -1007,6 +1007,19 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   const patch = logic.proofSignupPatch(now);
   ok('upload marks the player paid', patch.paid === true);
   ok('upload records when', patch.paidAt === now.toISOString() && patch.proofAt === now.toISOString());
+
+  // Receipts are kept for a month, then deleted by the notifier.
+  const day = 86400000;
+  const up = { uploadedAt: now.toISOString() };
+  ok('retention is a month', logic.PROOF_RETENTION_DAYS === 30);
+  ok('fresh receipt is kept', !logic.proofExpired(up, now));
+  ok('receipt kept at 29 days', !logic.proofExpired(up, new Date(now.getTime() + 29 * day)));
+  ok('receipt kept a minute before 30 days', !logic.proofExpired(up, new Date(now.getTime() + 30 * day - 60000)));
+  ok('receipt deleted at 30 days', logic.proofExpired(up, new Date(now.getTime() + 30 * day)));
+  ok('receipt deleted at 90 days', logic.proofExpired(up, new Date(now.getTime() + 90 * day)));
+  ok('retention period is adjustable', logic.proofExpired(up, new Date(now.getTime() + 8 * day), 7));
+  ok('undated receipt is deleted', logic.proofExpired({}, now) && logic.proofExpired({ uploadedAt: 'garbage' }, now));
+  ok('missing record counts as expired', logic.proofExpired(null, now));
 }
 
 console.log(`\n${pass} checks passed ✅`);

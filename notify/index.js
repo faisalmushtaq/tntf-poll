@@ -171,6 +171,11 @@ async function main() {
   // Send (or drop) the pending "poll's open" announcement, held for review.
   await processAnnouncement(gameId, game, players, nextRunMinutes);
 
+  // Delete payment receipts past their retention period. Best-effort: a
+  // failure here must never stop the notifications below.
+  try { await purgeExpiredProofs(); }
+  catch (e) { console.error('Receipt clean-up failed (will retry next run):', e.message); }
+
   // No open game → reset the marker so the next open triggers a fresh alert.
   if (!gameId) { await notifyRef.set({ lastGameId: null, statuses: {}, autoOpenedKickoff, ...runStats }, { merge: true }); console.log('No open game.'); return; }
 
@@ -279,6 +284,34 @@ async function processAnnouncement(gameId, game, players, nextRunMinutes) {
   }
   await ref.set({ status: 'sent', sentAt: new Date().toISOString(), sentCount: audience.length, sentEarly: early }, { merge: true });
   console.log('Announcement sent.');
+}
+
+// Proof-of-payment receipts are bank screenshots, so each is deleted
+// logic.PROOF_RETENTION_DAYS after upload. We walk every game's proofs
+// subcollection rather than use a collection-group query, which would need a
+// Firestore index setting up by hand; with one game a week that's a few dozen
+// small queries a run. `select` fetches only the upload time, not the image.
+// The sign-up keeps its paid tick — only the picture goes — and loses its
+// proofAt so the app doesn't offer to show a receipt that's gone.
+async function purgeExpiredProofs() {
+  const now = new Date();
+  const gameRefs = await db.collection('games').listDocuments();
+  let removed = 0;
+  for (const gameRef of gameRefs) {
+    const snap = await gameRef.collection('proofs').select('uploadedAt').get();
+    for (const doc of snap.docs) {
+      if (!logic.proofExpired(doc.data(), now)) continue;
+      const signupRef = gameRef.collection('signups').doc(doc.id);
+      const batch = db.batch();
+      batch.delete(doc.ref);
+      // update(), not set(): if the sign-up is gone (player merged or removed)
+      // there's nothing to tidy, and we mustn't resurrect a stub record.
+      if ((await signupRef.get()).exists) batch.update(signupRef, { proofAt: admin.firestore.FieldValue.delete() });
+      await batch.commit();
+      removed++;
+    }
+  }
+  if (removed) console.log(`Deleted ${removed} payment receipt(s) older than ${logic.PROOF_RETENTION_DAYS} days.`);
 }
 
 // Email + push the finalised squad to the organiser.

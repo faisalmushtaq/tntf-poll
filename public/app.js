@@ -533,7 +533,7 @@ function paymentControl(g) {
     </div>`;
   }
   return `<div class="pay-row">
-    <span class="pay-label">${ICON('icon-payment', 'inline-ico')}Paid the match fee? Upload a screenshot of the transfer and you're ticked off — no need to post it in the group.</span>
+    <span class="pay-label">${ICON('icon-payment', 'inline-ico')}Paid the match fee? Upload a screenshot of the transfer and you're ticked off — no need to post it in the group. Only signed-in members can see it, and it's deleted after ${logic.PROOF_RETENTION_DAYS} days.</span>
     <div class="pay-actions">${picker('Upload proof of payment')}<button class="btn-ghost pay-btn" onclick="markPaid('${g.id}', true)">Paid another way</button></div>
   </div>`;
 }
@@ -2306,7 +2306,7 @@ function proofModal() {
   else if (v.error) body = `<p class="hint">${esc(v.error)}</p>`;
   else if (!v.record || !logic.isProofDataUrl(v.record.image)) body = '<p class="hint">No proof on file for this game.</p>';
   else body = `<img class="proof-img" src="${v.record.image}" alt="Proof of payment from ${esc(v.name)}" />
-      <p class="small">Uploaded ${esc(fmtShortTime(v.record.uploadedAt))}</p>`;
+      <p class="small">Uploaded ${esc(fmtShortTime(v.record.uploadedAt))} · deleted automatically ${logic.PROOF_RETENTION_DAYS} days after upload</p>`;
   return `<div class="proof-overlay" onclick="if (event.target === this) closeProof()" role="dialog" aria-modal="true" aria-label="Proof of payment from ${esc(v.name)}">
     <div class="proof-sheet">
       <div class="proof-head"><h2>${esc(v.name)} — proof of payment</h2><button class="btn-ghost pay-btn" onclick="closeProof()">Close</button></div>

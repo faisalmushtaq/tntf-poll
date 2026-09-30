@@ -962,6 +962,19 @@ export function announcementAudience(ann) {
 export const PROOF_MAX_CHARS = 900000;
 export const PROOF_MAX_EDGE = 1600;
 
+// Receipts are bank screenshots, so we don't keep them forever: the notifier
+// deletes each one this many days after it was uploaded. A month is ample time
+// to settle any "did you actually pay?" question.
+export const PROOF_RETENTION_DAYS = 30;
+
+// Has this proof passed its retention period? A record with no readable upload
+// time is treated as expired — it can't be dated, so it shouldn't linger.
+export function proofExpired(record, now = new Date(), days = PROOF_RETENTION_DAYS) {
+  const at = record && record.uploadedAt ? new Date(record.uploadedAt).getTime() : NaN;
+  if (!Number.isFinite(at)) return true;
+  return asTime(now) - at >= days * 86400000;
+}
+
 // Scale (w, h) down so the longer edge is at most `maxEdge`, keeping the aspect
 // ratio. Never scales up.
 export function proofDimensions(width, height, maxEdge = PROOF_MAX_EDGE) {
