@@ -227,6 +227,18 @@ needs the SMTP secrets. Set up either or both. The same Action also opens the
 weekly poll on schedule, so leaving it on is what makes auto-open work.
 (WhatsApp sharing needs none of this — it's a one-tap Share button in the app.)
 
+**Check it works before anyone gets anything:** Actions → **Send notifications**
+→ **Run workflow**, put your own email in *Setup check*, and run it. It checks
+the Firebase key, signs in to your mail server, sends you one test email (and a
+test push, if that address is a player who has turned push on), and tells you
+exactly what to fix if any step fails. It sends nothing to anyone else and
+changes nothing. Without the `FIREBASE_SERVICE_ACCOUNT` secret, the scheduled
+runs show a yellow warning rather than quietly doing nothing.
+
+> **Before switching it on for the first time,** check **Organiser** for a
+> pending announcement. The first working run sends anything still waiting,
+> however old — tap **Hold** on anything that's out of date.
+
 **Auto-open is also backed up client-side:** GitHub's scheduler is throttled and
 can lag, so as a safety net the app itself opens the poll the moment anyone
 loads it past the poll-open time (once last week's game is settled). It's

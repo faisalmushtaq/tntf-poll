@@ -16,18 +16,34 @@ let CLUB_NAME = 'Tuesday Night Total Football'; // set from config in main()
 // decides when a pending line-up goes out. Keep CRON_INTERVAL_MINUTES in step
 // with the cron in .github/workflows/notify.yml.
 const CRON_INTERVAL_MINUTES = 5;
+
+// The push notification icon, as a full URL. It has to be absolute: the
+// browser resolves it against the site's origin, and the app lives under
+// /tntf-poll/ on GitHub Pages, so a bare '/icon.svg' pointed at nothing. And
+// it has to be a PNG — Android doesn't show SVG notification icons.
+const PUSH_ICON = APP_URL ? `${APP_URL.replace(/\/?$/, '/')}icon-192.png` : '';
 const RUN_GAP_SAMPLES = 12;
+
+// A one-off test run, started by hand from the Actions tab with an address to
+// send to (see notify.yml). It checks the setup end to end — the Firebase key,
+// the email login, push — and sends nothing to anyone else.
+const TEST_EMAIL = (process.env.TEST_EMAIL || '').trim();
 
 // --- Firebase Admin (service account from a GitHub secret) ------------------
 // If the notifier isn't configured yet, skip cleanly (exit 0) so the scheduled
-// run doesn't fail and spam the repo owner with failure emails.
+// run doesn't fail and spam the repo owner with failure emails — but raise a
+// warning annotation, so the Actions page shows it isn't actually doing
+// anything rather than a misleading row of green ticks. A test run fails
+// outright instead: you asked it to check the setup, and the setup is broken.
+const notConfigured = msg => {
+  if (TEST_EMAIL) { console.error(`::error::${msg}`); process.exit(1); }
+  console.log(`::warning::${msg} No emails or push notifications are being sent.`);
+  process.exit(0);
+};
 let sa = {};
 try { sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}'); }
-catch { console.log('FIREBASE_SERVICE_ACCOUNT is not valid JSON — skipping this run.'); process.exit(0); }
-if (!sa.project_id) {
-  console.log('Notifications not configured yet (no FIREBASE_SERVICE_ACCOUNT secret) — skipping this run.');
-  process.exit(0);
-}
+catch { notConfigured('FIREBASE_SERVICE_ACCOUNT is not valid JSON — paste the whole downloaded key file, including the { and }.'); }
+if (!sa.project_id) notConfigured('Notifications not configured yet (no FIREBASE_SERVICE_ACCOUNT secret).');
 admin.initializeApp({ credential: admin.credential.cert(sa) });
 const db = admin.firestore();
 
@@ -99,7 +115,7 @@ async function send(player, ev) {
       const res = await admin.messaging().sendEachForMulticast({
         tokens,
         notification: { title: ev.title, body: ev.body },
-        webpush: { notification: { icon: '/icon.svg' }, fcmOptions: APP_URL ? { link: APP_URL } : undefined }
+        webpush: { notification: PUSH_ICON ? { icon: PUSH_ICON } : {}, fcmOptions: APP_URL ? { link: APP_URL } : undefined }
       });
       console.log(`  push → ${player.name}: ${res.successCount}/${tokens.length} delivered`);
       // prune dead tokens so they don't pile up
@@ -345,4 +361,72 @@ async function sendSquadAlert(config, game, confirmed, reserves, players) {
   if (org) await send(org, { title: ev.title, body: `Squad for ${game.dateLabel} is locked (${confirmed.length}/${game.capacity}).` });
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+// --- setup check (manual test run) -------------------------------------------
+// Proves each piece works, in the order they'd fail, and says what to fix. It
+// only reads from Firestore and only sends to TEST_EMAIL (plus that player's
+// own devices, if the address is on the roster) — no announcements, no status
+// alerts, no bookkeeping writes.
+async function selfTest(to) {
+  let ok = true;
+  const fail = msg => { ok = false; console.error(`::error::${msg}`); };
+
+  console.log('1. Firebase key');
+  let players = [];
+  try {
+    const cfg = (await db.doc('meta/config').get()).data() || {};
+    CLUB_NAME = cfg.clubName || CLUB_NAME;
+    const snap = await db.collection('players').get();
+    players = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    console.log(`   ✓ connected to project "${sa.project_id}" — ${cfg.clubName || 'club'}, ${players.length} players on the roster`);
+  } catch (e) {
+    fail(`Firebase key rejected (${e.message}). Generate a fresh key in Firebase → Project settings → Service accounts, and paste the whole file into the FIREBASE_SERVICE_ACCOUNT secret.`);
+  }
+
+  console.log('2. Email');
+  if (!transport) {
+    fail('Email is not configured: the SMTP_HOST secret is empty.');
+  } else {
+    try {
+      await transport.verify();
+      console.log(`   ✓ signed in to ${process.env.SMTP_HOST} as ${process.env.SMTP_USER}`);
+      await transport.sendMail({
+        from: process.env.MAIL_FROM || process.env.SMTP_USER,
+        to,
+        subject: `${CLUB_NAME} — test email`,
+        text: `Email from the ${CLUB_NAME} notifier is working.${APP_URL ? `\n\n${APP_URL}` : ''}`,
+        html: emailHtml({ clubName: CLUB_NAME, heading: 'Email is working', bodyHtml: '<p style="margin:0">This is a test from the notifier. If you can read it, players will get their "you\'re in", line-up and poll emails.</p>' })
+      });
+      console.log(`   ✓ test email sent to ${to} — check the inbox (and the spam folder)`);
+    } catch (e) {
+      const hint = /535|auth|credentials|username and password/i.test(e.message)
+        ? ' The login was refused: for Gmail, SMTP_PASS must be a 16-character app password (not your normal password) and SMTP_USER your full Gmail address.'
+        : /ENOTFOUND|ECONNREFUSED|ETIMEDOUT|greeting/i.test(e.message)
+          ? ' Could not reach the mail server: check SMTP_HOST, and SMTP_PORT (465 for Gmail).'
+          : '';
+      fail(`Email failed: ${e.message}.${hint}`);
+    }
+  }
+
+  console.log('3. Push');
+  const withPush = players.filter(p => Object.keys(p.pushTokens || {}).length);
+  console.log(`   ${withPush.length} of ${players.length} players have turned on push in the app`);
+  const me = players.find(p => p.email && p.email.toLowerCase() === to.toLowerCase());
+  const tokens = Object.values((me && me.pushTokens) || {});
+  if (!me) console.log(`   (${to} isn't on the roster, so no test push was sent)`);
+  else if (!tokens.length) console.log(`   ${me.name} hasn't turned on push in the app, so no test push was sent`);
+  else {
+    try {
+      const res = await admin.messaging().sendEachForMulticast({
+        tokens,
+        notification: { title: `${CLUB_NAME} — test`, body: 'Push notifications are working.' },
+        webpush: { notification: PUSH_ICON ? { icon: PUSH_ICON } : {}, fcmOptions: APP_URL ? { link: APP_URL } : undefined }
+      });
+      console.log(`   ✓ test push to ${me.name}: ${res.successCount} of ${tokens.length} device(s) accepted it`);
+    } catch (e) { fail(`Push failed: ${e.message}`); }
+  }
+
+  if (!ok) process.exit(1);
+  console.log('\nAll good — the scheduled runs will now send notifications.');
+}
+
+(TEST_EMAIL ? () => selfTest(TEST_EMAIL) : main)().catch(e => { console.error(e); process.exit(1); });

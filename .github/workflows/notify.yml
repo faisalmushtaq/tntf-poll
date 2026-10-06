@@ -17,6 +17,11 @@ on:
   schedule:
     - cron: '*/5 * * * *'   # every 5 minutes (GitHub's minimum)
   workflow_dispatch:         # lets you run it on demand from the Actions tab
+    inputs:
+      test_email:
+        description: 'Setup check: send ONE test email to this address and stop (nothing else is sent). Leave blank for a normal run.'
+        required: false
+        default: ''
 
 concurrency:
   group: notify
@@ -47,4 +52,6 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          # Empty on scheduled runs; set only when started by hand with an address.
+          TEST_EMAIL: ${{ github.event.inputs.test_email }}
         run: node index.js
