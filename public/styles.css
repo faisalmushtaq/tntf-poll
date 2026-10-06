@@ -567,3 +567,5 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
   .install-steps { grid-template-columns: 1fr; gap: 12px; }
   .install-platform { padding: 16px; }
 }
+/* Push-notification nudge on This week (sits under the payment row). */
+.push-prompt { margin-top: 10px; }

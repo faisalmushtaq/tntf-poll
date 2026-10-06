@@ -426,6 +426,7 @@ function weekScreen() {
       ${mine}
       ${kickedOff ? postGame() : actionBtn()}
       ${paymentControl(g)}
+      ${kickedOff ? '' : pushPrompt(g)}
     </div>
     ${formatPrefControl()}
     ${teamsCard(g)}
@@ -537,6 +538,42 @@ function paymentControl(g) {
     <div class="pay-actions">${picker('Upload proof of payment')}<button class="btn-ghost pay-btn" onclick="markPaid('${g.id}', true)">Paid another way</button></div>
   </div>`;
 }
+
+// Nudge players in this week's game to turn on push, so the line-up and "you're
+// in / bumped" alerts reach their phone. Browsers only allow push for people
+// who opt in on their own device, and the switch used to live only on the You
+// page — so few found it. Shown to signed-in players who've joined this game,
+// until push is on (this device, or any device of theirs) or they tap "Not
+// now", which hides it for PUSH_PROMPT_SNOOZE_DAYS. Adapts to what the phone
+// can actually do: one tap where push works, the Home Screen step on an iPhone
+// in Safari, and "open it in your browser" inside in-app browsers that can't do
+// push at all. Hidden entirely if they've blocked it.
+const PUSH_PROMPT_SNOOZE_DAYS = 30;
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: just don't remember */ } };
+function pushPrompt(g) {
+  if (!auth?.enabled || !state.me || !g.me || !pushConfigured()) return '';
+  if (lsGet('tntf.pushOn') || Object.keys(state.me.pushTokens || {}).length) return '';
+  const snoozed = Number(lsGet('tntf.pushPromptSnoozed')) || 0;
+  if (Date.now() - snoozed < PUSH_PROMPT_SNOOZE_DAYS * 86400000) return '';
+  if ('Notification' in window && Notification.permission === 'denied') return '';
+
+  const notNow = `<button class="btn-ghost pay-btn" onclick="snoozePushPrompt()">Not now</button>`;
+  const lead = `${ICON('icon-bell', 'inline-ico')}Get a notification on your phone the moment the line-up's out, or if your spot changes.`;
+  let body, actions;
+  if (isIOS() && !isStandalone()) {
+    body = `${lead} On iPhone, first tap the Share icon in Safari → <b>Add to Home Screen</b>, then open TNTF from your Home Screen and turn it on here.`;
+    actions = notNow;
+  } else if (!pushSupported()) {
+    body = `${lead} This browser can't do notifications — if you opened TNTF from a link in another app, open it in Chrome or Safari and turn it on there.`;
+    actions = notNow;
+  } else {
+    body = lead;
+    actions = `<button class="btn-primary pay-btn" onclick="enablePushNow()">Turn on notifications</button>${notNow}`;
+  }
+  return `<div class="pay-row push-prompt"><span class="pay-label">${body}</span><div class="pay-actions">${actions}</div></div>`;
+}
+window.snoozePushPrompt = () => { lsSet('tntf.pushPromptSnoozed', String(Date.now())); render(); };
 
 // "Tue 18:42" — short enough to sit inside a sentence.
 function fmtShortTime(iso) {
