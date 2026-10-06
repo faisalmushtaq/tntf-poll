@@ -1922,7 +1922,7 @@ function adminScreen() {
       <button class="icon-btn" title="Edit ${esc(p.name)}" aria-label="Edit ${esc(p.name)}" onclick="editPlayer('${p.id}')">${ICON('icon-edit')}</button>
       <button class="icon-btn" title="+1 loyalty" onclick="adjust('${p.id}',1)">＋</button>
       <button class="icon-btn" title="-1 loyalty" onclick="adjust('${p.id}',-1)">－</button>
-      <button class="icon-btn danger" title="Delete ${esc(p.name)}" aria-label="Delete ${esc(p.name)}" onclick="removePlayer('${p.id}','${esc(p.name).replace(/'/g, "\\'")}')">${ICON('icon-trash')}</button>
+      <button class="icon-btn danger" title="Delete ${esc(p.name)}" aria-label="Delete ${esc(p.name)}" onclick="removePlayer('${p.id}')">${ICON('icon-trash')}</button>
     </div>`).join('');
 
   const mergeOptions = state.roster.map(p => `<option value="${p.id}">${esc(p.name)} (${p.gamesPlayed})</option>`).join('');
@@ -2987,7 +2987,11 @@ window.editPlayer = async (id) => {
   if (name == null || !name.trim()) return;
   try { await db.renamePlayer(id, name.trim()); toast('Name updated'); } catch (e) { toast(e.message, true); }
 };
-window.removePlayer = async (id, name) => {
+// Takes only the id: the player's name used to be pasted into the onclick
+// handler too, and a name with an apostrophe ("Lee's mate") turned it into
+// broken JavaScript — the button silently did nothing.
+window.removePlayer = async (id) => {
+  const name = state.playersById[id]?.name || 'this player';
   if (!confirm(`Remove ${name} from the roster and all game records? This can't be undone.`)) return;
   try { await db.deletePlayer(id); history = null; ensureHistory(); toast('Player removed'); } catch (e) { toast(e.message, true); }
 };
