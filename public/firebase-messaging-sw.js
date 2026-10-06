@@ -10,12 +10,16 @@ try {
   if (cfg.projectId) {
     firebase.initializeApp(cfg);
     const messaging = firebase.messaging();
+    // The notifier sends "notification" messages, which the Firebase SDK
+    // already displays itself before calling this handler — showing them here
+    // too put every alert on screen twice. So only data-only messages (no
+    // `notification` block) are ours to display.
     messaging.onBackgroundMessage(({ notification, data }) => {
-      const n = notification || data || {};
+      if (notification) return;
+      const n = data || {};
       self.registration.showNotification(n.title || 'Tuesday Night Total Football', {
         body: n.body || '',
-        icon: './icon.svg',
-        badge: './icon.svg',
+        icon: './icon-192.png', // PNG: Android can't show SVG notification icons
         data: (data && data.url) ? { url: data.url } : {},
         tag: 'tntf-status'
       });

@@ -16,6 +16,12 @@ let CLUB_NAME = 'Tuesday Night Total Football'; // set from config in main()
 // decides when a pending line-up goes out. Keep CRON_INTERVAL_MINUTES in step
 // with the cron in .github/workflows/notify.yml.
 const CRON_INTERVAL_MINUTES = 5;
+
+// The push notification icon, as a full URL. It has to be absolute: the
+// browser resolves it against the site's origin, and the app lives under
+// /tntf-poll/ on GitHub Pages, so a bare '/icon.svg' pointed at nothing. And
+// it has to be a PNG — Android doesn't show SVG notification icons.
+const PUSH_ICON = APP_URL ? `${APP_URL.replace(/\/?$/, '/')}icon-192.png` : '';
 const RUN_GAP_SAMPLES = 12;
 
 // A one-off test run, started by hand from the Actions tab with an address to
@@ -109,7 +115,7 @@ async function send(player, ev) {
       const res = await admin.messaging().sendEachForMulticast({
         tokens,
         notification: { title: ev.title, body: ev.body },
-        webpush: { notification: { icon: '/icon.svg' }, fcmOptions: APP_URL ? { link: APP_URL } : undefined }
+        webpush: { notification: PUSH_ICON ? { icon: PUSH_ICON } : {}, fcmOptions: APP_URL ? { link: APP_URL } : undefined }
       });
       console.log(`  push → ${player.name}: ${res.successCount}/${tokens.length} delivered`);
       // prune dead tokens so they don't pile up
@@ -413,7 +419,7 @@ async function selfTest(to) {
       const res = await admin.messaging().sendEachForMulticast({
         tokens,
         notification: { title: `${CLUB_NAME} — test`, body: 'Push notifications are working.' },
-        webpush: { notification: { icon: '/icon.svg' }, fcmOptions: APP_URL ? { link: APP_URL } : undefined }
+        webpush: { notification: PUSH_ICON ? { icon: PUSH_ICON } : {}, fcmOptions: APP_URL ? { link: APP_URL } : undefined }
       });
       console.log(`   ✓ test push to ${me.name}: ${res.successCount} of ${tokens.length} device(s) accepted it`);
     } catch (e) { fail(`Push failed: ${e.message}`); }
