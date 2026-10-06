@@ -80,8 +80,11 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('summer organiser entry converts from London wall clock', logic.clubDateTimeToISO('2026-07-21T20:00', cfg) === '2026-07-21T19:00:00.000Z');
   ok('winter organiser entry converts from London wall clock', logic.clubDateTimeToISO('2026-12-08T20:00', cfg) === '2026-12-08T20:00:00.000Z');
   ok('club date-time input round-trips a summer kickoff', logic.clubDateTimeInput('2026-07-21T19:00:00.000Z', cfg) === '2026-07-21T20:00');
-  ok('summer squad lock is 5pm London on the day before', logic.squadLockCutoffISO('2026-07-21T19:00:00.000Z', cfg) === '2026-07-20T16:00:00.000Z');
-  ok('winter squad lock is 5pm London on the day before', logic.squadLockCutoffISO('2026-12-08T20:00:00.000Z', cfg) === '2026-12-07T17:00:00.000Z');
+  ok('summer squad is set 10am London on the day before', logic.squadLockCutoffISO('2026-07-21T19:00:00.000Z', cfg) === '2026-07-20T09:00:00.000Z');
+  ok('winter squad is set 10am London on the day before', logic.squadLockCutoffISO('2026-12-08T20:00:00.000Z', cfg) === '2026-12-07T10:00:00.000Z');
+  ok('squad-set time is configurable', logic.squadLockCutoffISO('2026-12-08T20:00:00.000Z', { ...cfg, squadLockTime: '17:30' }) === '2026-12-07T17:30:00.000Z');
+  ok('a garbled squad-set time falls back to 10am', logic.squadLockCutoffISO('2026-12-08T20:00:00.000Z', { ...cfg, squadLockTime: '10am' }) === '2026-12-07T10:00:00.000Z');
+  ok('a config without squadLockTime (today\'s live one) gets 10am', logic.squadLockCutoffISO('2026-12-08T20:00:00.000Z', { timeZone: 'Europe/London' }) === '2026-12-07T10:00:00.000Z');
   ok('invalid organiser entry is rejected', logic.clubDateTimeToISO('not-a-date', cfg) === null);
 }
 
@@ -1020,6 +1023,43 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('retention period is adjustable', logic.proofExpired(up, new Date(now.getTime() + 8 * day), 7));
   ok('undated receipt is deleted', logic.proofExpired({}, now) && logic.proofExpired({ uploadedAt: 'garbage' }, now));
   ok('missing record counts as expired', logic.proofExpired(null, now));
+}
+
+// --- the weekly timeline: squad set Monday 10am, poll notice on time ---------
+{
+  const cfg = logic.withDefaults({ timeZone: 'Europe/London' });
+  // Tue 13 Oct 2026, 8pm BST kickoff → squad set Mon 12 Oct 10:00 BST (09:00Z).
+  const game = { id: 'g1', status: 'open', dateLabel: 'Tuesday 13 Oct', venue: 'Pitch 10', kickoffAt: '2026-10-13T19:00:00.000Z', createdAt: '2026-10-09T09:00:00.000Z' };
+  const at = s => new Date(s);
+  ok('squad-set notices not due on Sunday', !logic.squadSetDue(game, at('2026-10-11T12:00:00Z'), cfg));
+  ok('…nor at 9:59 on Monday', !logic.squadSetDue(game, at('2026-10-12T08:59:00Z'), cfg));
+  ok('…due from 10:00 on Monday', logic.squadSetDue(game, at('2026-10-12T09:00:00Z'), cfg));
+  ok('…still due later that morning (a slow notifier)', logic.squadSetDue(game, at('2026-10-12T11:30:00Z'), cfg));
+  ok('…dropped if the notifier was down over 12h (stale news)', !logic.squadSetDue(game, at('2026-10-12T21:30:00Z'), cfg));
+  ok('…never after kickoff', !logic.squadSetDue({ ...game, kickoffAt: '2026-10-12T10:00:00.000Z' }, at('2026-10-12T10:30:00Z'), cfg));
+  ok('…still sent when the organiser has locked it early', logic.squadSetDue({ ...game, status: 'locked' }, at('2026-10-12T09:05:00Z'), cfg));
+  ok('…not for a cancelled game', !logic.squadSetDue({ ...game, status: 'cancelled' }, at('2026-10-12T09:05:00Z'), cfg));
+  ok('…not for a poll opened after the deadline', !logic.squadSetDue({ ...game, createdAt: '2026-10-12T10:00:00.000Z' }, at('2026-10-12T10:05:00Z'), cfg));
+  ok('…follows a changed squad-set time', !logic.squadSetDue(game, at('2026-10-12T09:05:00Z'), { ...cfg, squadLockTime: '17:00' }) && logic.squadSetDue(game, at('2026-10-12T16:00:00Z'), { ...cfg, squadLockTime: '17:00' }));
+
+  const ranked = [
+    { playerId: 'a', status: 'confirmed' }, { playerId: 'b', status: 'confirmed' },
+    { playerId: 'c', status: 'waitlist' }, { playerId: 'd', status: 'waitlist' }
+  ];
+  const msgs = logic.squadSetMessages(ranked, game, cfg);
+  ok('everyone in the squad and on the bench gets one', msgs.map(m => m.playerId).join() === 'a,b,c,d');
+  ok('squad players hear they\'re in', /You're in/.test(msgs[0].title) && /Tuesday 13 Oct/.test(msgs[0].title));
+  ok('the message gives the kickoff in club time', /Tuesday.*20:00/.test(msgs[0].body) && /Pitch 10/.test(msgs[0].body));
+  ok('reserves hear their place in the queue', msgs[2].title.startsWith("You're reserve #1") && msgs[3].title.startsWith("You're reserve #2"));
+  ok('reserves are told they move up automatically', /move up automatically/.test(msgs[3].body));
+  ok('withdrawn or out players get nothing', logic.squadSetMessages([{ playerId: 'x', status: 'withdrawn' }], game, cfg).length === 0);
+
+  // The "poll's open" message for a scheduled opening goes out on time.
+  const now = new Date('2026-10-09T09:00:00Z');
+  const routine = logic.buildAnnouncement('poll-open', { game, recipients: [], config: cfg, sendNow: true }, now);
+  ok('scheduled poll opening: notice due immediately', routine.sendAfter === now.toISOString() && logic.announcementReady(routine, now));
+  const manual = logic.buildAnnouncement('poll-open', { game, recipients: [], config: cfg }, now);
+  ok('hand-opened poll: still held for the review window', !logic.announcementReady(manual, now) && new Date(manual.sendAfter) - now === 60 * 60000);
 }
 
 console.log(`\n${pass} checks passed ✅`);

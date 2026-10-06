@@ -14,6 +14,7 @@ export const DEFAULT_CONFIG = {
   configVersion: 4,        // bump to trigger a one-time config self-heal (see configMigrationPatch)
   pollOpenDay: 'Friday',   // the notifier auto-opens the next poll on this day…
   pollOpenTime: '10:00',   // …at this time (once last week's result is recorded)
+  squadLockTime: '10:00',  // the squad is set at this time on the day before the game (everyone's told where they stand; registration locks if it's full)
   timeZone: 'Europe/London', // club wall-clock time for schedules, labels and automated cut-offs
   announceGraceMinutes: 60, // review window before most announcement emails auto-send
   lineupHoursBefore: 2,     // the line-up email auto-sends this many hours before kickoff
@@ -691,13 +692,56 @@ export function clubDateTimeInput(iso, config = DEFAULT_CONFIG) {
   return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`;
 }
 
-// The weekly auto-lock time: 17:00 on the club-calendar day before kickoff.
+// When the squad is set each week: config.squadLockTime (default 10:00) on the
+// club-calendar day before kickoff — so Monday 10am for the usual Tuesday game.
 export function squadLockCutoffISO(kickoffAt, config = DEFAULT_CONFIG) {
   const d = new Date(kickoffAt); if (Number.isNaN(d.getTime())) return null;
-  const timeZone = clubTimeZone(config);
+  const c = withDefaults(config), timeZone = clubTimeZone(c);
   const local = zonedParts(d, timeZone);
   const prior = civilDateShift(local, -1);
-  return zonedISO({ ...prior, hour: 17, minute: 0 }, timeZone);
+  const { hour, minute } = timeParts(c.squadLockTime, 10);
+  return zonedISO({ ...prior, hour, minute }, timeZone);
+}
+
+// Should the "squad's set — here's where you stand" notices go out now? Once
+// the deadline has passed and before kickoff, for a poll that was already open
+// before the deadline (a poll opened afterwards has no "set" moment to report).
+// Only within SQUAD_SET_WINDOW_HOURS of the deadline: if the notifier was down
+// for longer, a "you're in" a day late would just confuse people.
+export const SQUAD_SET_WINDOW_HOURS = 12;
+export function squadSetDue(game, now = new Date(), config = DEFAULT_CONFIG) {
+  if (!game || !game.kickoffAt || (game.status !== 'open' && game.status !== 'locked')) return false;
+  const cutoff = new Date(squadLockCutoffISO(game.kickoffAt, config)).getTime();
+  const kickoff = new Date(game.kickoffAt).getTime();
+  const t = asTime(now);
+  if (!Number.isFinite(cutoff) || t < cutoff || t >= kickoff) return false;
+  if (t - cutoff > SQUAD_SET_WINDOW_HOURS * 3600000) return false;
+  if (game.createdAt && new Date(game.createdAt).getTime() >= cutoff) return false;
+  return true;
+}
+
+// The per-player "squad's set" messages: everyone in the squad hears they're
+// in, and each reserve hears their place in the queue. Returns
+// [{ playerId, title, heading, body }], ranked order.
+export function squadSetMessages(ranked = [], game = {}, config = DEFAULT_CONFIG) {
+  const label = game.dateLabel || 'this week';
+  const at = game.venue ? ` at ${game.venue}` : '';
+  const when = game.kickoffAt
+    ? new Date(game.kickoffAt).toLocaleString('en-GB', { weekday: 'long', hour: '2-digit', minute: '2-digit', timeZone: clubTimeZone(withDefaults(config)) })
+    : label;
+  const out = [];
+  let reserve = 0;
+  for (const r of ranked) {
+    if (r.status === 'confirmed') {
+      out.push({ playerId: r.playerId, title: `You're in ✅ — ${label}`, heading: "You're in the squad",
+        body: `The squad's set and you're in for ${when}${at}. If you can't make it any more, withdraw in the app as soon as you can so a reserve can take your place.` });
+    } else if (r.status === 'waitlist') {
+      reserve++;
+      out.push({ playerId: r.playerId, title: `You're reserve #${reserve} — ${label}`, heading: `You're reserve #${reserve}`,
+        body: `The squad's set for ${when}${at}, and you're reserve #${reserve}. If someone drops out you'll move up automatically, and we'll tell you straight away.` });
+    }
+  }
+  return out;
 }
 
 export function nextKickoffISO(config = DEFAULT_CONFIG, now = new Date()) {
@@ -769,7 +813,10 @@ export function pastKickoff(game, now = new Date()) {
 // sends early, or holds. If untouched it auto-sends once the grace window
 // elapses. `kind` is one of: 'poll-open' | 'reschedule' | 'cancellation' |
 // 'lineup'. `teams` (line-up only) is { bibs: [names], nonbibs: [names] }.
-export function buildAnnouncement(kind, { game = {}, recipients = [], config = {}, teams = null, reserves = [] } = {}, now = new Date()) {
+// `sendNow`: skip the review window and send on the next notifier run — used
+// when the weekly poll opens itself at its scheduled time, so the "poll's open"
+// message goes out at that time rather than an hour later.
+export function buildAnnouncement(kind, { game = {}, recipients = [], config = {}, teams = null, reserves = [], sendNow = false } = {}, now = new Date()) {
   const c = withDefaults(config);
   // A published line-up can contain more or fewer players than the stored game
   // capacity. Price the announcement from the actual unique team-sheet size.
@@ -787,7 +834,7 @@ export function buildAnnouncement(kind, { game = {}, recipients = [], config = {
     const h = Number.isFinite(lead) && lead >= 0 ? lead : 2;
     sendAfter = new Date(new Date(game.kickoffAt).getTime() - h * 3600000).toISOString();
   } else {
-    sendAfter = new Date(now.getTime() + mins * 60000).toISOString();
+    sendAfter = new Date(now.getTime() + (sendNow ? 0 : mins) * 60000).toISOString();
   }
   return {
     kind: kind || 'poll-open',

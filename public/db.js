@@ -311,7 +311,7 @@ function createLocalDB() {
         signups: [], createdAt: new Date().toISOString(), autoOpened: true
       };
       db.games.push(game); db.currentGameId = game.id; db.config.autoOpenedKickoff = plan.kickoffAt;
-      db.announcement = logic.buildAnnouncement('poll-open', { game, recipients: Object.values(db.players), config: db.config });
+      db.announcement = logic.buildAnnouncement('poll-open', { game, recipients: Object.values(db.players), config: db.config, sendNow: true });
       persist();
       return { id: game.id, kickoffAt: plan.kickoffAt, dateLabel: plan.dateLabel };
     },
@@ -798,7 +798,8 @@ async function createFirestoreDB() {
       });
       if (res) {
         const game = { id: res.id, dateLabel: res.dateLabel, kickoffAt: res.kickoffAt, capacity: Number(cfg().capacity) || 14, venue: cfg().venue || '' };
-        try { await setDoc(announceRef, logic.buildAnnouncement('poll-open', { game, recipients: Object.values(cache.players), config: cfg() })); } catch (e) { /* announcement is best-effort */ }
+        // Opened on schedule, so the "poll's open" message isn't held for review.
+        try { await setDoc(announceRef, logic.buildAnnouncement('poll-open', { game, recipients: Object.values(cache.players), config: cfg(), sendNow: true })); } catch (e) { /* announcement is best-effort */ }
       }
       return res;
     },
