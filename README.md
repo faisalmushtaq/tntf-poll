@@ -102,13 +102,20 @@ alerted when a game **opens**, is **rescheduled** (moved day/time/venue), is
 **called off** for the week, or when the **line-up** is sent — each held for the
 organiser to approve first (see below). Emails are styled to match the site.
 
-**The poll opens itself.** Set a day and time in **Organiser → Settings**
-(defaults to **Friday 10am**) and the notifier puts the next poll out at that
-moment — as long as last week's result is already in (so mark the game as played
-first; that's what banks loyalty). The previous poll **closes automatically once
-its game kicks off**. You can still open a game by hand any time.
+**The weekly timeline runs itself** (all times editable in **Organiser → Settings**):
 
-**You approve every group announcement before it goes out.** Opening a poll,
+| When | What happens |
+|---|---|
+| **Friday 10am** | The next poll opens and **everyone is told straight away** — as long as last week's result is in (mark the game as played first; that's what banks loyalty). |
+| **Monday 10am** (the day before the game) | **The squad is set.** Everyone in it gets a "you're in", and each reserve their place in the queue (#1, #2…). If the squad's full, registration locks; if not, it stays open so late sign-ups can fill the gaps. |
+| **2 hours before kick-off** | The line-up goes out (unless you send or hold it sooner). |
+| **Kick-off** | Registration closes. |
+
+You can still open a game by hand any time. These run on the notifier, so they
+happen on time only if it runs every few minutes — see the external timer under
+*Turn on notifications* below.
+
+**You approve every other group announcement before it goes out.** Opening a poll by hand,
 **moving** the day/time/venue, or **calling off** the week stages an
 announcement in **Organiser** for review. You see the exact message and the
 recipient list (tap to expand and untick anyone), then **Send now** or **Hold**
@@ -238,6 +245,31 @@ runs show a yellow warning rather than quietly doing nothing.
 > **Before switching it on for the first time,** check **Organiser** for a
 > pending announcement. The first working run sends anything still waiting,
 > however old — tap **Hold** on anything that's out of date.
+
+#### Keep it on time: an external timer (recommended)
+
+GitHub treats a 5-minute schedule as best-effort and, on a quiet repo, often runs
+it only every few hours — we've seen gaps of over six. Runs *started on request*
+aren't held back like that, so a free external timer can start the notifier
+every 5 minutes instead. GitHub's own schedule stays on as a backup. (Free on a
+public repo: Actions minutes are unlimited.)
+
+1. **A key that can only start this repo's workflows.** GitHub → Settings →
+   Developer settings → [Fine-grained tokens → Generate new
+   token](https://github.com/settings/personal-access-tokens/new). Repository
+   access: *Only select repositories* → this repo. Repository permissions →
+   **Actions: Read and write**. Nothing else. Expiry: a year (set a reminder).
+2. **The timer.** At [cron-job.org](https://cron-job.org) (free) → *Create
+   cronjob*:
+   - URL: `https://api.github.com/repos/<username>/tntf-poll/actions/workflows/notify.yml/dispatches`
+   - Schedule: every 5 minutes
+   - Advanced → Request method `POST`; body `{"ref":"main"}`; headers
+     `Authorization: Bearer <the token>`, `Accept: application/vnd.github+json`,
+     `X-GitHub-Api-Version: 2022-11-28`
+   - Save. A test run should answer **204**.
+
+Within a few minutes the Actions tab shows *Send notifications* runs marked
+`workflow_dispatch` every 5 minutes.
 
 **Auto-open is also backed up client-side:** GitHub's scheduler is throttled and
 can lag, so as a safety net the app itself opens the poll the moment anyone

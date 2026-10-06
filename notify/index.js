@@ -178,9 +178,10 @@ async function main() {
     autoOpenedKickoff = plan.kickoffAt;
     gameId = newRef.id;
     game = { id: newRef.id, ...(await newRef.get()).data() };
-    // Stage the "poll's open" announcement for organiser review. It auto-sends
-    // once the grace window (config.announceGraceMinutes) elapses.
-    await db.doc('meta/announcement').set(logic.buildAnnouncement('poll-open', { game, recipients: Object.values(players), config }));
+    // The weekly poll opening on schedule is routine, so its "poll's open"
+    // message goes out now (processAnnouncement below, this same run) rather
+    // than waiting out the review window — people hear at the advertised time.
+    await db.doc('meta/announcement').set(logic.buildAnnouncement('poll-open', { game, recipients: Object.values(players), config, sendNow: true }));
     console.log(`Auto-opened poll for ${plan.dateLabel} (kickoff ${plan.kickoffAt}). Announcement staged.`);
   }
 
@@ -233,8 +234,21 @@ async function main() {
 
   for (const ev of events) await send(players[ev.playerId], ev);
 
-  // Auto-close: once we're past the day-before-5pm cutoff and the squad is
-  // full, lock registration and send the organiser the squad list (once).
+  // Squad set: at the deadline (config.squadLockTime on the day before — Monday
+  // 10am for a Tuesday game) tell everyone where they stand, once per game:
+  // "you're in" to the squad, "you're reserve #n" to the bench. Sent whether or
+  // not the squad is full; if it isn't, registration stays open below so late
+  // sign-ups can still fill the gaps.
+  let squadSetGameId = notify.squadSetGameId || null;
+  if (squadSetGameId !== gameId && logic.squadSetDue(game, new Date(), config)) {
+    const notices = logic.squadSetMessages(ranked, game, config);
+    console.log(`Squad set — confirming ${notices.length} player(s) (squad + reserves).`);
+    for (const n of notices) await send(players[n.playerId], n);
+    squadSetGameId = gameId;
+  }
+
+  // Auto-close: once we're past that deadline and the squad is full, lock
+  // registration and send the organiser the squad list (once).
   let autoLockedGameId = notify.autoLockedGameId || null;
   const confirmed = ranked.filter(r => r.status === 'confirmed');
   const cutoff = new Date(logic.squadLockCutoffISO(game.kickoffAt, config));
@@ -255,7 +269,7 @@ async function main() {
     }
   }
 
-  await notifyRef.set({ lastGameId: gameId, statuses: curr, autoLockedGameId, autoOpenedKickoff, kickoffAt: game.kickoffAt || null, venue: game.venue || '', ...runStats, updatedAt: new Date().toISOString() });
+  await notifyRef.set({ lastGameId: gameId, statuses: curr, autoLockedGameId, squadSetGameId, autoOpenedKickoff, kickoffAt: game.kickoffAt || null, venue: game.venue || '', ...runStats, updatedAt: new Date().toISOString() });
   console.log('Done.');
 }
 

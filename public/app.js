@@ -947,7 +947,7 @@ function rulesScreen() {
     <h2>The system</h2>
     <p class="hint">Built from the group's suggestions — rewards regulars, kills the tap-race, and only penalises dropouts fairly.</p>
     <div class="section-title" style="margin-top:6px">1 · Consistent timing</div>
-    <p class="small">The poll opens at a set time each week, so nobody misses out for being on the pitch or driving home. It auto-closes once we've got enough by ${esc(prevDay(state.config.gameDay))} 5pm, and the squad is set.</p>
+    <p class="small">The poll opens at a set time each week, so nobody misses out for being on the pitch or driving home. The squad is set at ${esc(state.config.squadLockTime || '10:00')} on ${esc(prevDay(state.config.gameDay))}: everyone hears whether they're in or which reserve they are, and registration closes if we've got enough (if not, it stays open for anyone who can fill a gap).</p>
     <div class="section-title">2 · Loyalty, not speed</div>
     <p class="small">When more than ${cap} sign up, the squad is the top ${cap} by loyalty score. Signing up first doesn't jump the queue — a regular who signs up late still ranks above a casual. Everyone else goes on the reserves, in loyalty order, and moves up automatically if someone drops out.</p>
     <div class="section-title">3 · Be prompt, or your loyalty counts less</div>
@@ -1003,7 +1003,7 @@ function rulesScreen() {
   </div>`;
 }
 
-// Day before the game day, for the "closes X 5pm" copy.
+// Day before the game day, for the "squad is set on X" copy.
 function prevDay(day) {
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const i = days.indexOf(day);
@@ -2013,9 +2013,11 @@ function adminScreen() {
           <select id="cOpenDay">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `<option ${d === (state.config.pollOpenDay || 'Friday') ? 'selected' : ''}>${d}</option>`).join('')}</select>
           <input id="cOpenTime" value="${esc(state.config.pollOpenTime || '10:00')}" placeholder="HH:MM" />
         </div>
+        <label class="field">Squad is set the day before the game at</label><input id="cLockTime" value="${esc(state.config.squadLockTime || '10:00')}" placeholder="HH:MM" />
+        <p class="small">At this time everyone in the squad gets a "you're in" and each reserve their place in the queue. Registration locks if the squad's full; if not, it stays open so late sign-ups can fill the gaps.</p>
         <label class="field">Minutes to review the announcement before it auto-sends</label><input id="cGrace" type="number" min="0" value="${state.config.announceGraceMinutes ?? 60}" />
         <label class="field">Hours before kick-off to send the line-up</label><input id="cLineupH" type="number" min="0" step="0.5" value="${state.config.lineupHoursBefore ?? 2}" />
-        <p class="small">The robot puts the next poll out at this day and time (once last week's result is in), then the announcement waits here for you to review before it auto-sends. The previous poll closes when that game kicks off.</p>
+        <p class="small">The robot puts the next poll out at this day and time (once last week's result is in) and tells everyone straight away. Polls you open by hand, and other announcements, wait here for you to review before they auto-send. The previous poll closes when that game kicks off.</p>
         <label class="field">Your email (for the auto-close squad alert)</label><input id="cOrg" type="email" value="${esc(state.config.organiserEmail || '')}" placeholder="you@email.com" />
       </details>
 
@@ -3148,6 +3150,7 @@ window.saveConfig = async () => {
     timeZone: document.getElementById('cTimeZone').value.trim(),
     pollOpenDay: document.getElementById('cOpenDay').value,
     pollOpenTime: document.getElementById('cOpenTime').value.trim(),
+    squadLockTime: document.getElementById('cLockTime').value.trim(),
     announceGraceMinutes: Number(document.getElementById('cGrace').value),
     lineupHoursBefore: Number(document.getElementById('cLineupH').value),
     pitchCost: Number(document.getElementById('cPitchCost').value),
@@ -3168,6 +3171,11 @@ window.saveConfig = async () => {
   if (pin) patch.adminPin = pin;
   const spin = document.getElementById('cStatto').value.trim();
   if (spin) patch.stattoPin = spin;
+  // Times are read as 24-hour HH:MM everywhere; refuse anything else rather
+  // than save something the schedule would quietly misread.
+  const badTime = [['kickoff', 'Kickoff'], ['pollOpenTime', 'Poll opening time'], ['squadLockTime', 'Squad-set time']]
+    .find(([k]) => !/^([01]?\d|2[0-3]):[0-5]\d$/.test(patch[k]));
+  if (badTime) return toast(`${badTime[1]} must be a 24-hour time like 10:00`, true);
   try { weatherCache = {}; await db.updateConfig(patch); render(); toast('Settings saved'); }
   catch (e) { toast(e.message, true); }
 };
