@@ -224,6 +224,83 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('lineup lead time is configurable', new Date(line1.sendAfter).getTime() === new Date(game.kickoffAt).getTime() - 1 * 3600000);
   ok('lineup heading is just "Line-up"', lc.heading === 'Line-up');
 
+  // --- a throttled notifier must not strand the line-up past kick-off -------
+  // GitHub deprioritises scheduled workflows on quiet repos, so the every-5-min
+  // cron can really be every few hours. The line-up's window is only 2h wide by
+  // default, so waiting for sendAfter can mean never sending at all.
+  {
+    const kickoff = new Date(game.kickoffAt).getTime();
+    const at = ms => new Date(kickoff + ms);
+    const healthy = { nextRunMinutes: 5 };
+    const throttled = { nextRunMinutes: 240 };  // 4h between runs
+
+    ok('estimate falls back to the nominal interval with no history',
+      logic.nextRunEstimateMinutes([], 5) === 5);
+    ok('estimate takes the worst recent gap while samples are few',
+      logic.nextRunEstimateMinutes([6, 190, 42], 5) === 190);
+    ok('estimate never dips below the nominal interval',
+      logic.nextRunEstimateMinutes([1, 2], 5) === 5);
+    ok('estimate ignores junk values',
+      logic.nextRunEstimateMinutes([null, -3, 'x', 30], 5) === 30);
+    ok('estimate is capped so a wild sample cannot dominate',
+      logic.nextRunEstimateMinutes([60 * 24 * 14], 5) === logic.MAX_RUN_ESTIMATE_MINUTES);
+    // With enough samples the single worst is discarded, so one outage doesn't
+    // leave us sending line-ups half a day early for the next dozen runs.
+    ok('estimate discards the worst of several samples',
+      logic.nextRunEstimateMinutes([100, 200, 300, 60 * 24 * 14], 5) === 300);
+    ok('estimate trims only once, keeping the rest conservative',
+      logic.nextRunEstimateMinutes([100, 200, 300, 9999, 9999], 5) === 9999
+        ? false : logic.nextRunEstimateMinutes([100, 200, 300, 9999, 9999], 5) === logic.MAX_RUN_ESTIMATE_MINUTES);
+    ok('estimate on the real measured cadence clears a 2h line-up window',
+      logic.nextRunEstimateMinutes([197, 412, 100, 241, 322, 206, 137, 348, 294], 5) === 348);
+
+    // 6h before kickoff: nothing is due yet either way.
+    ok('healthy notifier holds the line-up 6h out',
+      !logic.announcementReady(line, at(-6 * 3600000), healthy));
+    ok('throttled notifier still holds the line-up 6h out',
+      !logic.announcementReady(line, at(-6 * 3600000), throttled));
+
+    // 3h before kickoff: sendAfter is 2h before, so the plain rule says "hold".
+    // A 4h-gap notifier won't be back in time, so it must send now.
+    ok('healthy notifier holds until its send time',
+      !logic.announcementReady(line, at(-3 * 3600000), healthy));
+    ok('throttled notifier sends early rather than miss kick-off',
+      logic.announcementReady(line, at(-3 * 3600000), throttled));
+    ok('the early-send branch is what fired',
+      logic.announcementDeadlineDue(line, at(-3 * 3600000), throttled));
+
+    // Past its send time, both send — the normal path is unchanged.
+    ok('healthy notifier sends once its send time arrives',
+      logic.announcementReady(line, at(-1 * 3600000), healthy));
+
+    // No estimate supplied → exactly the old behaviour, so the browser (which
+    // can't read meta/notify) sees no change.
+    ok('no estimate means the plain grace-window rule',
+      !logic.announcementReady(line, at(-3 * 3600000)));
+
+    // The early send is for the line-up only: the others have no hard deadline.
+    ok('poll-open is never sent early', !logic.announcementDeadlineDue(ann, now, throttled));
+    ok('reschedule is never sent early', !logic.announcementDeadlineDue(resc, now, throttled));
+    ok('a held announcement is never sent early',
+      !logic.announcementReady({ ...line, status: 'held' }, at(-3 * 3600000), throttled));
+
+    // --- what the organiser's card says about a late notifier ---------------
+    ok('progress: held before its send time',
+      logic.announcementProgress(line, at(-3 * 3600000)).state === 'held');
+    ok('progress: due right on its send time',
+      logic.announcementProgress(line, at(-2 * 3600000)).state === 'due');
+    ok('progress: still due a few minutes later',
+      logic.announcementProgress(line, at(-2 * 3600000 + 5 * 60000)).state === 'due');
+    const lateP = logic.announcementProgress(line, at(-30 * 60000));
+    ok('progress: late once well past its send time', lateP.state === 'late');
+    ok('progress: reports how overdue it is', lateP.overdueMinutes === 90);
+    ok('progress: counts down to kick-off', lateP.minutesToKickoff === 30);
+    ok('progress: missed once kick-off has gone',
+      logic.announcementProgress(line, at(10 * 60000)).state === 'missed');
+    ok('progress: nothing to report once sent',
+      logic.announcementProgress({ ...line, status: 'sent' }, at(-30 * 60000)) === null);
+  }
+
   // reserves + per-player pitch cost
   const gameCap = { id: 'g9', dateLabel: 'Tue 21', kickoffAt: '2026-07-21T19:00:00Z', venue: 'Pitch 10', capacity: 14 };
   const withCost = logic.buildAnnouncement('lineup', {
@@ -885,6 +962,64 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
     guests.guest_abc && guests.guest_abc.name === 'Sam Guest' && guests.guest_abc.guest === true);
   ok('guest match records have no loyalty or account history',
     guests.guest_abc.loyalty === 0 && guests.guest_abc.gamesPlayed === 0 && guests.guest_abc.dropouts === 0);
+}
+
+// --- proof of payment --------------------------------------------------------
+{
+  const jpeg = 'data:image/jpeg;base64,' + 'A'.repeat(1000) + '==';
+  const now = new Date('2026-09-29T17:30:00Z');
+
+  // Sizing: shrink the long edge, keep the ratio, never enlarge.
+  const phone = logic.proofDimensions(1179, 2556); // iPhone screenshot
+  ok('tall screenshot shrinks to the max long edge', phone.height === logic.PROOF_MAX_EDGE);
+  ok('aspect ratio is kept', Math.abs(phone.width / phone.height - 1179 / 2556) < 0.01);
+  const wide = logic.proofDimensions(4032, 3024, 1000); // camera photo, landscape
+  ok('wide photo shrinks by its width', wide.width === 1000 && wide.height === 750);
+  const small = logic.proofDimensions(600, 400);
+  ok('small image is never enlarged', small.width === 600 && small.height === 400);
+  ok('broken dimensions still give a drawable size', logic.proofDimensions(0, NaN).width === 1);
+
+  // Only sane raster data URLs are accepted or shown.
+  ok('jpeg data URL accepted', logic.isProofDataUrl(jpeg));
+  ok('png data URL accepted', logic.isProofDataUrl('data:image/png;base64,iVBORw0KGgo='));
+  ok('svg refused (can carry script)', !logic.isProofDataUrl('data:image/svg+xml;base64,PHN2Zz4='));
+  ok('remote URL refused', !logic.isProofDataUrl('https://example.com/x.jpg'));
+  ok('attribute breakout refused', !logic.isProofDataUrl('data:image/jpeg;base64,AAA" onerror="alert(1)'));
+  ok('empty canvas output refused', !logic.isProofDataUrl('data:,'));
+  ok('oversized image refused',
+    !logic.isProofDataUrl('data:image/jpeg;base64,' + 'A'.repeat(logic.PROOF_MAX_CHARS)));
+  ok('non-strings refused', !logic.isProofDataUrl(null) && !logic.isProofDataUrl({}));
+
+  // The stored record: exactly the fields the Firestore rule allows.
+  const rec = logic.buildProofRecord({ image: jpeg, uid: 'uid-1', width: 740.4, height: 1600 }, now);
+  ok('record keeps the image', rec.image === jpeg);
+  ok('record notes the type', rec.type === 'image/jpeg');
+  ok('record stamps the upload time', rec.uploadedAt === now.toISOString());
+  ok('record carries the uploader uid (checked by the rules)', rec.uid === 'uid-1');
+  ok('record rounds dimensions', rec.width === 740 && rec.height === 1600);
+  ok('record has only the fields the rules allow',
+    Object.keys(rec).sort().join() === ['height', 'image', 'type', 'uid', 'uploadedAt', 'width'].join());
+  let threw = false;
+  try { logic.buildProofRecord({ image: 'https://example.com/x.jpg' }); } catch { threw = true; }
+  ok('building a record from a bad image throws', threw);
+
+  // Uploading ticks the player off.
+  const patch = logic.proofSignupPatch(now);
+  ok('upload marks the player paid', patch.paid === true);
+  ok('upload records when', patch.paidAt === now.toISOString() && patch.proofAt === now.toISOString());
+
+  // Receipts are kept for a month, then deleted by the notifier.
+  const day = 86400000;
+  const up = { uploadedAt: now.toISOString() };
+  ok('retention is a month', logic.PROOF_RETENTION_DAYS === 30);
+  ok('fresh receipt is kept', !logic.proofExpired(up, now));
+  ok('receipt kept at 29 days', !logic.proofExpired(up, new Date(now.getTime() + 29 * day)));
+  ok('receipt kept a minute before 30 days', !logic.proofExpired(up, new Date(now.getTime() + 30 * day - 60000)));
+  ok('receipt deleted at 30 days', logic.proofExpired(up, new Date(now.getTime() + 30 * day)));
+  ok('receipt deleted at 90 days', logic.proofExpired(up, new Date(now.getTime() + 90 * day)));
+  ok('retention period is adjustable', logic.proofExpired(up, new Date(now.getTime() + 8 * day), 7));
+  ok('undated receipt is deleted', logic.proofExpired({}, now) && logic.proofExpired({ uploadedAt: 'garbage' }, now));
+  ok('missing record counts as expired', logic.proofExpired(null, now));
 }
 
 console.log(`\n${pass} checks passed ✅`);

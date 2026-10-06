@@ -383,6 +383,29 @@ function createLocalDB() {
       s.paid = !!paid; s.paidAt = paid ? new Date().toISOString() : null;
       persist();
     },
+    // Proof of payment (a screenshot/photo). Stored beside the game, ticks the
+    // player off as paid in the same step. See logic.buildProofRecord.
+    async uploadPaymentProof(playerId, gameId, proof) {
+      const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
+      const record = logic.buildProofRecord(proof);
+      let s = g.signups.find(x => x.playerId === playerId && x.status !== 'withdrawn');
+      if (!s) { s = { playerId, status: 'in', joinedAt: new Date().toISOString() }; g.signups.push(s); }
+      Object.assign(s, logic.proofSignupPatch(new Date(record.uploadedAt)));
+      ((db.proofs ||= {})[gameId] ||= {})[playerId] = record;
+      persist();
+    },
+    async getPaymentProof(playerId, gameId) {
+      return (db.proofs && db.proofs[gameId] && db.proofs[gameId][playerId]) || null;
+    },
+    // Taking a proof down (the wrong picture, say) also un-ticks the payment it
+    // was vouching for.
+    async removePaymentProof(playerId, gameId) {
+      const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
+      if (db.proofs && db.proofs[gameId]) delete db.proofs[gameId][playerId];
+      const s = g.signups.find(x => x.playerId === playerId && x.status !== 'withdrawn');
+      if (s) { s.paid = false; s.paidAt = null; s.proofAt = null; }
+      persist();
+    },
     async lockGame(id) { db.games.find(g => g.id === id).status = 'locked'; persist(); },
     async reopenGame(id) { db.games.find(g => g.id === id).status = 'open'; persist(); },
     async setCapacity(id, capacity) { const g = db.games.find(x => x.id === id); if (g) { g.capacity = Math.max(2, Number(capacity) || 0); g.capacityLocked = true; persist(); } },
@@ -550,6 +573,7 @@ async function createFirestoreDB() {
   const playersCol = collection(dbf, 'players');
   const gameRef = id => doc(dbf, 'games', id);
   const signupsCol = id => collection(dbf, 'games', id, 'signups');
+  const proofRef = (gameId, playerId) => doc(dbf, 'games', gameId, 'proofs', playerId);
 
   // First-run seed: create config + roster if they don't exist yet.
   const cfgSnap = await getDoc(cfgRef);
@@ -827,6 +851,31 @@ async function createFirestoreDB() {
       const snap = await getDoc(ref);
       if (!snap.exists()) { patch.status = 'in'; patch.joinedAt = new Date().toISOString(); }
       await setDoc(ref, patch, { merge: true });
+    },
+    // Proof of payment. The image and the "paid" tick are written in one batch,
+    // so if the security rules refuse the image (not signed in as this player,
+    // or the rules haven't been published yet) nobody is ticked off without it.
+    async uploadPaymentProof(playerId, gameId, proof) {
+      const record = logic.buildProofRecord(proof);
+      const ref = doc(signupsCol(gameId), playerId);
+      const patch = logic.proofSignupPatch(new Date(record.uploadedAt));
+      const snap = await getDoc(ref);
+      if (!snap.exists()) { patch.status = 'in'; patch.joinedAt = record.uploadedAt; }
+      const batch = writeBatch(dbf);
+      batch.set(proofRef(gameId, playerId), record);
+      batch.set(ref, patch, { merge: true });
+      await batch.commit();
+    },
+    // Fetched on demand (not part of the live listener) — images are big.
+    async getPaymentProof(playerId, gameId) {
+      const snap = await getDoc(proofRef(gameId, playerId));
+      return snap.exists() ? snap.data() : null;
+    },
+    async removePaymentProof(playerId, gameId) {
+      const batch = writeBatch(dbf);
+      batch.delete(proofRef(gameId, playerId));
+      batch.set(doc(signupsCol(gameId), playerId), { paid: false, paidAt: null, proofAt: null }, { merge: true });
+      await batch.commit();
     },
     async lockGame(id) { await updateDoc(gameRef(id), { status: 'locked' }); },
     async setCapacity(id, capacity) { await updateDoc(gameRef(id), { capacity: Math.max(2, Number(capacity) || 0), capacityLocked: true }); },

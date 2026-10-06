@@ -10,6 +10,14 @@ import * as logic from '../public/logic.js';
 const APP_URL = process.env.APP_URL || '';
 let CLUB_NAME = 'Tuesday Night Total Football'; // set from config in main()
 
+// The cron interval notify.yml asks for, and how many run-to-run gaps we keep in
+// meta/notify. GitHub rarely honours a 5-minute schedule on a quiet repository,
+// so these feed the "will I get another run before kick-off?" estimate that
+// decides when a pending line-up goes out. Keep CRON_INTERVAL_MINUTES in step
+// with the cron in .github/workflows/notify.yml.
+const CRON_INTERVAL_MINUTES = 5;
+const RUN_GAP_SAMPLES = 12;
+
 // --- Firebase Admin (service account from a GitHub secret) ------------------
 // If the notifier isn't configured yet, skip cleanly (exit 0) so the scheduled
 // run doesn't fail and spam the repo owner with failure emails.
@@ -116,6 +124,24 @@ async function main() {
   const notify = (await notifyRef.get()).data() || { lastGameId: null, statuses: {} };
   let autoOpenedKickoff = notify.autoOpenedKickoff || null;
 
+  // How often do we *actually* get to run? notify.yml asks for every 5 minutes,
+  // but GitHub throttles scheduled workflows on repositories with no recent
+  // pushes, so the true gap can be hours. Record each run and keep a short
+  // history of the gaps: that's what tells us whether we can afford to sit on a
+  // pending line-up until its send time, or had better get it out now.
+  // `runStats` rides along on every write to this doc below, including the
+  // early-return paths, so the history survives a quiet week.
+  const runAt = new Date();
+  const lastRunAt = notify.lastRunAt ? new Date(notify.lastRunAt) : null;
+  const gapMinutes = lastRunAt ? Math.round((runAt - lastRunAt) / 60000) : null;
+  const runGaps = [...(Array.isArray(notify.runGaps) ? notify.runGaps : [])];
+  if (gapMinutes > 0) runGaps.push(gapMinutes);
+  const runStats = { lastRunAt: runAt.toISOString(), runGaps: runGaps.slice(-RUN_GAP_SAMPLES) };
+  const nextRunMinutes = logic.nextRunEstimateMinutes(runStats.runGaps, CRON_INTERVAL_MINUTES);
+  console.log(gapMinutes == null
+    ? `First recorded run; assuming up to ${nextRunMinutes} min until the next one.`
+    : `Last run ${gapMinutes} min ago; assuming up to ${nextRunMinutes} min until the next one.`);
+
   // Read the current game (if any) up front — the auto-opener needs to know
   // whether last week's game is settled before it puts out a fresh poll.
   let gameSnap = gameId ? await db.doc(`games/${gameId}`).get() : null;
@@ -143,20 +169,25 @@ async function main() {
   }
 
   // Send (or drop) the pending "poll's open" announcement, held for review.
-  await processAnnouncement(gameId, game, players);
+  await processAnnouncement(gameId, game, players, nextRunMinutes);
+
+  // Delete payment receipts past their retention period. Best-effort: a
+  // failure here must never stop the notifications below.
+  try { await purgeExpiredProofs(); }
+  catch (e) { console.error('Receipt clean-up failed (will retry next run):', e.message); }
 
   // No open game → reset the marker so the next open triggers a fresh alert.
-  if (!gameId) { await notifyRef.set({ lastGameId: null, statuses: {}, autoOpenedKickoff }, { merge: true }); console.log('No open game.'); return; }
+  if (!gameId) { await notifyRef.set({ lastGameId: null, statuses: {}, autoOpenedKickoff, ...runStats }, { merge: true }); console.log('No open game.'); return; }
 
   if (!game || game.status === 'completed') {
-    await notifyRef.set({ lastGameId: gameId, statuses: {}, autoOpenedKickoff }, { merge: true });
+    await notifyRef.set({ lastGameId: gameId, statuses: {}, autoOpenedKickoff, ...runStats }, { merge: true });
     console.log('Game not active.'); return;
   }
 
   // Game called off → the "no game this week" broadcast is a staged
   // announcement (handled above by processAnnouncement); just go quiet here.
   if (game.status === 'cancelled') {
-    await notifyRef.set({ lastGameId: gameId, statuses: {}, noticeGameId: gameId, autoOpenedKickoff }, { merge: true });
+    await notifyRef.set({ lastGameId: gameId, statuses: {}, noticeGameId: gameId, autoOpenedKickoff, ...runStats }, { merge: true });
     console.log('Done (cancelled).'); return;
   }
   // "Game moved" (reschedule) and "line-up" broadcasts are also staged
@@ -208,7 +239,7 @@ async function main() {
     }
   }
 
-  await notifyRef.set({ lastGameId: gameId, statuses: curr, autoLockedGameId, autoOpenedKickoff, kickoffAt: game.kickoffAt || null, venue: game.venue || '', updatedAt: new Date().toISOString() });
+  await notifyRef.set({ lastGameId: gameId, statuses: curr, autoLockedGameId, autoOpenedKickoff, kickoffAt: game.kickoffAt || null, venue: game.venue || '', ...runStats, updatedAt: new Date().toISOString() });
   console.log('Done.');
 }
 
@@ -216,7 +247,10 @@ async function main() {
 // or the line-up) once its grace window elapses — or the organiser sent it
 // early — to the recipients they didn't deselect. If the game it was for is no
 // longer in the matching state, drop it unsent.
-async function processAnnouncement(gameId, game, players) {
+// `nextRunMinutes` is how long we think it'll be before we run again; it lets a
+// pending line-up go out early rather than be stranded past kick-off by a slow
+// scheduler (see logic.announcementDeadlineDue).
+async function processAnnouncement(gameId, game, players, nextRunMinutes) {
   const ref = db.doc('meta/announcement');
   const snap = await ref.get();
   const ann = snap.exists ? snap.data() : null;
@@ -227,9 +261,16 @@ async function processAnnouncement(gameId, game, players) {
     console.log(`Announcement (${ann.kind}) dropped — its game is no longer in the matching state.`);
     return;
   }
-  if (!logic.announcementReady(ann, new Date())) {
+  const now = new Date();
+  if (!logic.announcementReady(ann, now, { nextRunMinutes })) {
     console.log(`Announcement (${ann.kind}) held — grace window until ${ann.sendAfter}.`);
     return;
+  }
+  // Going out ahead of its send time because we might not get another run before
+  // kick-off. Recorded on the doc so it's clear afterwards why it arrived early.
+  const early = new Date(ann.sendAfter) > now;
+  if (early) {
+    console.log(`Announcement (${ann.kind}) sent EARLY — kick-off ${ann.kickoffAt} is nearer than the next expected run (~${nextRunMinutes} min), so waiting until ${ann.sendAfter} risked missing it.`);
   }
 
   const content = logic.announcementContent(ann, CLUB_NAME);
@@ -241,8 +282,36 @@ async function processAnnouncement(gameId, game, players) {
     const p = players[r.id] || { id: r.id, name: r.name, email: r.email };
     await send(p, { title: content.subject, heading: content.heading, body, bodyHtml });
   }
-  await ref.set({ status: 'sent', sentAt: new Date().toISOString(), sentCount: audience.length }, { merge: true });
+  await ref.set({ status: 'sent', sentAt: new Date().toISOString(), sentCount: audience.length, sentEarly: early }, { merge: true });
   console.log('Announcement sent.');
+}
+
+// Proof-of-payment receipts are bank screenshots, so each is deleted
+// logic.PROOF_RETENTION_DAYS after upload. We walk every game's proofs
+// subcollection rather than use a collection-group query, which would need a
+// Firestore index setting up by hand; with one game a week that's a few dozen
+// small queries a run. `select` fetches only the upload time, not the image.
+// The sign-up keeps its paid tick — only the picture goes — and loses its
+// proofAt so the app doesn't offer to show a receipt that's gone.
+async function purgeExpiredProofs() {
+  const now = new Date();
+  const gameRefs = await db.collection('games').listDocuments();
+  let removed = 0;
+  for (const gameRef of gameRefs) {
+    const snap = await gameRef.collection('proofs').select('uploadedAt').get();
+    for (const doc of snap.docs) {
+      if (!logic.proofExpired(doc.data(), now)) continue;
+      const signupRef = gameRef.collection('signups').doc(doc.id);
+      const batch = db.batch();
+      batch.delete(doc.ref);
+      // update(), not set(): if the sign-up is gone (player merged or removed)
+      // there's nothing to tidy, and we mustn't resurrect a stub record.
+      if ((await signupRef.get()).exists) batch.update(signupRef, { proofAt: admin.firestore.FieldValue.delete() });
+      await batch.commit();
+      removed++;
+    }
+  }
+  if (removed) console.log(`Deleted ${removed} payment receipt(s) older than ${logic.PROOF_RETENTION_DAYS} days.`);
 }
 
 // Email + push the finalised squad to the organiser.

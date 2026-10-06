@@ -41,6 +41,8 @@ let adminUnlocked = false;
 let adminTab = 'week';         // organiser sub-nav: week | matches | players | settings
 let adminMatchId = null;       // which past match the organiser is editing (matches tab)
 let pendingAction = null;      // 'in' | 'out' — two-tap confirm for sign-up / withdraw
+let proofUploading = false;    // a proof-of-payment picture is being shrunk/uploaded
+let proofView = null;          // open proof viewer: { playerId, gameId, name, loading, record, error }
 let stattoUnlocked = false;    // stats-keeper role unlocked this session?
 let stattoGameId = null;       // which game the statto is editing
 let importDraft = null;        // { text, targetGameId, resolved } — stats import preview
@@ -155,8 +157,8 @@ function buildView() {
     const ranked = logic.rankSignups(lastRaw.signups, lastRaw.playersById, cap, { pollOpenAt: g.createdAt, config: lastRaw.config });
     const mine = playerId ? ranked.find(r => r.playerId === playerId) : null;
     const hrs = logic.hoursUntilKickoff(g.kickoffAt);
-    const paidBy = {};
-    for (const s of lastRaw.signups) if (s.status !== 'withdrawn') paidBy[s.playerId] = !!s.paid;
+    const paidBy = {}, proofBy = {};
+    for (const s of lastRaw.signups) if (s.status !== 'withdrawn') { paidBy[s.playerId] = !!s.paid; if (s.proofAt) proofBy[s.playerId] = s.proofAt; }
     const withPaid = r => ({ ...r, paid: !!paidBy[r.playerId] });
     // People who've said they can't make it this week (no penalty, never in).
     const unavailable = lastRaw.signups.filter(s => s.status === 'out')
@@ -177,10 +179,10 @@ function buildView() {
       const push = id => {
         if (seen.has(id)) return;
         const p = lastRaw.playersById[id]; if (!p) return;
-        seen.add(id); out.push({ playerId: id, name: p.name, paid: !!paidBy[id] });
+        seen.add(id); out.push({ playerId: id, name: p.name, paid: !!paidBy[id], proofAt: proofBy[id] || null });
       };
       teamIds.forEach(push);
-      for (const s of lastRaw.signups) if (paidBy[s.playerId]) push(s.playerId);
+      for (const s of lastRaw.signups) if (paidBy[s.playerId] || proofBy[s.playerId]) push(s.playerId);
       return out;
     })();
     game = {
@@ -199,7 +201,7 @@ function buildView() {
       withdrawn: lastRaw.signups.filter(s => s.status === 'withdrawn')
         .map(s => ({ playerId: s.playerId, name: lastRaw.playersById[s.playerId]?.name, penalty: Number(s.penaltyApplied) || 0 }))
         .filter(x => x.name),
-      me: mine ? { rank: mine.rank, status: mine.status, paid: !!paidBy[playerId] } : null,
+      me: mine ? { rank: mine.rank, status: mine.status, paid: !!paidBy[playerId], proofAt: proofBy[playerId] || null } : null,
       withdrawPenaltyNow: logic.penaltyForHours(hrs, lastRaw.config).penalty,
       // Each player's response this week: confirmed | waitlist | out | withdrawn
       // (absent = never responded). Drives the Team builder "add a player" labels.
@@ -493,15 +495,53 @@ function formatRecCard(g) {
   </div>`;
 }
 
-// Player's own "have you paid?" toggle — appears once you're in the squad.
+// Player's own payment control — appears once you're in the squad. The main
+// action is uploading proof (a screenshot of the transfer, or a photo), which
+// ticks you off straight away and saves posting it in the group chat. A plain
+// "I've paid" tick is still there for anyone who paid another way.
+//
+// The file picker deliberately has no `capture` attribute: on a phone that
+// offers the camera *and* the photo library (where screenshots live), rather
+// than forcing the camera.
 function paymentControl(g) {
   if (!state.me || !g.me) return '';
-  if (g.me.status !== 'confirmed' && !g.me.paid) return ''; // only once you're actually in
-  const paid = g.me.paid;
-  return `<div class="pay-row${paid ? ' paid' : ''}">
-    <span class="pay-label">${paid ? `${ICON('icon-confirmed', 'inline-ico')} Payment confirmed — thanks!` : `${ICON('icon-payment', 'inline-ico')}Have you paid the match fee?`}</span>
-    <button class="btn-ghost pay-btn" onclick="markPaid('${g.id}', ${paid ? 'false' : 'true'})">${paid ? 'Mark unpaid' : "Yes, I've paid"}</button>
+  if (g.me.status !== 'confirmed' && !g.me.paid && !g.me.proofAt) return ''; // only once you're actually in
+  const { paid, proofAt } = g.me;
+  const picker = label => `<label class="btn btn-primary pay-upload${proofUploading ? ' busy' : ''}">
+      <input class="pay-file" type="file" accept="image/*" onchange="uploadProof(this, '${g.id}')" ${proofUploading ? 'disabled' : ''} />
+      ${proofUploading ? 'Uploading…' : label}
+    </label>`;
+  const viewBtn = `<button class="btn-ghost pay-btn" onclick="viewProof('${state.me.id}', '${g.id}')">View</button>`;
+
+  if (proofAt && paid) {
+    return `<div class="pay-row paid">
+      <span class="pay-label">${ICON('icon-confirmed', 'inline-ico')} Paid — proof uploaded ${esc(fmtShortTime(proofAt))}. Thanks!</span>
+      <div class="pay-actions">${viewBtn}<button class="btn-ghost pay-btn" onclick="removeProof('${g.id}')">Remove</button></div>
+    </div>`;
+  }
+  if (proofAt && !paid) {
+    // Uploaded, but the organiser has since unticked it — it didn't check out.
+    return `<div class="pay-row">
+      <span class="pay-label">${ICON('icon-payment', 'inline-ico')}The organiser marked your payment as not received. Have a word with them, or upload a new proof.</span>
+      <div class="pay-actions">${viewBtn}${picker('Upload new proof')}</div>
+    </div>`;
+  }
+  if (paid) {
+    return `<div class="pay-row paid">
+      <span class="pay-label">${ICON('icon-confirmed', 'inline-ico')} Payment confirmed — thanks!</span>
+      <div class="pay-actions">${picker('Add proof')}<button class="btn-ghost pay-btn" onclick="markPaid('${g.id}', false)">Mark unpaid</button></div>
+    </div>`;
+  }
+  return `<div class="pay-row">
+    <span class="pay-label">${ICON('icon-payment', 'inline-ico')}Paid the match fee? Upload a screenshot of the transfer and you're ticked off — no need to post it in the group. Only signed-in members can see it, and it's deleted after ${logic.PROOF_RETENTION_DAYS} days.</span>
+    <div class="pay-actions">${picker('Upload proof of payment')}<button class="btn-ghost pay-btn" onclick="markPaid('${g.id}', true)">Paid another way</button></div>
   </div>`;
+}
+
+// "Tue 18:42" — short enough to sit inside a sentence.
+function fmtShortTime(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 // Organiser payment tracker for the current squad. Reads the payment roster
@@ -511,12 +551,14 @@ function paymentControl(g) {
 function paymentsAdmin(g) {
   const roster = g.payRoster || [];
   const paidCount = roster.filter(r => r.paid).length;
+  const proofCount = roster.filter(r => r.paid && r.proofAt).length;
   const rows = roster.map(r => `<div class="pay-line">
       <span class="pay-name">${esc(r.name)}</span>
+      ${r.proofAt ? `<button class="pay-proof" onclick="viewProof('${r.playerId}','${g.id}')" title="Uploaded ${esc(fmtShortTime(r.proofAt))}">${ICON('icon-confirmed', 'inline-ico')}proof</button>` : ''}
       <button class="pay-toggle${r.paid ? ' ok' : ''}" onclick="togglePaid('${r.playerId}','${g.id}',${r.paid ? 'false' : 'true'})">${r.paid ? `${ICON('icon-confirmed', 'inline-ico')} paid` : 'mark paid'}</button>
     </div>`).join('');
-  return `<div class="section-title">Payments · ${paidCount}/${roster.length} paid</div>
-    <p class="hint" style="margin-top:-2px">Players tick themselves off — tap here to record cash on the night. Tracks your team re-selections, and anyone who's already paid stays listed.</p>
+  return `<div class="section-title">Payments · ${paidCount}/${roster.length} paid${proofCount ? ` · ${proofCount} with proof` : ''}</div>
+    <p class="hint" style="margin-top:-2px">Players upload a screenshot of their transfer, which ticks them off — tap <b>proof</b> to check it, and untick anyone whose doesn't add up. Tap <b>mark paid</b> to record cash on the night. Tracks your team re-selections, and anyone who's already paid stays listed.</p>
     <div class="pay-list">${rows || '<div class="empty">No one confirmed yet.</div>'}</div>`;
 }
 
@@ -1722,9 +1764,23 @@ function announceCard(a) {
       <span class="ann-contact">${r.email ? esc(r.email) : 'push / in-app only'}</span>
     </label>`).join('');
 
+  // Only the notifier can email/push, and it runs on GitHub's schedule — which
+  // throttles hard on a quiet repository. So don't promise "a few minutes": if
+  // its moment has passed and it's still sitting here, say so and point at the
+  // WhatsApp button, which sends from this device and needs no robot at all.
+  const progress = logic.announcementProgress(a, new Date());
+  const late = progress && (progress.state === 'late' || progress.state === 'missed');
+  const forHuman = mins => mins < 60
+    ? (mins === 1 ? '1 minute' : `${mins} minutes`)
+    : (Math.round(mins / 60) === 1 ? 'about an hour' : `about ${Math.round(mins / 60)} hours`);
+
   let countdown;
-  if (ready) {
-    countdown = 'Going out on the next check (within a few minutes)…';
+  if (progress && progress.state === 'missed') {
+    countdown = `<b>Kick-off has passed and this never went out.</b> Too late to email — but you can still post it to the group below.`;
+  } else if (late) {
+    countdown = `<b>Overdue by ${forHuman(progress.overdueMinutes)}</b> — the notifier hasn't collected it yet.`;
+  } else if (ready) {
+    countdown = 'Due now — it goes out on the notifier\'s next run.';
   } else if (isLineup) {
     const lead = state.config.lineupHoursBefore ?? 2;
     const sendTime = new Date(a.sendAfter).toLocaleString('en-GB', { weekday: 'long', hour: '2-digit', minute: '2-digit' });
@@ -1733,6 +1789,15 @@ function announceCard(a) {
     const mins = Math.round((new Date(a.sendAfter).getTime() - Date.now()) / 60000);
     countdown = `Auto-sends in <b>${mins < 1 ? 'under a minute' : mins === 1 ? '1 minute' : `${mins} minutes`}</b> unless you send or hold it.`;
   }
+
+  // The nudge. Nothing the browser can do will deliver an email, so the useful
+  // move is to tell the organiser plainly and hand them the one channel that
+  // works from here.
+  const lateNote = late ? `<p class="ann-late">${ICON('icon-bell', 'inline-ico')}${
+    progress.state === 'missed'
+      ? 'The scheduled notifier didn\'t run in time.'
+      : 'The scheduled notifier is behind — GitHub throttles it when the repo has been quiet.'
+  } It may still arrive, but don't wait on it: <b>Share to WhatsApp</b> below posts ${isLineup ? 'the line-up' : 'this'} to the group from this device straight away.</p>` : '';
 
   const content = logic.announcementContent(a, state.config.clubName);
   let previewBody;
@@ -1752,9 +1817,10 @@ function announceCard(a) {
     previewBody = content.paragraphs.map(p => `<p>${esc(p)}</p>`).join('');
   }
 
-  return `<div class="card ann-card">
+  return `<div class="card ann-card${late ? ' late' : ''}">
       <h2>${ICON('icon-announcement', 'head-ico')}${isLineup ? 'Line-up announcement' : 'Announcement'} — review before it sends</h2>
       <p class="hint" style="margin-top:-2px">${countdown}</p>
+      ${lateNote}
       <div class="ann-preview">
         <div class="ann-h">${esc(content.heading)}</div>
         ${previewBody}
@@ -2226,7 +2292,27 @@ function render() {
   if (!state) return;
   renderTopbar();
   const screen = SCREENS[tab] || weekScreen;
-  $app.innerHTML = demoBanner() + `<main>${screen()}</main>`;
+  $app.innerHTML = demoBanner() + `<main>${screen()}</main>` + proofModal();
+}
+
+// Full-screen viewer for one player's proof of payment (player or organiser).
+// The image is only ever a validated raster data URL (logic.isProofDataUrl),
+// so it can't smuggle markup into the attribute.
+function proofModal() {
+  if (!proofView) return '';
+  const v = proofView;
+  let body;
+  if (v.loading) body = '<p class="hint">Loading…</p>';
+  else if (v.error) body = `<p class="hint">${esc(v.error)}</p>`;
+  else if (!v.record || !logic.isProofDataUrl(v.record.image)) body = '<p class="hint">No proof on file for this game.</p>';
+  else body = `<img class="proof-img" src="${v.record.image}" alt="Proof of payment from ${esc(v.name)}" />
+      <p class="small">Uploaded ${esc(fmtShortTime(v.record.uploadedAt))} · deleted automatically ${logic.PROOF_RETENTION_DAYS} days after upload</p>`;
+  return `<div class="proof-overlay" onclick="if (event.target === this) closeProof()" role="dialog" aria-modal="true" aria-label="Proof of payment from ${esc(v.name)}">
+    <div class="proof-sheet">
+      <div class="proof-head"><h2>${esc(v.name)} — proof of payment</h2><button class="btn-ghost pay-btn" onclick="closeProof()">Close</button></div>
+      ${body}
+    </div>
+  </div>`;
 }
 
 // Load completed-game history once — used by Table (form) and You (analytics).
@@ -2789,6 +2875,82 @@ window.markPaid = async (gameId, paid) => {
 window.togglePaid = async (playerId, gameId, paid) => {
   try { await db.setPaid(playerId, gameId, asBool(paid)); }
   catch (e) { toast(e.message, true); }
+};
+
+// ---- proof of payment ------------------------------------------------------
+// Shrink a picked screenshot/photo to a JPEG small enough for one Firestore
+// doc. Tries progressively smaller sizes and qualities until it fits; a
+// banking-app screenshot normally fits first time at full readable size. The
+// canvas is painted white first so a transparent PNG doesn't turn black.
+async function compressProof(file) {
+  if (!file) throw new Error('No picture chosen');
+  if (file.type && !/^image\//.test(file.type)) throw new Error('That isn\'t a picture — choose a screenshot or photo.');
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('Couldn\'t open that picture — try a screenshot instead.'));
+      i.src = url;
+    });
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    for (const edge of [logic.PROOF_MAX_EDGE, 1280, 1000, 800]) {
+      const { width, height } = logic.proofDimensions(img.naturalWidth, img.naturalHeight, edge);
+      canvas.width = width; canvas.height = height;
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+      for (const quality of [0.8, 0.65, 0.5]) {
+        const image = canvas.toDataURL('image/jpeg', quality);
+        if (logic.isProofDataUrl(image)) return { image, width, height };
+      }
+    }
+    throw new Error('That picture is too big to upload — try a screenshot instead.');
+  } finally { URL.revokeObjectURL(url); }
+}
+
+// Firestore refuses the write when the signed-in account isn't this player's
+// own — or when the proofs rule hasn't been published to the project yet.
+function proofError(e) {
+  if (e && e.code === 'permission-denied') return 'Upload refused — make sure you\'re signed in with your own account. If it keeps happening, tell the organiser.';
+  return (e && e.message) || 'Upload failed — try again';
+}
+
+window.uploadProof = async (input, gameId) => {
+  const file = input.files && input.files[0];
+  input.value = ''; // so picking the same file again after an error still fires
+  if (!file || !state.me || proofUploading) return;
+  proofUploading = true; render();
+  try {
+    const shrunk = await compressProof(file);
+    await db.uploadPaymentProof(state.me.id, gameId, { ...shrunk, uid: user ? user.uid : null });
+    toast('Proof uploaded — you\'re ticked off as paid');
+  } catch (e) { toast(proofError(e), true); }
+  finally { proofUploading = false; render(); }
+};
+
+window.viewProof = async (playerId, gameId) => {
+  const name = state.playersById[playerId]?.name || 'Player';
+  proofView = { playerId, gameId, name, loading: true };
+  render();
+  try {
+    const record = await db.getPaymentProof(playerId, gameId);
+    if (!proofView || proofView.playerId !== playerId) return; // closed or switched meanwhile
+    proofView = { ...proofView, loading: false, record };
+  } catch (e) {
+    if (!proofView || proofView.playerId !== playerId) return;
+    proofView = { ...proofView, loading: false, error: e && e.code === 'permission-denied' ? 'Sign in to view payment proofs.' : (e.message || 'Couldn\'t load the proof') };
+  }
+  render();
+};
+window.closeProof = () => { proofView = null; render(); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && proofView) window.closeProof(); });
+
+window.removeProof = async gameId => {
+  if (!state.me) return;
+  if (!confirm('Remove your proof of payment? You\'ll be marked as unpaid.')) return;
+  try { await db.removePaymentProof(state.me.id, gameId); proofView = null; toast('Proof removed'); }
+  catch (e) { toast(proofError(e), true); }
 };
 // Organiser sub-nav + per-match editing.
 window.setAdminTab = (t) => { adminTab = t; adminMatchId = null; if (t === 'matches') ensureHistory(); render(); window.scrollTo(0, 0); };

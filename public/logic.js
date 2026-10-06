@@ -853,9 +853,84 @@ export function announcementContent(ann = {}, clubName = 'the club') {
   }
 }
 
-// A pending announcement is due to send once its grace window has elapsed.
-export function announcementReady(ann, now = new Date()) {
-  return !!(ann && ann.status === 'pending' && ann.sendAfter && new Date(ann.sendAfter) <= now);
+// How long until the notifier gets another turn. GitHub throttles scheduled
+// workflows on repositories with no recent pushes, so the every-5-minutes cron
+// in notify.yml is aspirational — in practice the gap between runs can stretch
+// to hours. We therefore measure the real gaps rather than trust the schedule.
+// The estimate is the worst recent gap, because that's the one that makes us miss
+// a deadline — but with the single largest sample discarded once we have a few,
+// so that one outage (a workflow switched off for a fortnight, say) doesn't have
+// us sending every line-up half a day early for the next dozen runs. Floored at
+// the nominal interval so a healthy notifier stays responsive, and capped so a
+// wild sample can't push the estimate past all usefulness.
+export const MAX_RUN_ESTIMATE_MINUTES = 720; // 12h
+export const RUN_ESTIMATE_TRIM_FROM = 4;     // samples needed before we trim
+export function nextRunEstimateMinutes(recentGaps = [], nominalMinutes = 5) {
+  const nominal = Number(nominalMinutes) > 0 ? Number(nominalMinutes) : 5;
+  const gaps = (Array.isArray(recentGaps) ? recentGaps : [])
+    .map(Number).filter(n => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b);
+  if (gaps.length >= RUN_ESTIMATE_TRIM_FROM) gaps.pop();
+  const worst = gaps.length ? gaps[gaps.length - 1] : 0;
+  return Math.min(MAX_RUN_ESTIMATE_MINUTES, Math.max(nominal, worst));
+}
+
+// A pending announcement is due to send once its grace window has elapsed — or,
+// for the line-up, once we can no longer count on getting another run in before
+// kick-off (see announcementDeadlineDue).
+export function announcementReady(ann, now = new Date(), opts = {}) {
+  if (!ann || ann.status !== 'pending' || !ann.sendAfter) return false;
+  if (new Date(ann.sendAfter).getTime() <= asTime(now)) return true;
+  return announcementDeadlineDue(ann, now, opts);
+}
+
+// The line-up has a hard deadline the other announcements don't: once the game
+// has kicked off it's no use to anybody. Only the notifier can actually email or
+// push, so if it won't be back before kick-off, waiting for `sendAfter` means the
+// line-up never goes out at all. Send it now instead — a line-up that arrives
+// earlier than intended beats one that arrives after the final whistle.
+//
+// Pass `nextRunMinutes` (from nextRunEstimateMinutes) to enable this; without it
+// the behaviour is exactly the plain grace-window rule, so callers that can't
+// measure the cadence — the browser, which isn't allowed to read meta/notify —
+// are unaffected.
+export function announcementDeadlineDue(ann, now = new Date(), opts = {}) {
+  if (!ann || ann.kind !== 'lineup' || !ann.kickoffAt) return false;
+  const nextRun = Number(opts.nextRunMinutes);
+  if (!Number.isFinite(nextRun) || nextRun <= 0) return false;
+  const t = asTime(now);
+  const kickoff = new Date(ann.kickoffAt).getTime();
+  // Kick-off already gone: `sendAfter` has necessarily passed too, so the plain
+  // rule in announcementReady has already decided this one.
+  if (!Number.isFinite(kickoff) || kickoff <= t) return false;
+  return t + nextRun * 60000 >= kickoff;
+}
+
+// Where a pending announcement stands, for the organiser's review card. The app
+// can't see the notifier's bookkeeping (meta/notify is Admin-SDK only), but
+// "sendAfter has passed and this is *still* pending" is proof the robot hasn't
+// been round yet — worth saying out loud, because the organiser can post it to
+// WhatsApp themselves in one tap instead of waiting on a late cron.
+//   held    — waiting on its grace window / pre-kickoff time, as designed.
+//   due     — its moment has come; the next notifier run should carry it.
+//   late    — overdue by more than `overdueAfterMinutes`; the notifier is behind.
+//   missed  — a line-up still sitting here after kick-off. Too late to matter.
+export function announcementProgress(ann, now = new Date(), overdueAfterMinutes = 10) {
+  if (!ann || ann.status !== 'pending' || !ann.sendAfter) return null;
+  const t = asTime(now);
+  const kickoff = ann.kickoffAt ? new Date(ann.kickoffAt).getTime() : NaN;
+  const minutesToKickoff = Number.isFinite(kickoff) ? Math.round((kickoff - t) / 60000) : null;
+  const overdueMinutes = Math.round((t - new Date(ann.sendAfter).getTime()) / 60000);
+  let state;
+  if (ann.kind === 'lineup' && Number.isFinite(kickoff) && kickoff <= t) state = 'missed';
+  else if (overdueMinutes < 0) state = 'held';
+  else if (overdueMinutes <= Math.max(0, Number(overdueAfterMinutes) || 0)) state = 'due';
+  else state = 'late';
+  return { state, overdueMinutes: Math.max(0, overdueMinutes), minutesToKickoff };
+}
+
+function asTime(now) {
+  return now instanceof Date ? now.getTime() : new Date(now).getTime();
 }
 
 // Whether a staged announcement still matches the game it was for (so we don't
@@ -872,6 +947,71 @@ export function announcementValid(ann, game, currentGameId) {
 export function announcementAudience(ann) {
   const ex = new Set((ann && ann.excludedIds) || []);
   return ((ann && ann.recipients) || []).filter(r => !ex.has(r.id));
+}
+
+// --- proof of payment -------------------------------------------------------
+// Players upload a screenshot (or a photo) of their bank transfer instead of
+// posting it in the group chat. There's no Cloud Storage bucket on the free
+// plan, so the picture is shrunk on the phone and stored as a JPEG data URL in
+// its own Firestore doc (games/{gameId}/proofs/{playerId}) — kept apart from
+// the sign-ups so the live squad listener never has to download images.
+//
+// A Firestore document tops out at 1 MiB including field names, so we keep the
+// image comfortably under that. A banking-app screenshot is mostly flat colour
+// and text, and compresses to well under this at a readable size.
+export const PROOF_MAX_CHARS = 900000;
+export const PROOF_MAX_EDGE = 1600;
+
+// Receipts are bank screenshots, so we don't keep them forever: the notifier
+// deletes each one this many days after it was uploaded. A month is ample time
+// to settle any "did you actually pay?" question.
+export const PROOF_RETENTION_DAYS = 30;
+
+// Has this proof passed its retention period? A record with no readable upload
+// time is treated as expired — it can't be dated, so it shouldn't linger.
+export function proofExpired(record, now = new Date(), days = PROOF_RETENTION_DAYS) {
+  const at = record && record.uploadedAt ? new Date(record.uploadedAt).getTime() : NaN;
+  if (!Number.isFinite(at)) return true;
+  return asTime(now) - at >= days * 86400000;
+}
+
+// Scale (w, h) down so the longer edge is at most `maxEdge`, keeping the aspect
+// ratio. Never scales up.
+export function proofDimensions(width, height, maxEdge = PROOF_MAX_EDGE) {
+  const w = Math.max(1, Math.round(Number(width) || 0));
+  const h = Math.max(1, Math.round(Number(height) || 0));
+  const scale = Math.min(1, maxEdge / Math.max(w, h));
+  return { width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)) };
+}
+
+// Is this a stored proof image we're prepared to show? Only raster data URLs of
+// a sane size — never an arbitrary URL, and never SVG (which can carry script).
+const PROOF_DATA_URL = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+export function isProofDataUrl(s) {
+  return typeof s === 'string' && s.length <= PROOF_MAX_CHARS && PROOF_DATA_URL.test(s);
+}
+
+// The proof document as written to Firestore. `uid` is the signed-in account
+// that uploaded it — the security rules check it matches the player's own
+// linked account, so nobody can file a proof on someone else's behalf.
+export function buildProofRecord({ image, uid = null, width = 0, height = 0 } = {}, now = new Date()) {
+  if (!isProofDataUrl(image)) throw new Error('That image couldn\'t be read — try a screenshot instead.');
+  return {
+    image,
+    type: image.slice(5, image.indexOf(';')),
+    width: Math.round(Number(width) || 0),
+    height: Math.round(Number(height) || 0),
+    uid: uid || null,
+    uploadedAt: now.toISOString()
+  };
+}
+
+// The sign-up fields an upload sets. Uploading proof ticks the player off as
+// paid straight away — the organiser can still untick them if it doesn't check
+// out, and the proof stays attached for them to look at.
+export function proofSignupPatch(now = new Date()) {
+  const at = now.toISOString();
+  return { paid: true, paidAt: at, proofAt: at };
 }
 
 // Seed roster from the group so the app is usable on day one.
