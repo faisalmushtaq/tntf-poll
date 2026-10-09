@@ -238,6 +238,7 @@ function createLocalDB() {
       if (photoData === null) delete p.photoData;
       else if (photoData) p.photoData = String(photoData);
       if (photoHidden != null) p.photoHidden = !!photoHidden;
+      p.profileUpdatedAt = new Date().toISOString(); // marks the profile as set up (the You page tucks the editor away)
       persist();
     },
     async adjustLoyalty(id, delta) { db.players[id].loyalty += Number(delta) || 0; persist(); },
@@ -691,7 +692,8 @@ async function createFirestoreDB() {
       if (photoData === null) patch.photoData = null;
       else if (photoData) patch.photoData = String(photoData);
       if (photoHidden != null) patch.photoHidden = !!photoHidden;
-      if (Object.keys(patch).length) await updateDoc(doc(playersCol, id), patch);
+      patch.profileUpdatedAt = new Date().toISOString(); // marks the profile as set up (the You page tucks the editor away)
+      await updateDoc(doc(playersCol, id), patch);
     },
     async adjustLoyalty(id, delta) { await updateDoc(doc(playersCol, id), { loyalty: increment(Number(delta) || 0) }); },
     async deletePlayer(id) {
