@@ -494,16 +494,26 @@ function createLocalDB() {
     },
     async checkPin(pin) { return String(pin) === String(logic.withDefaults(db.config).adminPin); },
     async checkStattoPin(pin) { const c = logic.withDefaults(db.config); return String(pin) === String(c.stattoPin) || String(pin) === String(c.adminPin); },
-    async saveGameStats(gameId, { scores, goals, stats, highlights, stattoRatings, motm, ownGoals }) {
+    async saveGameStats(gameId, edit) {
       const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
-      if (scores) g.scores = { bibs: Number(scores.bibs), nonbibs: Number(scores.nonbibs) };
-      if (goals) g.goals = goals;
-      if (stats) g.stats = stats;
-      if (highlights !== undefined) g.highlights = highlights;
-      if (stattoRatings !== undefined) g.stattoRatings = stattoRatings;
-      if (motm !== undefined) g.motm = motm;
-      if (ownGoals !== undefined) g.ownGoals = ownGoals;
+      Object.assign(g, logic.statsEditPatch(g, edit));
       persist();
+    },
+    // A player logging their own goals & assists for a game they played. The
+    // score follows unless the organiser has set it. Returns what was written.
+    async saveSelfStats(gameId, playerId, { g: goals, a: assists }) {
+      const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
+      if (!logic.selfStatGames([g], playerId).length) throw new Error('You can only log games you played in');
+      const entry = { g: logic.cleanSelfStat(goals), a: logic.cleanSelfStat(assists), at: new Date().toISOString() };
+      g.selfStats = { ...(g.selfStats || {}), [playerId]: entry };
+      const auto = logic.autoScorePatch(g) || {};
+      Object.assign(g, auto);
+      persist();
+      return { selfStats: g.selfStats, ...auto };
+    },
+    async useAutoScore(gameId) {
+      const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
+      Object.assign(g, logic.useAutoScorePatch(g)); persist();
     },
     async saveHighlights(gameId, highlights) {
       const g = db.games.find(x => x.id === gameId); if (!g) throw new Error('No game');
@@ -991,16 +1001,34 @@ async function createFirestoreDB() {
     },
     async checkPin(pin) { return String(pin) === String(cfg().adminPin); },
     async checkStattoPin(pin) { const c = cfg(); return String(pin) === String(c.stattoPin) || String(pin) === String(c.adminPin); },
-    async saveGameStats(gameId, { scores, goals, stats, highlights, stattoRatings, motm, ownGoals }) {
-      const patch = {};
-      if (scores) patch.scores = { bibs: Number(scores.bibs), nonbibs: Number(scores.nonbibs) };
-      if (goals) patch.goals = goals;
-      if (stats) patch.stats = stats;
-      if (highlights !== undefined) patch.highlights = highlights;
-      if (stattoRatings !== undefined) patch.stattoRatings = stattoRatings;
-      if (motm !== undefined) patch.motm = motm;
-      if (ownGoals !== undefined) patch.ownGoals = ownGoals;
-      if (Object.keys(patch).length) await updateDoc(gameRef(gameId), patch);
+    async saveGameStats(gameId, edit) {
+      await runTransaction(dbf, async (tx) => {
+        const snap = await tx.get(gameRef(gameId)); if (!snap.exists()) throw new Error('No game');
+        const patch = logic.statsEditPatch(snap.data(), edit);
+        if (Object.keys(patch).length) tx.update(gameRef(gameId), patch);
+      });
+    },
+    // A player logging their own goals & assists for a game they played. Run as
+    // a transaction: the automatic score is rebuilt from everyone's entries, so
+    // two players saving at once must not overwrite each other's goals.
+    async saveSelfStats(gameId, playerId, { g: goals, a: assists }) {
+      return runTransaction(dbf, async (tx) => {
+        const snap = await tx.get(gameRef(gameId)); if (!snap.exists()) throw new Error('No game');
+        const g = { id: gameId, ...snap.data() };
+        if (!logic.selfStatGames([g], playerId).length) throw new Error('You can only log games you played in');
+        const entry = { g: logic.cleanSelfStat(goals), a: logic.cleanSelfStat(assists), at: new Date().toISOString() };
+        const selfStats = { ...(g.selfStats || {}), [playerId]: entry };
+        const auto = logic.autoScorePatch({ ...g, selfStats }) || {};
+        tx.update(gameRef(gameId), { [`selfStats.${playerId}`]: entry, ...auto });
+        return { selfStats, ...auto };
+      });
+    },
+    async useAutoScore(gameId) {
+      await runTransaction(dbf, async (tx) => {
+        const snap = await tx.get(gameRef(gameId)); if (!snap.exists()) throw new Error('No game');
+        const patch = logic.useAutoScorePatch(snap.data());
+        if (Object.keys(patch).length) tx.update(gameRef(gameId), patch);
+      });
     },
     async saveHighlights(gameId, highlights) {
       await updateDoc(gameRef(gameId), { highlights });

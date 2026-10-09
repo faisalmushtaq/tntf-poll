@@ -1062,4 +1062,59 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('hand-opened poll: still held for the review window', !logic.announcementReady(manual, now) && new Date(manual.sendAfter) - now === 60 * 60000);
 }
 
+// --- player-entered goals & assists -------------------------------------------
+{
+  const base = { id: 'g1', status: 'completed', teams: { bibs: ['a', 'b', 'c'], nonbibs: ['x', 'y', 'z'] } };
+  const self = (id, g, a = 0) => ({ [id]: { g, a, at: 'now' } });
+
+  // Whose numbers count
+  ok('nothing logged → no line', logic.playerLine(base, 'a').source === null);
+  ok('player\'s own entry counts', logic.playerLine({ ...base, selfStats: self('a', 2, 1) }, 'a').g === 2);
+  ok('…and its assists', logic.playerLine({ ...base, selfStats: self('a', 2, 1) }, 'a').a === 1);
+  ok('the Statto\'s line beats the player\'s', logic.playerLine({ ...base, selfStats: self('a', 5), stats: { a: { g: 1, a: 0 } } }, 'a').g === 1);
+  ok('…and so does the quick scorer entry', logic.playerLine({ ...base, selfStats: self('a', 5), goals: { a: 2 } }, 'a').g === 2);
+  ok('entries are clamped to 0–20 whole numbers', logic.cleanSelfStat(-3) === 0 && logic.cleanSelfStat(99) === 20 && logic.cleanSelfStat(2.7) === 2 && logic.cleanSelfStat('x') === 0);
+
+  // The score follows the players' goals
+  const g2 = { ...base, selfStats: { ...self('a', 2), ...self('b', 1), ...self('x', 1) } };
+  ok('players\' goals add up per side', JSON.stringify(logic.playersScore(g2)) === JSON.stringify({ bibs: 3, nonbibs: 1, goals: 4 }));
+  ok('own goals count for the other side', logic.playersScore({ ...g2, ownGoals: { y: 1 } }).bibs === 4);
+  const p2 = logic.autoScorePatch(g2);
+  ok('no score yet → filled in from the players', p2.scores.bibs === 3 && p2.scores.nonbibs === 1 && p2.scoresAuto === true);
+  ok('already right → nothing to write', logic.autoScorePatch({ ...g2, ...p2 }) === null);
+  ok('nobody has logged anything → no score (not 0–0)', logic.autoScorePatch(base) === null);
+  ok('all goals taken back → auto score cleared', JSON.stringify(logic.autoScorePatch({ ...base, scores: { bibs: 1, nonbibs: 0 }, scoresAuto: true })) === JSON.stringify({ scores: null, scoresAuto: false }));
+
+  // The organiser's score wins
+  const manual = { ...g2, scores: { bibs: 5, nonbibs: 1 } };
+  ok('a score without the auto flag is the organiser\'s (incl. every existing one)', logic.scoreIsManual(manual));
+  ok('player entries never change the organiser\'s score', logic.autoScorePatch(manual) === null);
+  const diff = logic.scoreDiscrepancy(manual);
+  ok('a mismatch is flagged for the organiser', diff && diff.players.bibs === 3 && diff.recorded.bibs === 5);
+  ok('no flag when they agree', logic.scoreDiscrepancy({ ...g2, scores: { bibs: 3, nonbibs: 1 } }) === null);
+  ok('no flag when nobody\'s logged goals', logic.scoreDiscrepancy({ ...base, scores: { bibs: 5, nonbibs: 1 } }) === null);
+  const use = logic.useAutoScorePatch(manual);
+  ok('"use players\' total" switches to it', use.scores.bibs === 3 && use.scoresAuto === true);
+  ok('"use players\' total" never wipes a score when nothing\'s logged', JSON.stringify(logic.useAutoScorePatch({ ...base, scores: { bibs: 5, nonbibs: 1 } })) === '{}');
+
+  // Statto/organiser saves
+  const auto = { ...g2, ...p2 };
+  ok('re-saving the auto score as shown keeps it automatic', !logic.isScoreOverride(auto, { bibs: 3, nonbibs: 1 }));
+  ok('typing a different score overrides it', logic.isScoreOverride(auto, { bibs: 4, nonbibs: 1 }));
+  const ov = logic.statsEditPatch(auto, { scores: { bibs: 4, nonbibs: 1 } });
+  ok('…and is saved as the organiser\'s', ov.scores.bibs === 4 && ov.scoresAuto === false);
+  const st = logic.statsEditPatch(auto, { scores: { bibs: 3, nonbibs: 1 }, stats: { c: { g: 2 } }, goals: { c: 2 } });
+  ok('Statto adds goals to an auto game → score recalculated', st.scores.bibs === 5 && st.scoresAuto === true && st.stats.c.g === 2);
+  ok('a save without a score leaves an organiser score alone', !('scores' in logic.statsEditPatch(manual, { stats: { c: { g: 2 } } })));
+
+  // Which games a player can log, and their stats
+  const older = { ...base, id: 'g0', date: '2026-09-01', teams: { bibs: ['a'], nonbibs: ['x'] } };
+  const newer = { ...base, id: 'g2', date: '2026-09-22' };
+  const open = { ...base, id: 'g3', status: 'open' };
+  const notIn = { ...base, id: 'g4', teams: { bibs: ['q'], nonbibs: ['r'] } };
+  ok('only completed games they played, newest first', logic.selfStatGames([older, open, notIn, newer], 'a').map(g => g.id).join() === 'g2,g0');
+  const perf = logic.playerPerformance('a', [{ ...g2, ...p2 }, { ...base, id: 'g9', stats: { a: { g: 1, a: 2 } }, selfStats: self('a', 9, 9) }]);
+  ok('own entries count toward a player\'s totals', perf.g === 3 && perf.a === 2);
+}
+
 console.log(`\n${pass} checks passed ✅`);

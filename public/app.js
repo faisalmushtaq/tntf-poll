@@ -43,6 +43,8 @@ let adminMatchId = null;       // which past match the organiser is editing (mat
 let pendingAction = null;      // 'in' | 'out' — two-tap confirm for sign-up / withdraw
 let proofUploading = false;    // a proof-of-payment picture is being shrunk/uploaded
 let proofView = null;          // open proof viewer: { playerId, gameId, name, loading, record, error }
+let selfDraft = {};            // unsaved goals/assists the player is entering: { gameId: { g, a } }
+let selfShowAll = false;       // "Your goals & assists": show every game, not just the latest
 let stattoUnlocked = false;    // stats-keeper role unlocked this session?
 let stattoGameId = null;       // which game the statto is editing
 let importDraft = null;        // { text, targetGameId, resolved } — stats import preview
@@ -1378,6 +1380,7 @@ function formRecordCard(p) {
   const idx = getStatsIndex();
   const an = idx ? idx.players[p.id]?.analytics : null;
   if (!an || !an.played) return '';
+  const perf = idx.players[p.id]?.performance || null;
   const cs = an.currentStreak;
   const streakText = cs && cs.type
     ? (cs.type === 'W' ? `${cs.count}-game winning streak` : cs.type === 'L' ? `${cs.count}-game losing run` : `${cs.count} draws in a row`)
@@ -1386,6 +1389,8 @@ function formRecordCard(p) {
     <h2>Form &amp; record</h2>
     <p class="hint">From ${an.played} games with a recorded result. ${an.wins}W · ${an.draws}D · ${an.losses}L.</p>
     <div class="statgrid">
+      <div class="stat"><div class="statnum">${perf ? perf.g : 0}</div><div class="statlbl">goals</div></div>
+      <div class="stat"><div class="statnum">${perf ? perf.a : 0}</div><div class="statlbl">assists</div></div>
       <div class="stat"><div class="statnum">${an.winPct}%</div><div class="statlbl">win rate</div></div>
       <div class="stat"><div class="statnum">${an.gd > 0 ? '+' : ''}${an.gd}</div><div class="statlbl">goal diff (${an.gf}-${an.ga})</div></div>
       <div class="stat"><div class="statnum">${an.longestWin}</div><div class="statlbl">best win streak</div></div>
@@ -1397,6 +1402,50 @@ function formRecordCard(p) {
     ${formGuide(an.form)}
   </div>`;
 }
+// Players log their own goals and assists for games they played, so the
+// organiser and the Statto don't have to chase everyone. Entries feed the
+// player's stats and fill in the match score when the organiser hasn't set one.
+// Where the Statto/organiser has recorded the player's line, that's shown
+// instead (theirs wins).
+const SELF_STAT_RECENT = 6;
+function selfStatsCard(me) {
+  if (!history) return '';
+  const games = logic.selfStatGames(history, me.id);
+  if (!games.length) return '';
+  const shown = selfShowAll ? games : games.slice(0, SELF_STAT_RECENT);
+  const rows = shown.map(g => {
+    const side = (g.teams.bibs || []).includes(me.id) ? 'Bibs' : 'Non-bibs';
+    const sc = g.scores && Number.isFinite(Number(g.scores.bibs))
+      ? `Bibs ${g.scores.bibs}–${g.scores.nonbibs} Non-bibs${g.scoresAuto ? ' <span class="ss-auto">from players\' goals</span>' : ''}`
+      : 'No score yet';
+    const head = `<div class="ss-game"><b>${esc(g.dateLabel || gameDateKey(g))}</b><span class="small">${sc} · you were ${side}</span></div>`;
+    const line = logic.playerLine(g, me.id);
+    if (line.source === 'official') {
+      return `<div class="ss-row">${head}<div class="ss-official">${line.g} goal${line.g === 1 ? '' : 's'} · ${line.a} assist${line.a === 1 ? '' : 's'}<span class="small">recorded by the Statto</span></div></div>`;
+    }
+    const saved = (g.selfStats && g.selfStats[me.id]) || null;
+    const d = selfDraft[g.id] || { g: saved ? saved.g : 0, a: saved ? saved.a : 0 };
+    const dirty = !!selfDraft[g.id] && (!saved || d.g !== saved.g || d.a !== saved.a);
+    const step = (k, label) => `<div class="ss-step" role="group" aria-label="${label}">
+        <span class="ss-lbl">${label}</span>
+        <button type="button" class="icon-btn" aria-label="One fewer ${label.toLowerCase()}" onclick="stepSelfStat('${g.id}','${k}',-1)" ${d[k] <= 0 ? 'disabled' : ''}>－</button>
+        <span class="ss-num" aria-live="polite">${d[k]}</span>
+        <button type="button" class="icon-btn" aria-label="One more ${label.toLowerCase()}" onclick="stepSelfStat('${g.id}','${k}',1)" ${d[k] >= logic.SELF_STAT_MAX ? 'disabled' : ''}>＋</button>
+      </div>`;
+    const status = dirty
+      ? `<button type="button" class="btn-primary pay-btn" onclick="saveSelfStat('${g.id}')">Save</button>`
+      : saved ? `<span class="ss-saved">${ICON('icon-confirmed', 'inline-ico')}Saved</span>` : '';
+    return `<div class="ss-row">${head}<div class="ss-steppers">${step('g', 'Goals')}${step('a', 'Assists')}${status}</div></div>`;
+  }).join('');
+  const more = games.length > SELF_STAT_RECENT
+    ? `<button type="button" class="inline-link mt" onclick="toggleSelfShowAll()">${selfShowAll ? 'Show fewer' : `Show all ${games.length} games`}</button>` : '';
+  return `<div class="card">
+    <h2>${ICON('icon-goal', 'head-ico')}Your goals &amp; assists</h2>
+    <p class="hint">Log what you scored and set up in games you played. It goes into your stats, and adds up to the match score unless the organiser has entered one. If the Statto has recorded a game, their numbers count.</p>
+    <div class="ss-list">${rows}</div>${more}
+  </div>`;
+}
+
 // Individual performance (goals, assists, MOTM, avg rating).
 function performanceStatsCard(p, isMe) {
   const idx = getStatsIndex();
@@ -1480,7 +1529,7 @@ function youScreen() {
 
   return `<div class="card hero-you">
       <div class="profile-hero-row">${avatarMarkup(me, { big: true })}<div class="profile-hero-copy"><div class="you-name">${esc(me.name)}</div><p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p></div><img class="you-crest" src="./assets/crest-primary.svg" alt="Tuesday Night Total Football crest" /></div>
-    </div>${profileEditorCard(me)}${formRecordCard(me)}${formOverTimeCard(me)}${playsWithCard(me, true)}${upAgainstCard(me, true)}${performanceStatsCard(me, true)}${recordStatsCard(me, true)}${notif}${account}${installScreen()}${finalAccountAction}`;
+    </div>${profileEditorCard(me)}${selfStatsCard(me)}${formRecordCard(me)}${formOverTimeCard(me)}${playsWithCard(me, true)}${upAgainstCard(me, true)}${performanceStatsCard(me, true)}${recordStatsCard(me, true)}${notif}${account}${installScreen()}${finalAccountAction}`;
 }
 
 // Guardian-style form guide: coloured W/D/L chips, newest first.
@@ -2089,6 +2138,25 @@ function adminMatchesTab() {
 }
 
 // Editor for one past match: score + per-player loyalty adjustments.
+// Where a match's score came from, for the organiser: filled in from the
+// players' own goals, or their own entry — and, if the players' goals add up to
+// something different, a one-tap way to switch. Also lists what each player
+// logged, so a discrepancy can be checked.
+function matchScoreSourceNote(g) {
+  const name = id => esc(state.playersById[id]?.name || 'Player');
+  const entries = Object.entries(g.selfStats || {})
+    .filter(([id]) => logic.playerLine(g, id).source === 'self')
+    .map(([id, e]) => `${name(id)} ${e.g}G${e.a ? ` ${e.a}A` : ''}`);
+  const logged = entries.length ? `<p class="small">Logged by players: ${entries.join(' · ')}</p>` : '';
+  const diff = logic.scoreDiscrepancy(g);
+  if (diff) {
+    return `<p class="ann-late">${ICON('icon-goal', 'inline-ico')}The players' goals add up to <b>Bibs ${diff.players.bibs}–${diff.players.nonbibs} Non-bibs</b>, but the score here is ${diff.recorded.bibs}–${diff.recorded.nonbibs}. Your score stands unless you switch.</p>
+      <button class="btn-ghost" onclick="useAutoScore('${g.id}')">Use players' total (${diff.players.bibs}–${diff.players.nonbibs})</button>${logged}`;
+  }
+  if (g.scoresAuto) return `<p class="small">Filled in from the players' goals and updates as they log more. Enter a score and save to override it.</p>${logged}`;
+  return logged;
+}
+
 function adminMatchEditor(g) {
   const players = logic.gamePlayers(g).map(id => state.playersById[id]).filter(p => p && !p.guest)
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -2110,6 +2178,7 @@ function adminMatchEditor(g) {
         <div><label class="field">Non-bibs</label><input id="mScoreNonbibs" type="number" inputmode="numeric" value="${Number.isFinite(n) ? n : ''}" placeholder="0" /></div>
       </div>
       <button class="btn-ghost mt" onclick="saveMatchScore('${g.id}')">Save score</button>
+      ${matchScoreSourceNote(g)}
       <div class="section-title">Loyalty &amp; bonus points</div>
       <p class="hint" style="margin-top:-2px">Nudge anyone's loyalty for this game with ＋/－, or award a custom amount below. Changes apply to their running total straight away.</p>
       <div class="madj-list">${rows || '<div class="empty">No players recorded for this game.</div>'}</div>
@@ -2913,6 +2982,35 @@ window.markPaid = async (gameId, paid) => {
 };
 window.togglePaid = async (playerId, gameId, paid) => {
   try { await db.setPaid(playerId, gameId, asBool(paid)); }
+  catch (e) { toast(e.message, true); }
+};
+
+// ---- player-entered goals & assists ------------------------------------------
+window.stepSelfStat = (gameId, key, delta) => {
+  const g = (history || []).find(x => x.id === gameId); if (!g || !state.me) return;
+  const saved = (g.selfStats && g.selfStats[state.me.id]) || { g: 0, a: 0 };
+  const d = selfDraft[gameId] || { g: saved.g || 0, a: saved.a || 0 };
+  selfDraft[gameId] = { ...d, [key]: logic.cleanSelfStat(d[key] + delta) };
+  render();
+};
+window.saveSelfStat = async (gameId) => {
+  const d = selfDraft[gameId]; if (!d || !state.me) return;
+  try {
+    const written = await db.saveSelfStats(gameId, state.me.id, d);
+    // Patch the loaded history in place rather than re-fetching every game, and
+    // give it a new array identity so the stats index (cached on it) rebuilds.
+    const g = (history || []).find(x => x.id === gameId);
+    if (g) Object.assign(g, written);
+    history = history.slice();
+    delete selfDraft[gameId];
+    render();
+    toast(written.scoresAuto ? `Saved — score now Bibs ${written.scores.bibs}–${written.scores.nonbibs} Non-bibs` : 'Saved');
+  } catch (e) { toast(e.message, true); }
+};
+window.toggleSelfShowAll = () => { selfShowAll = !selfShowAll; render(); };
+// Organiser: replace their score with what the players' goals add up to.
+window.useAutoScore = async (gameId) => {
+  try { await db.useAutoScore(gameId); history = null; ensureHistory(); toast('Score now follows the players\' goals'); }
   catch (e) { toast(e.message, true); }
 };
 
