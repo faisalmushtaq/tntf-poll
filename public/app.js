@@ -54,6 +54,7 @@ let lineupGameId = null;  // which game `lineupDraft` was built for
 let lineupAdded = new Set();    // players the organiser pulled in who didn't respond on the poll
 let lineupRemoved = new Set();  // players the organiser took out (won't be auto-re-added)
 let lineupGuests = {};          // guest id -> display name, persisted only on the game record
+let profileEditing = false;   // You page: profile editor opened via the pencil (once the profile is set up)
 let profilePhotoDraft = undefined; // undefined keeps the saved photo; data URL previews a new choice; null clears a custom photo
 let installPromptEvent = null; // captured browser install prompt, when Android offers one
 
@@ -1476,7 +1477,18 @@ function playerProfileScreen() {
     </div>${formRecordCard(p)}${formOverTimeCard(p)}${playsWithCard(p, isMe)}${upAgainstCard(p, isMe)}${performanceStatsCard(p, isMe)}${recordStatsCard(p, isMe)}`;
 }
 
+// Once someone has set up their profile (saved it, or uploaded their own photo)
+// the editor gets out of the way: just a small pencil on their picture opens it.
+function profileSetUp(me) { return !!(me && (me.profileUpdatedAt || me.photoData)); }
+function profileEditButton(me) {
+  if (!profileSetUp(me) || profileEditing) return '';
+  return `<button type="button" class="avatar-edit" onclick="openProfileEditor()" aria-label="Edit your name and picture" title="Edit profile">${ICON('icon-edit')}</button>`;
+}
+window.openProfileEditor = () => { profileEditing = true; render(); document.querySelector('.profile-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+window.closeProfileEditor = () => { profileEditing = false; profilePhotoDraft = undefined; render(); };
+
 function profileEditorCard(me) {
+  if (profileSetUp(me) && !profileEditing) return '';
   const preview = profilePhotoDraft === undefined ? me : { ...me, photoData: profilePhotoDraft || null, photoHidden: profilePhotoDraft === null };
   const hasVisiblePhoto = profilePhotoDraft !== undefined ? profilePhotoDraft !== null : !me.photoHidden && !!(me.photoData || me.photoURL);
   return `<div class="card profile-editor">
@@ -1491,6 +1503,7 @@ function profileEditorCard(me) {
       <p class="small">Choose a square or portrait photo. TNTF makes a small 320 px copy, so the original remains on your phone.</p>
       ${hasVisiblePhoto ? '<button type="button" class="btn-ghost mt" onclick="clearOwnProfilePhoto()">Use the crest instead</button>' : ''}
       <button type="submit" class="btn-primary mt">Save profile</button>
+      ${profileEditing ? '<button type="button" class="btn-ghost mt" onclick="closeProfileEditor()">Cancel</button>' : ''}
     </form>
   </div>`;
 }
@@ -1528,7 +1541,7 @@ function youScreen() {
     : `<div class="card account-final-action"><button class="btn-ghost" onclick="forgetMe()">Not you? Switch name</button></div>`;
 
   return `<div class="card hero-you">
-      <div class="profile-hero-row">${avatarMarkup(me, { big: true })}<div class="profile-hero-copy"><div class="you-name">${esc(me.name)}</div><p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p></div><img class="you-crest" src="./assets/crest-primary.svg" alt="Tuesday Night Total Football crest" /></div>
+      <div class="profile-hero-row"><div class="hero-avatar-wrap">${avatarMarkup(me, { big: true })}${profileEditButton(me)}</div><div class="profile-hero-copy"><div class="you-name">${esc(me.name)}</div><p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p></div><img class="you-crest" src="./assets/crest-primary.svg" alt="Tuesday Night Total Football crest" /></div>
     </div>${profileEditorCard(me)}${selfStatsCard(me)}${formRecordCard(me)}${formOverTimeCard(me)}${playsWithCard(me, true)}${upAgainstCard(me, true)}${performanceStatsCard(me, true)}${recordStatsCard(me, true)}${notif}${account}${installScreen()}${finalAccountAction}`;
 }
 
@@ -2638,6 +2651,7 @@ window.saveOwnProfile = async () => {
       ...(profilePhotoDraft !== undefined ? { photoData: profilePhotoDraft, photoHidden: profilePhotoDraft === null } : {})
     });
     profilePhotoDraft = undefined;
+    profileEditing = false;
     toast('Profile saved');
   } catch (e) { toast(e.message, true); }
 };
