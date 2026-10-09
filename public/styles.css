@@ -569,3 +569,17 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 }
 /* Push-notification nudge on This week (sits under the payment row). */
 .push-prompt { margin-top: 10px; }
+/* Player-entered goals & assists (You page). */
+.ss-list { display: flex; flex-direction: column; }
+.ss-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 12px 0; border-bottom: 1px solid var(--line-2); }
+.ss-row:last-child { border-bottom: none; }
+.ss-game { display: flex; flex-direction: column; gap: 2px; min-width: 160px; flex: 1; }
+.ss-auto { color: var(--green); }
+.ss-steppers { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.ss-step { display: flex; align-items: center; gap: 6px; }
+.ss-lbl { font-size: 13.5px; color: var(--muted); margin-right: 2px; }
+.ss-num { min-width: 1.6em; text-align: center; font-weight: 600; font-size: 17px; color: var(--ink); }
+.ss-saved { font-size: 13.5px; color: var(--green); display: inline-flex; align-items: center; gap: 4px; }
+.ss-official { display: flex; flex-direction: column; align-items: flex-end; font-weight: 600; color: var(--ink); }
+.ss-step .icon-btn { margin-left: 0; }
+.ss-step .icon-btn:disabled { opacity: .35; cursor: default; }

@@ -443,7 +443,7 @@ export function playerAnalytics(playerId, games = []) {
       if (!side) return null;
       const other = side === 'bibs' ? 'nonbibs' : 'bibs';
       const gf = g.scores[side], ga = g.scores[other];
-      const pg = (g.stats && g.stats[playerId] && Number(g.stats[playerId].g)) || (g.goals && Number(g.goals[playerId])) || 0; // personal goals this game
+      const pg = playerLine(g, playerId).g; // personal goals this game
       return { date: g.date, dateLabel: g.dateLabel, gf, ga, pg, outcome: gf > ga ? 'W' : gf < ga ? 'L' : 'D' };
     })
     .filter(Boolean);
@@ -512,6 +512,115 @@ export function isMotm(g, playerId) {
   return Array.isArray(g && g.motm) && g.motm.includes(playerId);
 }
 
+// --- player-entered goals & assists ----------------------------------------
+// Players can log their own goals and assists for games they played (stored
+// per game as selfStats: { playerId: { g, a, at } }), so the organiser and the
+// Statto don't have to chase everyone. Official numbers always win: a stat line
+// from the Statto/organiser (g.stats) or the quick scorer entry (g.goals) for
+// that player overrides what they entered themselves.
+export const SELF_STAT_MAX = 20;
+
+// The goals/assists that count for a player in a game, and where they came from:
+// 'official' (Statto/organiser), 'self' (the player), or null (nothing logged).
+export function playerLine(g, playerId) {
+  const st = g && g.stats && g.stats[playerId];
+  if (st) return { g: Number(st.g) || 0, a: Number(st.a) || 0, source: 'official' };
+  const quick = g && g.goals && Number(g.goals[playerId]);
+  if (quick > 0) return { g: quick, a: 0, source: 'official' };
+  const self = g && g.selfStats && g.selfStats[playerId];
+  if (self) return { g: Number(self.g) || 0, a: Number(self.a) || 0, source: 'self' };
+  return { g: 0, a: 0, source: null };
+}
+
+// Clamp a player's own entry to a sane whole number.
+export function cleanSelfStat(v) {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) ? Math.min(SELF_STAT_MAX, Math.max(0, n)) : 0;
+}
+
+// The score the players' goals add up to: each side's goals (as playerLine
+// counts them) plus own goals by the other side. `goals` is the total, so a
+// game where nobody has logged anything reads as nothing, not 0–0.
+export function playersScore(g) {
+  const bibs = (g && g.teams && g.teams.bibs) || [], nonbibs = (g && g.teams && g.teams.nonbibs) || [];
+  const og = id => (g.ownGoals && Number(g.ownGoals[id])) || 0;
+  const side = (mine, theirs) => mine.reduce((n, id) => n + playerLine(g, id).g, 0) + theirs.reduce((n, id) => n + og(id), 0);
+  const s = { bibs: side(bibs, nonbibs), nonbibs: side(nonbibs, bibs) };
+  return { ...s, goals: s.bibs + s.nonbibs };
+}
+
+// Is this game's score the organiser's own (an override), rather than filled in
+// from the players' goals? Any score without the scoresAuto flag counts as the
+// organiser's — that includes every score entered before this feature existed.
+export function scoreIsManual(g) {
+  return !!(g && g.scores && !g.scoresAuto);
+}
+
+// What to write to a game so its score follows the players' goals — or null if
+// nothing should change (the organiser set the score, or it's already right).
+// Clears an automatic score if every goal it was built from has been taken back.
+export function autoScorePatch(g) {
+  if (!g || scoreIsManual(g) || !g.teams) return null;
+  const ps = playersScore(g);
+  if (!ps.goals) return g.scores ? { scores: null, scoresAuto: false } : null;
+  const next = { bibs: ps.bibs, nonbibs: ps.nonbibs };
+  if (g.scores && g.scoresAuto && g.scores.bibs === next.bibs && g.scores.nonbibs === next.nonbibs) return null;
+  return { scores: next, scoresAuto: true };
+}
+
+// The organiser set the score, but the players' goals add up to something else:
+// worth flagging so they can check it (and switch to the players' total).
+export function scoreDiscrepancy(g) {
+  if (!scoreIsManual(g) || !g.teams) return null;
+  const ps = playersScore(g);
+  if (!ps.goals) return null;
+  if (Number(g.scores.bibs) === ps.bibs && Number(g.scores.nonbibs) === ps.nonbibs) return null;
+  return { recorded: { bibs: Number(g.scores.bibs), nonbibs: Number(g.scores.nonbibs) }, players: { bibs: ps.bibs, nonbibs: ps.nonbibs } };
+}
+
+// The Statto's and organiser's forms re-submit whatever score is showing. Only
+// treat it as the organiser overriding the score when it actually differs from
+// an automatic one — saving other stats mustn't freeze an auto score in place.
+export function isScoreOverride(g, scores) {
+  if (!scores) return false;
+  const b = Number(scores.bibs), n = Number(scores.nonbibs);
+  if (g && g.scores && g.scoresAuto && Number(g.scores.bibs) === b && Number(g.scores.nonbibs) === n) return false;
+  return true;
+}
+
+// Everything a Statto/organiser stats save should write to a game: the edit
+// itself, the score (an override, or recalculated if it follows the players),
+// and the scoresAuto flag. `edit` is { scores, goals, stats, highlights,
+// stattoRatings, motm, ownGoals }; undefined fields are left alone.
+export function statsEditPatch(g, edit = {}) {
+  const patch = {};
+  for (const k of ['goals', 'stats', 'highlights', 'stattoRatings', 'motm', 'ownGoals']) {
+    if (edit[k] !== undefined && (k === 'highlights' || k === 'stattoRatings' || k === 'motm' || k === 'ownGoals' || edit[k])) patch[k] = edit[k];
+  }
+  if (isScoreOverride(g, edit.scores)) {
+    patch.scores = { bibs: Number(edit.scores.bibs), nonbibs: Number(edit.scores.nonbibs) };
+    patch.scoresAuto = false;
+    return patch;
+  }
+  const auto = autoScorePatch({ ...g, ...patch });
+  return auto ? { ...patch, ...auto } : patch;
+}
+
+// The organiser choosing the players' total over their own score.
+export function useAutoScorePatch(g) {
+  if (!g || !playersScore(g).goals) return {}; // nothing logged: keep the organiser's score
+  return autoScorePatch({ ...g, scoresAuto: true }) || { scoresAuto: true };
+}
+
+// Completed games a player played (on the team sheet), most recent first —
+// the ones they can log goals and assists for.
+export function selfStatGames(games = [], playerId) {
+  return games
+    .filter(g => g.status === 'completed' && g.teams && ((g.teams.bibs || []).includes(playerId) || (g.teams.nonbibs || []).includes(playerId)))
+    .slice()
+    .sort((a, b) => new Date(b.date || b.completedAt || b.kickoffAt || 0) - new Date(a.date || a.completedAt || a.kickoffAt || 0));
+}
+
 // Sum a player's stats across all games that have them recorded, plus the
 // season-long extras: average rating, man-of-the-match count and own goals.
 export function playerPerformance(playerId, games = []) {
@@ -532,9 +641,12 @@ export function playerPerformance(playerId, games = []) {
     } else {
       // No full line, but a goal logged via the quick scorer entry (g.goals)
       // still counts the game as recorded and the goal toward the total —
-      // that's the usual weekly case where only goals get noted.
+      // that's the usual weekly case where only goals get noted. Failing that,
+      // the player's own entry (selfStats) counts.
       const gq = (g.goals && Number(g.goals[playerId])) || 0;
+      const self = g.selfStats && g.selfStats[playerId];
       if (gq > 0) { n++; t.g += gq; }
+      else if (self) { n++; t.g += Number(self.g) || 0; t.a += Number(self.a) || 0; }
     }
     const r = effectiveRating(g, playerId);
     if (r != null) { ratingSum += r; ratingGames++; }
@@ -585,7 +697,7 @@ export function buildStatsIndex(games = [], playersById = {}) {
         const rec = ensure(id);
         for (const t of mine) if (t !== id) credit(rec.teammates, t, outcome);
         for (const o of theirs) credit(rec.opponents, o, outcome);
-        const pg = (g.stats && g.stats[id] && Number(g.stats[id].g)) || (g.goals && Number(g.goals[id])) || 0;
+        const pg = playerLine(g, id).g;
         rec.series.push({ date: g.date, dateLabel: g.dateLabel, gf, ga, pg, outcome, rating: effectiveRating(g, id) });
       }
     }

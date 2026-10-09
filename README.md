@@ -59,6 +59,16 @@ you exactly where you were.
   — from the games we've logged them for. Realistically it's mostly goals each
   week; the rest fills in when someone's counting. Your own numbers also appear
   on your **You** profile.
+- **Log your own goals & assists** — on **You**, every game you played has a
+  goals and an assists counter. What you log goes into your stats (the goals
+  and assists tiles sit above win rate and goal diff) and the Performances page.
+  If the organiser left a game's score blank, the score **fills itself in** from
+  everyone's goals (plus own goals) and updates as more people log theirs. An
+  organiser-entered score always wins: in **Organiser → Matches** you'll see
+  when the players' goals add up to something different, with who logged what
+  and a one-tap **Use players' total**. If the Statto has recorded someone's
+  line, the Statto's numbers count for that player. Tip: to let the players
+  build the score, leave it blank when you mark the game as played.
 - **Ratings & man of the match** — once a game's played, **rate your own
   performance** out of 5 stars from that game's History page (edit it any time).
   The Statto can add a rating too — your match rating is then the average of the
