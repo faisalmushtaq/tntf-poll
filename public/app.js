@@ -54,6 +54,7 @@ let lineupGameId = null;  // which game `lineupDraft` was built for
 let lineupAdded = new Set();    // players the organiser pulled in who didn't respond on the poll
 let lineupRemoved = new Set();  // players the organiser took out (won't be auto-re-added)
 let lineupGuests = {};          // guest id -> display name, persisted only on the game record
+let youTab = 'overview';      // You page section: overview | games | stats | settings
 let profileEditing = false;   // You page: profile editor opened via the pencil (once the profile is set up)
 let profilePhotoDraft = undefined; // undefined keeps the saved photo; data URL previews a new choice; null clears a custom photo
 let installPromptEvent = null; // captured browser install prompt, when Android offers one
@@ -1048,7 +1049,7 @@ function installScreen() {
           <li>Tap Safari's <b>Share</b> button, the square with an upward arrow.</li>
           <li>Scroll down and tap <b>Add to Home Screen</b>.</li>
           <li>Leave <b>Open as Web App</b> switched on, then tap <b>Add</b>.</li>
-          <li>Open the new <b>TNTF</b> icon from your Home Screen. For push alerts, then visit <b>You</b> and tap <b>Turn on push notifications</b>.</li>
+          <li>Open the new <b>TNTF</b> icon from your Home Screen. For push alerts, then visit <b>You → Settings</b> and tap <b>Turn on push notifications</b>.</li>
         </ol>
       </section>
     </div>
@@ -1419,7 +1420,7 @@ function selfStatsCard(me) {
     const sc = g.scores && Number.isFinite(Number(g.scores.bibs))
       ? `Bibs ${g.scores.bibs}–${g.scores.nonbibs} Non-bibs${g.scoresAuto ? ' <span class="ss-auto">from players\' goals</span>' : ''}`
       : 'No score yet';
-    const head = `<div class="ss-game"><b>${esc(g.dateLabel || gameDateKey(g))}</b><span class="small">${sc} · you were ${side}</span></div>`;
+    const head = `<div class="ss-game"><button type="button" class="ss-title" onclick="viewGame('${g.id}')" aria-label="Open the match record for ${esc(g.dateLabel || gameDateKey(g))}">${esc(g.dateLabel || gameDateKey(g))} <span aria-hidden="true">›</span></button><span class="small">${sc} · you were ${side}</span></div>`;
     const line = logic.playerLine(g, me.id);
     if (line.source === 'official') {
       return `<div class="ss-row">${head}<div class="ss-official">${line.g} goal${line.g === 1 ? '' : 's'} · ${line.a} assist${line.a === 1 ? '' : 's'}<span class="small">recorded by the Statto</span></div></div>`;
@@ -1542,7 +1543,7 @@ function youScreen() {
 
   return `<div class="card hero-you">
       <div class="profile-hero-row"><div class="hero-avatar-wrap">${avatarMarkup(me, { big: true })}${profileEditButton(me)}</div><div class="profile-hero-copy"><div class="you-name">${esc(me.name)}</div><p class="small">${me.loyalty} loyalty · ${me.gamesPlayed} games</p></div><img class="you-crest" src="./assets/crest-primary.svg" alt="Tuesday Night Total Football crest" /></div>
-    </div>${profileEditorCard(me)}${selfStatsCard(me)}${formRecordCard(me)}${formOverTimeCard(me)}${playsWithCard(me, true)}${upAgainstCard(me, true)}${performanceStatsCard(me, true)}${recordStatsCard(me, true)}${notif}${account}${installScreen()}${finalAccountAction}`;
+    </div>${profileEditorCard(me)}${youSubnav()}${youSection(me, { notif, account, finalAccountAction })}`;
 }
 
 // Guardian-style form guide: coloured W/D/L chips, newest first.
@@ -2468,7 +2469,7 @@ function getStatsIndex() {
 
 // ---- actions --------------------------------------------------------------
 // Top-nav navigation is a fresh context — clears the back-button history.
-window.go = t => { tab = t; menuOpen = false; pendingAction = null; navStack = []; if (t !== 'game') detailId = null; render(); window.scrollTo(0, 0); };
+window.go = t => { tab = t; menuOpen = false; pendingAction = null; navStack = []; if (t !== 'game') detailId = null; if (t === 'you') youTab = 'overview'; render(); window.scrollTo(0, 0); };
 window.installAppNow = async () => {
   if (!installPromptEvent) return toast('Use your browser menu and choose Add to Home screen', true);
   try {
@@ -2641,6 +2642,30 @@ window.profilePhotoSelected = async (event) => {
   }
 };
 window.clearOwnProfilePhoto = () => { profilePhotoDraft = null; render(); };
+// The You page is split into sections so it isn't one endless scroll: the
+// headline numbers up front, then your games (to log goals and assists), the
+// deeper stats, and settings. Same pill tabs as the Organiser area.
+const YOU_TABS = [['overview', 'Overview'], ['games', 'My games'], ['stats', 'Stats'], ['settings', 'Settings']];
+function youSubnav() {
+  return `<div class="subnav fit" role="tablist" aria-label="Your page">${YOU_TABS.map(([k, l]) =>
+    `<button type="button" role="tab" aria-selected="${youTab === k}" class="subnav-btn${youTab === k ? ' on' : ''}" onclick="setYouTab('${k}')">${l}</button>`).join('')}</div>`;
+}
+function youSection(me, { notif, account, finalAccountAction }) {
+  const empty = msg => `<div class="card"><p class="hint" style="margin:0">${msg}</p></div>`;
+  switch (youTab) {
+    case 'games':
+      return selfStatsCard(me) || empty(history ? 'Once you\'ve played a game, it shows up here so you can log your goals and assists.' : 'Loading your games…');
+    case 'stats':
+      return (formOverTimeCard(me) + playsWithCard(me, true) + upAgainstCard(me, true) + performanceStatsCard(me, true))
+        || empty(history ? 'Your charts and head-to-heads appear once you\'ve played a few games with a recorded score.' : 'Loading your stats…');
+    case 'settings':
+      return `${notif}${account}${installScreen()}${finalAccountAction}`;
+    default:
+      return (formRecordCard(me) + recordStatsCard(me, true)) || empty('Your numbers appear here once you\'ve played a game.');
+  }
+}
+window.setYouTab = (t) => { youTab = YOU_TABS.some(([k]) => k === t) ? t : 'overview'; render(); };
+
 window.saveOwnProfile = async () => {
   if (!state?.me) return;
   const name = document.getElementById('profileName')?.value.trim().replace(/\s+/g, ' ') || '';
