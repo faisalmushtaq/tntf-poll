@@ -654,9 +654,7 @@ function lastResultCard(g) {
   const res = !hasScore ? '' : b > n ? 'Bibs win' : n > b ? 'Non-bibs win' : 'Draw';
   const size = Math.max(g.teams?.bibs?.length || 0, g.teams?.nonbibs?.length || 0);
   const scorerChip = (id, v) => `<span class="scorer">${playerLink(id, esc(abbrev(state.playersById[id]?.name || '—')))}${v > 1 ? ` <span class="mult">×${v}</span>` : ''}</span>`;
-  const scorers = g.goals && Object.keys(g.goals).length
-    ? Object.entries(g.goals).filter(([, v]) => Number(v) > 0).sort((a, b) => b[1] - a[1]).map(([id, v]) => scorerChip(id, v)).join(', ')
-    : '';
+  const scorers = logic.gameScorers(g).map(([id, v]) => scorerChip(id, v)).join(', ');
   const ownGoals = g.ownGoals && Object.keys(g.ownGoals).length
     ? Object.entries(g.ownGoals).filter(([, v]) => Number(v) > 0).map(([id, v]) => scorerChip(id, v)).join(', ')
     : '';
@@ -1189,11 +1187,7 @@ function gameDetailScreen() {
   // "Name ×N" per scorer, abbreviated (S. Rodaina) and kept whole so the line
   // wraps between scorers, never mid-name.
   const scorerChip = (id, v) => `<span class="scorer">${playerLink(id, esc(abbrev(state.playersById[id]?.name || '—')))}${v > 1 ? ` <span class="mult">×${v}</span>` : ''}</span>`;
-  const scorers = g.goals && Object.keys(g.goals).length
-    ? Object.entries(g.goals).filter(([, v]) => Number(v) > 0)
-        .sort((a, b) => b[1] - a[1])
-        .map(([id, v]) => scorerChip(id, v)).join(', ')
-    : '';
+  const scorers = logic.gameScorers(g).map(([id, v]) => scorerChip(id, v)).join(', ');
   const scorersLine = scorers ? `<p class="hint center scorers-line" style="margin-top:4px">${ICON('icon-goal', 'inline-ico')} ${scorers}</p>` : '';
   const ogs = g.ownGoals && Object.keys(g.ownGoals).length
     ? Object.entries(g.ownGoals).filter(([, v]) => Number(v) > 0)
@@ -2248,7 +2242,7 @@ function stattoScreen() {
   const rows = games.map(g => {
     const b = g.scores?.bibs, n = g.scores?.nonbibs;
     const hasScore = Number.isFinite(b) && Number.isFinite(n);
-    const scorers = g.goals ? Object.values(g.goals).reduce((s, v) => s + Number(v || 0), 0) : 0;
+    const scorers = logic.gameScorers(g).reduce((s, [, v]) => s + v, 0);
     return `<a class="hist-row" role="button" tabindex="0" onclick="selectStattoGame('${g.id}')">
       <div class="hist-main"><div class="hist-date">${esc(g.dateLabel || gameDateKey(g))}</div>
         <div class="hist-sub">${scorers ? `${scorers} goal${scorers === 1 ? '' : 's'} logged` : 'no scorers yet'}</div></div>

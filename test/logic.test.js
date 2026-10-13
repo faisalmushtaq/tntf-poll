@@ -1115,6 +1115,14 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('only completed games they played, newest first', logic.selfStatGames([older, open, notIn, newer], 'a').map(g => g.id).join() === 'g2,g0');
   const perf = logic.playerPerformance('a', [{ ...g2, ...p2 }, { ...base, id: 'g9', stats: { a: { g: 1, a: 2 } }, selfStats: self('a', 9, 9) }]);
   ok('own entries count toward a player\'s totals', perf.g === 3 && perf.a === 2);
+
+  // Scorer lines (This week's last result, the match record, the Statto's list)
+  const sc = logic.gameScorers({ ...base, selfStats: { ...self('a', 1), ...self('x', 3), ...self('b', 0) }, goals: { c: 2 } });
+  ok('scorer list includes players\' own entries', sc.some(([id, n]) => id === 'x' && n === 3) && sc.some(([id, n]) => id === 'a' && n === 1));
+  ok('…and official goals', sc.some(([id, n]) => id === 'c' && n === 2));
+  ok('…most goals first, no zero-goal entries', sc.map(([id]) => id).join() === 'x,c,a');
+  ok('…official numbers win over an own entry', logic.gameScorers({ ...base, selfStats: self('a', 4), stats: { a: { g: 1 } } })[0][1] === 1);
+  ok('…empty for a game with no goals', logic.gameScorers(base).length === 0 && logic.gameScorers(null).length === 0);
 }
 
 console.log(`\n${pass} checks passed ✅`);

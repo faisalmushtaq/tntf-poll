@@ -532,6 +532,19 @@ export function playerLine(g, playerId) {
   return { g: 0, a: 0, source: null };
 }
 
+// Everyone who scored in a game, as [[playerId, goals], …], most goals first —
+// for the scorer lines on This week, the match record and the Statto's list.
+// Uses playerLine, so a player's own entry shows up unless the Statto or
+// organiser has recorded them (then theirs does).
+export function gameScorers(g) {
+  if (!g) return [];
+  const ids = new Set([
+    ...((g.teams && g.teams.bibs) || []), ...((g.teams && g.teams.nonbibs) || []),
+    ...Object.keys(g.stats || {}), ...Object.keys(g.goals || {}), ...Object.keys(g.selfStats || {})
+  ]);
+  return [...ids].map(id => [id, playerLine(g, id).g]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+}
+
 // Clamp a player's own entry to a sane whole number.
 export function cleanSelfStat(v) {
   const n = Math.floor(Number(v));
