@@ -17,6 +17,18 @@ let CLUB_NAME = 'Tuesday Night Total Football'; // set from config in main()
 // with the cron in .github/workflows/notify.yml.
 const CRON_INTERVAL_MINUTES = 5;
 
+// --- read budget ----------------------------------------------------------------
+// The free Firestore plan allows 50,000 document reads a day for the WHOLE
+// project — the website's readers included — and once it's spent every read
+// fails until midnight Pacific, taking the site down with it. At one run every
+// 5 minutes (288 a day) each read here costs ~300 a day, so: read the roster
+// only when a run actually needs it, run the receipt clean-up once a day, and
+// log what each run cost so a creeping total shows up in the Actions log.
+let READS = 0;
+const tally = snap => { READS += snap && typeof snap.size === 'number' ? Math.max(1, snap.size) : 1; return snap; };
+process.on('exit', () => console.log(`Firestore reads this run: ~${READS}`));
+const PROOF_PURGE_EVERY_HOURS = 24;
+
 // The push notification icon, as a full URL. It has to be absolute: the
 // browser resolves it against the site's origin, and the app lives under
 // /tntf-poll/ on GitHub Pages, so a bare '/icon.svg' pointed at nothing. And
@@ -127,17 +139,26 @@ async function send(player, ev) {
 }
 
 async function main() {
-  const cfgSnap = await db.doc('meta/config').get();
+  const cfgSnap = tally(await db.doc('meta/config').get());
   const config = logic.withDefaults(cfgSnap.exists ? cfgSnap.data() : {});
   CLUB_NAME = config.clubName || CLUB_NAME;
   let gameId = cfgSnap.exists ? cfgSnap.data().currentGameId : null;
 
-  const playersSnap = await db.collection('players').get();
-  const players = {};
-  playersSnap.forEach(d => { players[d.id] = { id: d.id, ...d.data() }; });
+  // The roster (~40 reads) is loaded only when this run needs it: to rank a live
+  // game, or to address an announcement that's actually going out. Between games
+  // most runs never touch it.
+  let playersCache = null;
+  const getPlayers = async () => {
+    if (!playersCache) {
+      const snap = tally(await db.collection('players').get());
+      playersCache = {};
+      snap.forEach(d => { playersCache[d.id] = { id: d.id, ...d.data() }; });
+    }
+    return playersCache;
+  };
 
   const notifyRef = db.doc('meta/notify');
-  const notify = (await notifyRef.get()).data() || { lastGameId: null, statuses: {} };
+  const notify = tally(await notifyRef.get()).data() || { lastGameId: null, statuses: {} };
   let autoOpenedKickoff = notify.autoOpenedKickoff || null;
 
   // How often do we *actually* get to run? notify.yml asks for every 5 minutes,
@@ -152,7 +173,7 @@ async function main() {
   const gapMinutes = lastRunAt ? Math.round((runAt - lastRunAt) / 60000) : null;
   const runGaps = [...(Array.isArray(notify.runGaps) ? notify.runGaps : [])];
   if (gapMinutes > 0) runGaps.push(gapMinutes);
-  const runStats = { lastRunAt: runAt.toISOString(), runGaps: runGaps.slice(-RUN_GAP_SAMPLES) };
+  const runStats = { lastRunAt: runAt.toISOString(), runGaps: runGaps.slice(-RUN_GAP_SAMPLES), lastProofPurgeAt: notify.lastProofPurgeAt || null };
   const nextRunMinutes = logic.nextRunEstimateMinutes(runStats.runGaps, CRON_INTERVAL_MINUTES);
   console.log(gapMinutes == null
     ? `First recorded run; assuming up to ${nextRunMinutes} min until the next one.`
@@ -160,7 +181,7 @@ async function main() {
 
   // Read the current game (if any) up front — the auto-opener needs to know
   // whether last week's game is settled before it puts out a fresh poll.
-  let gameSnap = gameId ? await db.doc(`games/${gameId}`).get() : null;
+  let gameSnap = gameId ? tally(await db.doc(`games/${gameId}`).get()) : null;
   let game = gameSnap && gameSnap.exists ? gameSnap.data() : null;
 
   // Auto-open: on the configured day/time (default Friday 10am), once last
@@ -177,21 +198,25 @@ async function main() {
     await db.doc('meta/config').set({ currentGameId: newRef.id }, { merge: true });
     autoOpenedKickoff = plan.kickoffAt;
     gameId = newRef.id;
-    game = { id: newRef.id, ...(await newRef.get()).data() };
+    game = { id: newRef.id, ...tally(await newRef.get()).data() };
     // The weekly poll opening on schedule is routine, so its "poll's open"
     // message goes out now (processAnnouncement below, this same run) rather
     // than waiting out the review window — people hear at the advertised time.
-    await db.doc('meta/announcement').set(logic.buildAnnouncement('poll-open', { game, recipients: Object.values(players), config, sendNow: true }));
+    await db.doc('meta/announcement').set(logic.buildAnnouncement('poll-open', { game, recipients: Object.values(await getPlayers()), config, sendNow: true }));
     console.log(`Auto-opened poll for ${plan.dateLabel} (kickoff ${plan.kickoffAt}). Announcement staged.`);
   }
 
   // Send (or drop) the pending "poll's open" announcement, held for review.
-  await processAnnouncement(gameId, game, players, nextRunMinutes);
+  await processAnnouncement(gameId, game, getPlayers, nextRunMinutes);
 
-  // Delete payment receipts past their retention period. Best-effort: a
+  // Delete payment receipts past their retention period — once a day is plenty
+  // for a 30-day rule, and the sweep costs ~2 reads per game. Best-effort: a
   // failure here must never stop the notifications below.
-  try { await purgeExpiredProofs(); }
-  catch (e) { console.error('Receipt clean-up failed (will retry next run):', e.message); }
+  const lastPurge = notify.lastProofPurgeAt ? new Date(notify.lastProofPurgeAt) : null;
+  if (!lastPurge || runAt - lastPurge >= PROOF_PURGE_EVERY_HOURS * 3600000) {
+    try { await purgeExpiredProofs(); runStats.lastProofPurgeAt = runAt.toISOString(); }
+    catch (e) { console.error('Receipt clean-up failed (will retry next run):', e.message); }
+  }
 
   // No open game → reset the marker so the next open triggers a fresh alert.
   if (!gameId) { await notifyRef.set({ lastGameId: null, statuses: {}, autoOpenedKickoff, ...runStats }, { merge: true }); console.log('No open game.'); return; }
@@ -210,7 +235,8 @@ async function main() {
   // "Game moved" (reschedule) and "line-up" broadcasts are also staged
   // announcements the organiser reviews — processAnnouncement sends them.
 
-  const susSnap = await db.collection(`games/${gameId}/signups`).get();
+  const susSnap = tally(await db.collection(`games/${gameId}/signups`).get());
+  const players = await getPlayers();
   const signups = susSnap.docs.map(d => ({ playerId: d.id, ...d.data() }));
   // Match the browser exactly: an unlocked game follows the live recommended
   // format, while a finalised game uses its stored capacity.
@@ -280,9 +306,9 @@ async function main() {
 // `nextRunMinutes` is how long we think it'll be before we run again; it lets a
 // pending line-up go out early rather than be stranded past kick-off by a slow
 // scheduler (see logic.announcementDeadlineDue).
-async function processAnnouncement(gameId, game, players, nextRunMinutes) {
+async function processAnnouncement(gameId, game, getPlayers, nextRunMinutes) {
   const ref = db.doc('meta/announcement');
-  const snap = await ref.get();
+  const snap = tally(await ref.get());
   const ann = snap.exists ? snap.data() : null;
   if (!ann || ann.status !== 'pending') return;
 
@@ -307,6 +333,7 @@ async function processAnnouncement(gameId, game, players, nextRunMinutes) {
   const bodyHtml = content.paragraphs.map(p => `<p style="margin:0 0 10px">${escapeHtml(p)}</p>`).join('');
   const body = content.paragraphs.join('\n\n');
   const audience = logic.announcementAudience(ann);
+  const players = await getPlayers();
   console.log(`Sending "${ann.kind}" announcement to ${audience.length} recipient(s).`);
   for (const r of audience) {
     const p = players[r.id] || { id: r.id, name: r.name, email: r.email };
@@ -326,9 +353,10 @@ async function processAnnouncement(gameId, game, players, nextRunMinutes) {
 async function purgeExpiredProofs() {
   const now = new Date();
   const gameRefs = await db.collection('games').listDocuments();
+  READS += gameRefs.length;
   let removed = 0;
   for (const gameRef of gameRefs) {
-    const snap = await gameRef.collection('proofs').select('uploadedAt').get();
+    const snap = tally(await gameRef.collection('proofs').select('uploadedAt').get());
     for (const doc of snap.docs) {
       if (!logic.proofExpired(doc.data(), now)) continue;
       const signupRef = gameRef.collection('signups').doc(doc.id);
@@ -336,7 +364,7 @@ async function purgeExpiredProofs() {
       batch.delete(doc.ref);
       // update(), not set(): if the sign-up is gone (player merged or removed)
       // there's nothing to tidy, and we mustn't resurrect a stub record.
-      if ((await signupRef.get()).exists) batch.update(signupRef, { proofAt: admin.firestore.FieldValue.delete() });
+      if (tally(await signupRef.get()).exists) batch.update(signupRef, { proofAt: admin.firestore.FieldValue.delete() });
       await batch.commit();
       removed++;
     }
