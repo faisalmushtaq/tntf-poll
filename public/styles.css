@@ -600,3 +600,11 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .fmt-atrisk .lu-row { opacity: .72; border-style: dashed; }
 .fmt-risk-note { color: var(--amber); margin-top: 8px; }
 .penalty-scale .pts { white-space: nowrap; flex: none; padding-left: 10px; }
+
+/* Organiser → Settings → Notifications: one row per message, Email / Push ticks */
+.notify-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+.notify-table th { text-align: left; font-weight: 600; font-size: 13px; color: var(--muted, #6b665c); padding: 6px 4px; border-bottom: 1px solid var(--line); }
+.notify-table th:not(:first-child), .notify-table td:not(:first-child) { text-align: center; width: 56px; }
+.notify-table td { padding: 8px 4px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.notify-table td .small { margin: 2px 0 0; }
+.notify-table input[type="checkbox"] { width: 20px; height: 20px; margin: 0; accent-color: var(--green); }

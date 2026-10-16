@@ -125,6 +125,14 @@ You can still open a game by hand any time. These run on the notifier, so they
 happen on time only if it runs every few minutes — see the external timer under
 *Turn on notifications* below.
 
+**You choose which messages go out, and how.** **Organiser → Settings →
+Notifications** has an Email and a Push tick for each kind of message: poll's
+open, squad set, moved up, dropped to the reserves, line-up, game moved, no game
+this week, and your own squad-locked alert. Untick both to stop that message
+altogether (a staged announcement with both off is closed without sending, and
+its review card says so; *Share to WhatsApp* still works). Everything is on
+until you change it.
+
 **You approve every other group announcement before it goes out.** Opening a poll by hand,
 **moving** the day/time/venue, or **calling off** the week stages an
 announcement in **Organiser** for review. You see the exact message and the
