@@ -1137,4 +1137,21 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
   ok('…empty for a game with no goals', logic.gameScorers(base).length === 0 && logic.gameScorers(null).length === 0);
 }
 
+console.log('\nWhich notifications go out, and how');
+{
+  const both = logic.notifyChannelsFor({}, 'poll-open');
+  ok('nothing set → email and push both on', both.email && both.push);
+  ok('no config at all → both on', logic.notifyChannelsFor(null, 'lineup').email && logic.notifyChannelsFor(undefined, 'lineup').push);
+  const cfg = { notifyChannels: { lineup: { email: false, push: true }, bumped: { email: false, push: false }, promoted: { push: false } } };
+  ok('email switched off for one kind', !logic.notifyChannelsFor(cfg, 'lineup').email && logic.notifyChannelsFor(cfg, 'lineup').push);
+  ok('both switched off', !logic.notifyChannelsFor(cfg, 'bumped').email && !logic.notifyChannelsFor(cfg, 'bumped').push);
+  ok('only push set → email still on', logic.notifyChannelsFor(cfg, 'promoted').email && !logic.notifyChannelsFor(cfg, 'promoted').push);
+  ok('other kinds unaffected', logic.notifyChannelsFor(cfg, 'squad-set').email && logic.notifyChannelsFor(cfg, 'squad-set').push);
+  ok('an untagged send goes both ways', logic.notifyChannelsFor(cfg, undefined).email && logic.notifyChannelsFor(cfg, undefined).push);
+  ok('the default config switches nothing off', logic.NOTIFY_KINDS.every(k => { const c = logic.notifyChannelsFor(logic.withDefaults({}), k.key); return c.email && c.push; }));
+  const kinds = logic.NOTIFY_KINDS.map(k => k.key);
+  ok('every announcement kind has a setting', ['poll-open', 'reschedule', 'cancellation', 'lineup'].every(k => kinds.includes(k)));
+  ok('…as do the notifier\'s own messages', ['squad-set', 'promoted', 'bumped', 'squad-locked'].every(k => kinds.includes(k)));
+}
+
 console.log(`\n${pass} checks passed ✅`);

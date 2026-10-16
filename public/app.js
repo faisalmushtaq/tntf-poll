@@ -1926,6 +1926,13 @@ function announceCard(a) {
       : 'The scheduled notifier is behind — GitHub throttles it when the repo has been quiet.'
   } It may still arrive, but don't wait on it: <b>Share to WhatsApp</b> below posts ${isLineup ? 'the line-up' : 'this'} to the group from this device straight away.</p>` : '';
 
+  // Which channels this kind goes by (Settings → Notifications).
+  const ch = logic.notifyChannelsFor(state.config, a.kind);
+  const chNote = ch.email && ch.push ? ''
+    : `<p class="small ann-channels">${!ch.email && !ch.push
+        ? '<b>Email and push are both off</b> for this message in Settings → Notifications, so it won\'t be sent — Share to WhatsApp still works.'
+        : `Goes by <b>${ch.email ? 'email' : 'push'} only</b> (Settings → Notifications).`}</p>`;
+
   const content = logic.announcementContent(a, state.config.clubName);
   let previewBody;
   if (isLineup) {
@@ -1947,6 +1954,7 @@ function announceCard(a) {
   return `<div class="card ann-card${late ? ' late' : ''}">
       <h2>${ICON('icon-announcement', 'head-ico')}${isLineup ? 'Line-up announcement' : 'Announcement'} — review before it sends</h2>
       <p class="hint" style="margin-top:-2px">${countdown}</p>
+      ${chNote}
       ${lateNote}
       <div class="ann-preview">
         <div class="ann-h">${esc(content.heading)}</div>
@@ -2110,6 +2118,20 @@ function adminScreen() {
         <label class="field">Hours before kick-off to send the line-up</label><input id="cLineupH" type="number" min="0" step="0.5" value="${state.config.lineupHoursBefore ?? 2}" />
         <p class="small">The robot puts the next poll out at this day and time (once last week's result is in) and tells everyone straight away. Polls you open by hand, and other announcements, wait here for you to review before they auto-send. The previous poll closes when that game kicks off.</p>
         <label class="field">Your email (for the auto-close squad alert)</label><input id="cOrg" type="email" value="${esc(state.config.organiserEmail || '')}" placeholder="you@email.com" />
+      </details>
+
+      <details class="fold-sec">
+        <summary>Notifications</summary>
+        <p class="small">Choose which messages go out, and how. Untick both to stop a message altogether. Players still choose for themselves whether to turn push on.</p>
+        <table class="notify-table">
+          <thead><tr><th>Message</th><th>Email</th><th>Push</th></tr></thead>
+          <tbody>${logic.NOTIFY_KINDS.map(k => {
+            const c = logic.notifyChannelsFor(state.config, k.key);
+            return `<tr><td>${esc(k.label)}<div class="small">${esc(k.who)}</div></td>
+              <td><input type="checkbox" class="nc" data-kind="${k.key}" data-ch="email" aria-label="${esc(k.label)} by email" ${c.email ? 'checked' : ''} /></td>
+              <td><input type="checkbox" class="nc" data-kind="${k.key}" data-ch="push" aria-label="${esc(k.label)} by push" ${c.push ? 'checked' : ''} /></td></tr>`;
+          }).join('')}</tbody>
+        </table>
       </details>
 
       <details class="fold-sec">
@@ -3325,6 +3347,10 @@ window.saveConfig = async () => {
     eightASideBias: Number(document.getElementById('cEightBias').value) || 1.25,
     fiveASideBelow: Math.max(2, Math.round(Number(document.getElementById('cFiveBelow').value)) || 13),
     organiserEmail: document.getElementById('cOrg').value.trim(),
+    notifyChannels: Object.fromEntries(logic.NOTIFY_KINDS.map(k => [k.key, {
+      email: !!document.querySelector(`.nc[data-kind="${k.key}"][data-ch="email"]`)?.checked,
+      push: !!document.querySelector(`.nc[data-kind="${k.key}"][data-ch="push"]`)?.checked
+    }])),
     scoring: {
       playedReward: Number(document.getElementById('cReward').value),
       weatherBonus: Number(document.getElementById('cWx').value),

@@ -941,6 +941,25 @@ export function pastKickoff(game, now = new Date()) {
     && game.status !== 'completed' && game.status !== 'cancelled');
 }
 
+// --- which notifications go out, and how ------------------------------------
+// The organiser decides, per type of notification, whether it goes by email,
+// by push, both or neither (config.notifyChannels: { kind: { email, push } }).
+// Anything not set defaults to both, so nothing goes quiet by accident.
+export const NOTIFY_KINDS = [
+  { key: 'poll-open',    label: 'Poll\'s open',                       who: 'Everyone' },
+  { key: 'squad-set',    label: 'Squad set (you\'re in / reserve #n)', who: 'Everyone signed up' },
+  { key: 'promoted',     label: 'Moved up into the squad',              who: 'That player' },
+  { key: 'bumped',       label: 'Dropped to the reserves',              who: 'That player' },
+  { key: 'lineup',       label: 'Line-up',                              who: 'The squad' },
+  { key: 'reschedule',   label: 'Game moved',                           who: 'Everyone' },
+  { key: 'cancellation', label: 'No game this week',                    who: 'Everyone' },
+  { key: 'squad-locked', label: 'Squad locked (to you)',                who: 'Organiser' }
+];
+export function notifyChannelsFor(config, kind) {
+  const c = (config && config.notifyChannels && config.notifyChannels[kind]) || {};
+  return { email: c.email !== false, push: c.push !== false };
+}
+
 // --- group announcements, held for organiser review -------------------------
 // Broadcasts to the group (poll opening, a time/venue change, a cancellation,
 // the line-up) aren't emailed straight away. We stage each as a pending

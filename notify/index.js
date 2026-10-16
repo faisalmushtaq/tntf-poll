@@ -106,9 +106,19 @@ function emailHtml({ clubName, heading, bodyHtml }) {
 
 const escapeHtml = (s) => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
-async function send(player, ev) {
+// The organiser's per-notification-type settings (config.notifyChannels), set
+// once per run in main(). Every send is tagged with its kind; an untagged send
+// (or a kind the organiser hasn't touched) goes by both email and push.
+let CONFIG = {};
+
+// `only` narrows the channels further for one call (e.g. { email: false } when
+// the email has already gone out another way).
+async function send(player, ev, only = {}) {
   if (!player) return;
-  if (transport && player.email) {
+  const ch = logic.notifyChannelsFor(CONFIG, ev.kind);
+  const useEmail = ch.email && only.email !== false;
+  const usePush = ch.push && only.push !== false;
+  if (transport && player.email && useEmail) {
     try {
       const bodyHtml = (ev.bodyHtml || `<p style="margin:0">${escapeHtml(ev.body)}</p>`);
       await transport.sendMail({
@@ -121,7 +131,7 @@ async function send(player, ev) {
       console.log(`  email → ${player.email}: ${ev.title}`);
     } catch (e) { console.error('  email failed', player.email, e.message); }
   }
-  const tokens = Object.values(player.pushTokens || {});
+  const tokens = usePush ? Object.values(player.pushTokens || {}) : [];
   if (tokens.length) {
     try {
       const res = await admin.messaging().sendEachForMulticast({
@@ -142,6 +152,12 @@ async function main() {
   const cfgSnap = tally(await db.doc('meta/config').get());
   const config = logic.withDefaults(cfgSnap.exists ? cfgSnap.data() : {});
   CLUB_NAME = config.clubName || CLUB_NAME;
+  CONFIG = config;
+  const off = logic.NOTIFY_KINDS.flatMap(k => {
+    const c = logic.notifyChannelsFor(config, k.key);
+    return [!c.email && `${k.key} email`, !c.push && `${k.key} push`].filter(Boolean);
+  });
+  if (off.length) console.log(`Switched off by the organiser: ${off.join(', ')}.`);
   let gameId = cfgSnap.exists ? cfgSnap.data().currentGameId : null;
 
   // The roster (~40 reads) is loaded only when this run needs it: to rank a live
@@ -252,8 +268,8 @@ async function main() {
     console.log(`New game opened: ${game.dateLabel}. Broadcast deferred to the pending announcement.`);
   } else {
     for (const c of logic.diffStatuses(notify.statuses || {}, curr)) {
-      if (c.kind === 'promoted') events.push({ playerId: c.playerId, title: "You're IN ✅", heading: "You're in the squad", body: `A spot opened up — you're in the squad for ${game.dateLabel}.`, bodyHtml: `<p style="margin:0">A spot opened up — you're <strong>in the squad</strong> for ${escapeHtml(game.dateLabel)}.</p>` });
-      else events.push({ playerId: c.playerId, title: 'Bumped to the reserves', heading: 'Bumped to the reserves', body: `You've dropped to the reserves for ${game.dateLabel}. You'll move up if someone drops.`, bodyHtml: `<p style="margin:0">You've dropped to the <strong>reserves</strong> for ${escapeHtml(game.dateLabel)}. You'll move up if someone drops out.</p>` });
+      if (c.kind === 'promoted') events.push({ playerId: c.playerId, kind: 'promoted', title: "You're IN ✅", heading: "You're in the squad", body: `A spot opened up — you're in the squad for ${game.dateLabel}.`, bodyHtml: `<p style="margin:0">A spot opened up — you're <strong>in the squad</strong> for ${escapeHtml(game.dateLabel)}.</p>` });
+      else events.push({ playerId: c.playerId, kind: 'bumped', title: 'Bumped to the reserves', heading: 'Bumped to the reserves', body: `You've dropped to the reserves for ${game.dateLabel}. You'll move up if someone drops.`, bodyHtml: `<p style="margin:0">You've dropped to the <strong>reserves</strong> for ${escapeHtml(game.dateLabel)}. You'll move up if someone drops out.</p>` });
     }
     console.log(`${events.length} status change(s) to notify.`);
   }
@@ -267,7 +283,7 @@ async function main() {
   if (squadSetGameId !== gameId && logic.squadSetDue(game, new Date(), config)) {
     const notices = logic.squadSetMessages(ranked, game, config);
     console.log(`Squad set — confirming ${notices.length} player(s) (squad + reserves).`);
-    for (const n of notices) await send(players[n.playerId], n);
+    for (const n of notices) await send(players[n.playerId], { ...n, kind: 'squad-set' });
     squadSetGameId = gameId;
     // The squad-set message already tells everyone where they stand — including
     // anyone the deadline just moved (e.g. dropped to the bench when it went
@@ -337,11 +353,19 @@ async function processAnnouncement(gameId, game, getPlayers, nextRunMinutes) {
   const bodyHtml = content.paragraphs.map(p => `<p style="margin:0 0 10px">${escapeHtml(p)}</p>`).join('');
   const body = content.paragraphs.join('\n\n');
   const audience = logic.announcementAudience(ann);
+  // Both channels switched off for this kind → nothing to send, but still mark
+  // it resolved so it doesn't sit pending (and the roster isn't read for it).
+  const ch = logic.notifyChannelsFor(CONFIG, ann.kind);
+  if (!ch.email && !ch.push) {
+    await ref.set({ status: 'sent', sentAt: new Date().toISOString(), sentCount: 0, sentEarly: early, skipped: 'notifications off' }, { merge: true });
+    console.log(`Announcement (${ann.kind}) not sent — email and push are both switched off for it in Settings.`);
+    return;
+  }
   const players = await getPlayers();
-  console.log(`Sending "${ann.kind}" announcement to ${audience.length} recipient(s).`);
+  console.log(`Sending "${ann.kind}" announcement to ${audience.length} recipient(s) by ${[ch.email && 'email', ch.push && 'push'].filter(Boolean).join(' + ')}.`);
   for (const r of audience) {
     const p = players[r.id] || { id: r.id, name: r.name, email: r.email };
-    await send(p, { title: content.subject, heading: content.heading, body, bodyHtml });
+    await send(p, { kind: ann.kind, title: content.subject, heading: content.heading, body, bodyHtml });
   }
   await ref.set({ status: 'sent', sentAt: new Date().toISOString(), sentCount: audience.length, sentEarly: early }, { merge: true });
   console.log('Announcement sent.');
@@ -382,8 +406,9 @@ async function sendSquadAlert(config, game, confirmed, reserves, players) {
   const bench = reserves.length ? `\n\nReserves:\n${reserves.map((r, i) => `${i + 1}. ${r.name}`).join('\n')}` : '';
   const body = `The squad for ${game.dateLabel}${game.venue ? ` at ${game.venue}` : ''} is locked (${confirmed.length}/${game.capacity}):\n\n${list}${bench}`;
   const ev = { title: `✅ Squad locked — ${game.dateLabel}`, body };
+  const ch = logic.notifyChannelsFor(config, 'squad-locked');
 
-  if (transport && config.organiserEmail) {
+  if (transport && config.organiserEmail && ch.email) {
     try {
       const olItem = 'margin:0;padding:2px 0;font:400 16px/1.5 \'Newsreader\',Georgia,serif;color:#171614';
       const squadHtml = confirmed.map((r, i) => `<li style="${olItem}">${i + 1}. ${escapeHtml(r.name)}</li>`).join('');
@@ -404,7 +429,8 @@ async function sendSquadAlert(config, game, confirmed, reserves, players) {
   }
   // Also push to the organiser if their account is on the roster.
   const org = Object.values(players).find(p => config.organiserEmail && p.email && p.email.toLowerCase() === config.organiserEmail.toLowerCase());
-  if (org) await send(org, { title: ev.title, body: `Squad for ${game.dateLabel} is locked (${confirmed.length}/${game.capacity}).` });
+  // Push only: the email (with the full list) went out just above.
+  if (org) await send(org, { kind: 'squad-locked', title: ev.title, body: `Squad for ${game.dateLabel} is locked (${confirmed.length}/${game.capacity}).` }, { email: false });
 }
 
 // --- setup check (manual test run) -------------------------------------------
