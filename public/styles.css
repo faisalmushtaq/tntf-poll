@@ -594,3 +594,9 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 .subnav.fit { overflow: visible; gap: 6px; }
 .subnav.fit .subnav-btn { flex: 1 1 0; min-width: 0; padding: 9px 6px; text-align: center; white-space: nowrap; font-size: 14.5px; }
 @media (max-width: 345px) { .subnav.fit { gap: 4px; } .subnav.fit .subnav-btn { padding: 8px 3px; font-size: 13px; } }
+/* Squad list: the 5-a-side cut-off while we're short before the deadline. */
+.fmt-cut { margin: 10px 0 8px; padding-top: 10px; border-top: 2px dashed var(--amber); }
+.fmt-cut span { display: block; font-size: 13.5px; line-height: 1.45; color: var(--amber); }
+.fmt-atrisk .lu-row { opacity: .72; border-style: dashed; }
+.fmt-risk-note { color: var(--amber); margin-top: 8px; }
+.penalty-scale .pts { white-space: nowrap; flex: none; padding-left: 10px; }

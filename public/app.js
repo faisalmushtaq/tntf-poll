@@ -192,6 +192,12 @@ function buildView() {
     game = {
       id: g.id, status: g.status, dateLabel: g.dateLabel, kickoffAt: g.kickoffAt,
       capacity: cap, capacityLocked: !!g.capacityLocked,
+      // Short of the 13 needed to keep 7-a-side before the squad deadline? Then
+      // anyone below 10th could drop to the bench at the deadline (5-a-side).
+      formatRisk: g.capacityLocked ? null : (() => {
+        const r = logic.recommendedFormat(lastRaw.signups, lastRaw.playersById, lastRaw.config, { kickoffAt: g.kickoffAt });
+        return r.atRisk ? { need: r.minFor7, count: r.count, deadlineISO: r.deadlineISO } : null;
+      })(),
       createdAt: g.createdAt,
       venue: g.venue || lastRaw.config.venue,
       teams: g.teams || null, teamsFinalised: !!g.teamsFinalised,
@@ -438,7 +444,7 @@ function weekScreen() {
       <h2>Squad &amp; reserves</h2>
       <p class="hint">Everyone can see the full list. Ranked by loyalty score — a regular who signs up late still ranks above a casual, so there's no rush to be first.</p>
       <div class="lu-head">Starting ${g.capacity} · by loyalty</div>
-      ${renderLineup(g.confirmed, 1, 'loyalty')}
+      ${squadLineup(g)}
       ${g.waitlist.length ? `<div class="lu-head sub">Reserves</div>${renderLineup(g.waitlist, g.capacity + 1, 'reserve')}` : ''}
       ${g.unavailable.length ? `<div class="lu-head sub">Can't make it this week (${g.unavailable.length})</div>
         <div class="unavail-list">${g.unavailable.map(u => `<span class="unavail-chip${u.playerId === state.me?.id ? ' me' : ''}">${esc(abbrev(u.name))}</span>`).join('')}</div>` : ''}
@@ -448,7 +454,7 @@ function weekScreen() {
 // The format recommendation for the current game (5 / 7 / 8-a-side), or null.
 function formatRec() {
   if (!lastRaw || !lastRaw.game || !state.game) return null;
-  return logic.recommendedFormat(lastRaw.signups, state.playersById, state.config);
+  return logic.recommendedFormat(lastRaw.signups, state.playersById, state.config, { kickoffAt: lastRaw.game.kickoffAt });
 }
 function round1(n) { return Math.round((Number(n) || 0) * 10) / 10; }
 
@@ -712,6 +718,31 @@ function toLocalInput(iso) {
 }
 
 // Two-column "Lineups / Substitutes" style list (Guardian match-report look).
+// The squad list. Normally just the ranked lineup — but while we're short of the
+// number needed to keep 7-a-side (13) before the squad deadline, the top 10 are
+// safe and anyone below them could drop to the bench if it goes 5-a-side. Draw
+// that as a dotted line with a plain explanation, the at-risk players beneath.
+const FIVE_A_SIDE_SQUAD = 10;
+function squadLineup(g) {
+  const risk = g.formatRisk;
+  if (!risk) return renderLineup(g.confirmed, 1, 'loyalty');
+  const when = squadDeadlineLabel(risk.deadlineISO);
+  const short = risk.need - risk.count;
+  const msg = `We need ${risk.need} to keep 7-a-side — ${short === 1 ? '1 more' : `${short} more`} by ${when}. If we're still short then, it's 5-a-side: only the top ${FIVE_A_SIDE_SQUAD} play.`;
+  if (g.confirmed.length <= FIVE_A_SIDE_SQUAD) {
+    return `${renderLineup(g.confirmed, 1, 'loyalty')}<p class="small fmt-risk-note">${msg}</p>`;
+  }
+  return `${renderLineup(g.confirmed.slice(0, FIVE_A_SIDE_SQUAD), 1, 'loyalty')}
+    <div class="fmt-cut" role="note"><span>${msg} Below this line would drop to the bench.</span></div>
+    <div class="fmt-atrisk">${renderLineup(g.confirmed.slice(FIVE_A_SIDE_SQUAD), FIVE_A_SIDE_SQUAD + 1, 'loyalty')}</div>`;
+}
+// "Monday 10:00" — the squad deadline in club time.
+function squadDeadlineLabel(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return 'the squad deadline';
+  return d.toLocaleString('en-GB', { weekday: 'long', hour: '2-digit', minute: '2-digit', timeZone: state.config.timeZone || 'Europe/London' });
+}
+
 function renderLineup(list, startNum, badgeMode) {
   if (!list.length) return '<div class="empty">No one yet — be the first.</div>';
   const half = Math.ceil(list.length / 2);
@@ -941,6 +972,7 @@ function rulesScreen() {
   const promptBonus = s.promptBonus ?? 1;
   const reserveReward = reward + promptBonus; // a prompt reserve earns one more than a player
   const bias = state.config.eightASideBias ?? 1.25;
+  const fiveBelow = Number(state.config.fiveASideBelow) || 13;
   const coldMax = reward + (s.weatherBonus || 0) + (s.coldSeasonBonus || 0);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   const coldMonths = (s.coldMonths || []).map(m => months[m]);
@@ -975,14 +1007,15 @@ function rulesScreen() {
   </div>
   <div class="card">
     <h2>5, 7 or 8 a side?</h2>
-    <p class="hint">The format is decided by turnout, and — for the 7-vs-8 question — by a loyalty-weighted preference vote. The squad size <b>follows this live</b> (10 → 14 → 16) as people sign up and set their preference; the organiser finalises it before the game (or sets it by hand any time).</p>
+    <p class="hint"><b>It's 7-a-side every week by default</b> — a squad of 14 — however many are in when the poll opens. The format only changes for two reasons: too few players at the squad deadline, or a strong vote for 8-a-side.</p>
     <ul class="penalty-scale">
-      <li><span><b>14–15 in</b> — a full 7-a-side (the weekly default)</span><span class="pts free">7-a-side</span></li>
+      <li><span><b>Up to the squad deadline</b> (${esc(prevDay(state.config.gameDay))} ${esc(state.config.squadLockTime || '10:00')}) — 7-a-side, whatever the numbers</span><span class="pts free">7-a-side</span></li>
+      <li><span><b>${fiveBelow} or more in</b> at the deadline — stays 7-a-side</span><span class="pts free">7-a-side</span></li>
+      <li><span><b>Fewer than ${fiveBelow}</b> at the deadline — the top 10 by loyalty play, the rest go to the bench</span><span class="pts">5-a-side*</span></li>
       <li><span><b>16+ in</b> — 7-a-side <em>unless</em> the 8-camp's loyalty wins the vote below</span><span class="pts free">7 or 8</span></li>
-      <li><span><b>11–13 in</b> — the top 10 by loyalty, on a smaller pitch if one can be found</span><span class="pts">5-a-side*</span></li>
-      <li><span><b>10 or fewer</b> — a straight 5-a-side, if a smaller pitch can be found</span><span class="pts">5-a-side*</span></li>
     </ul>
-    <p class="small">*11–13 and below need an <b>alternative (smaller) pitch</b> — the usual booking is for 7-a-side. If none is available we may have to change the date/time or, occasionally, call it off.</p>
+    <p class="small">While we're under ${fiveBelow} before the deadline, the squad list shows a <b>dotted line under 10th place</b>: anyone below it is in the squad for now but would drop to the bench if it goes 5-a-side. Get your mates to sign up!</p>
+    <p class="small">*5-a-side needs an <b>alternative (smaller) pitch</b> — the usual booking is for 7-a-side. If none is available we may have to change the date/time or, occasionally, call it off.</p>
     <div class="section-title">The 7-vs-8 vote</div>
     <p class="small">7-a-side is the starting position every week. Each player can register a preference for 7 or 8 (or none). We add up the <b>loyalty points</b> behind each camp — not the headcount, so the regulars' voices carry further. It only switches to 8-a-side when the 8-camp's loyalty beats the 7-camp's by more than <b>${bias}×</b>. That deliberately biases us toward 7: a slim majority won't do it — it takes an <em>overwhelming</em>, loyalty-weighted consensus to flip. (The ${bias}× weighting is set by the organiser and can be reviewed later.)</p>
     <div class="section-title">Worked example</div>
@@ -2056,6 +2089,7 @@ function adminScreen() {
       <label class="field">Default venue</label><input id="cVenue" value="${esc(state.config.venue && state.config.venue !== 'Pitch 10' ? state.config.venue : 'Pitch 10 - Nou Camp')}" />
       <label class="field">Pitch cost (£ total, split across the squad)</label><input id="cPitchCost" type="number" min="0" step="0.01" value="${state.config.pitchCost ?? 113}" />
       <label class="field">Default squad size</label><input id="cCap" type="number" value="${state.config.capacity}" />
+      <label class="field">Minimum players for 7-a-side at the squad deadline (fewer → 5-a-side, top 10 play)</label><input id="cFiveBelow" type="number" min="2" step="1" value="${state.config.fiveASideBelow ?? 13}" />
       <label class="field">8-a-side bias (7 is the default; the 8-camp's loyalty must beat the 7-camp's by this multiple to switch)</label><input id="cEightBias" type="number" min="1" step="0.05" value="${state.config.eightASideBias ?? 1.25}" />
       <label class="field">Game day</label>
       <select id="cDay">${['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(d => `<option ${d === state.config.gameDay ? 'selected' : ''}>${d}</option>`).join('')}</select>
@@ -3289,6 +3323,7 @@ window.saveConfig = async () => {
     lateLoyaltyFactor: Number(document.getElementById('cLateFactor').value),
     capacity: Number(document.getElementById('cCap').value),
     eightASideBias: Number(document.getElementById('cEightBias').value) || 1.25,
+    fiveASideBelow: Math.max(2, Math.round(Number(document.getElementById('cFiveBelow').value)) || 13),
     organiserEmail: document.getElementById('cOrg').value.trim(),
     scoring: {
       playedReward: Number(document.getElementById('cReward').value),

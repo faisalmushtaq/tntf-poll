@@ -436,11 +436,19 @@ guide. (Files whose names start with `_` are docs, never treated as a game.)
 - **Result:** the organiser enters the final score when marking a game as played (editable, along with the teams, right up until confirming); it's stored on the match record and drives win/loss analytics.
 
 ### Recommended format (5 / 7 / 8-a-side)
-The poll recommends a format from turnout (and, for 7-vs-8, a loyalty-weighted preference vote). The organiser can always override it by hand; this is what **This week** suggests automatically, with an *Apply* button.
-- **14–15 in →** a full **7-a-side** (the weekly default).
-- **16+ in →** **7-a-side unless the 8-camp wins the vote** (below).
-- **11–13 in →** the **top 10** by loyalty play a **5-a-side**, *if an alternative (smaller) pitch can be found* — the usual booking is for 7-a-side. If none is available, change the date/time or call it off. Flagged in the organiser view.
-- **10 or fewer →** a straight **5-a-side** (also needs a smaller pitch).
+**7-a-side (a squad of 14) is the default every week**, whatever the turnout. It
+only changes in two ways:
+- **Too few at the squad deadline** (Monday 10:00 for a Tuesday game): with
+  fewer than **13** in, it drops to **5-a-side** — the top 10 by loyalty play, the
+  rest go to the bench (and need a smaller pitch). 13 or more stays 7-a-side.
+  Until the deadline it stays 7-a-side however few are in; while we're short,
+  the squad list shows a **dotted line under 10th place** so anyone below it can
+  see they'd drop if we don't get the numbers. The 13 is set in Settings
+  (`fiveASideBelow`).
+- **16+ in and a strong 8-a-side vote** flips it to 8-a-side (below).
+
+The organiser can always set the size by hand. At the deadline everyone is told
+where they stand (one message each: "you're in" or "you're reserve #n").
 - **The 7-vs-8 vote:** each player registers a preference for 7 or 8 (or none) on This week. We sum the **loyalty points** behind each camp — not the headcount, so regulars' voices carry further. It only switches to 8 when the 8-camp's loyalty beats the 7-camp's by more than the **`eightASideBias`** multiple (default **1.25×**, editable in Settings). That biases us toward 7: a slim majority won't do it — it takes an overwhelming, loyalty-weighted consensus. *Worked example:* 16 in — nine prefer 7 (90 loyalty), seven prefer 8 (130). The 8-camp must clear 90 × 1.25 = 112.5; 130 beats it, so it flips to 8. With only 100 loyalty it would stay 7, even as the headcount majority.
 - Pure algorithm: `recommendedFormat()` in `logic.js` (shared by app + tests).
 
