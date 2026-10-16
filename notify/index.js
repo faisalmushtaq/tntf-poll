@@ -258,8 +258,6 @@ async function main() {
     console.log(`${events.length} status change(s) to notify.`);
   }
 
-  for (const ev of events) await send(players[ev.playerId], ev);
-
   // Squad set: at the deadline (config.squadLockTime on the day before — Monday
   // 10am for a Tuesday game) tell everyone where they stand, once per game:
   // "you're in" to the squad, "you're reserve #n" to the bench. Sent whether or
@@ -271,6 +269,12 @@ async function main() {
     console.log(`Squad set — confirming ${notices.length} player(s) (squad + reserves).`);
     for (const n of notices) await send(players[n.playerId], n);
     squadSetGameId = gameId;
+    // The squad-set message already tells everyone where they stand — including
+    // anyone the deadline just moved (e.g. dropped to the bench when it went
+    // 5-a-side) — so don't also send them a separate "bumped" / "you're in".
+    if (events.length) console.log(`(${events.length} status change(s) covered by the squad-set message.)`);
+  } else {
+    for (const ev of events) await send(players[ev.playerId], ev);
   }
 
   // Auto-close: once we're past that deadline and the squad is full, lock

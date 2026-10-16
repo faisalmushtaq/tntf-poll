@@ -21,6 +21,7 @@ export const DEFAULT_CONFIG = {
   pitchCost: 113,           // total £ to hire the pitch; split across the squad for per-player cost
   promptHours: 24,         // sign up within this long of the poll opening → full loyalty counts…
   lateLoyaltyFactor: 0.5,  // …sign up after that and your loyalty counts this fraction for a spot
+  fiveASideBelow: 13,      // past the squad deadline with fewer than this many in → 5-a-side (top 10); otherwise 7-a-side
   eightASideBias: 1.25,    // 7-a-side is the weekly default; only auto-switch to 8 when the loyalty behind "8" beats the loyalty behind "7" by MORE than this multiple. Biases us toward 7; reviewable.
   organiserEmail: '',      // where the auto-close squad alert is sent
   scoring: {
@@ -284,17 +285,25 @@ export function promptSignupAwards(signups = [], playersById = {}, config = {}, 
 //    behind the "7" camp by MORE than the `eightASideBias` multiple (1.25). So
 //    it takes an overwhelming, loyalty-weighted preference to override the
 //    default — a slim majority won't do it.
-//  · 11–13 is an awkward middle: too few for 7-a-side, too many for a clean
-//    5-a-side, so the top 10 (by the usual loyalty ranking) play a 5-a-side —
-//    but only if an alternative (smaller) pitch can be found; otherwise the
-//    date/time has to change or the game is cancelled. `needsPitch` flags that.
-//  · 10 or fewer → a straight 5-a-side (also needs a smaller pitch).
+//  · Until the squad deadline (config.squadLockTime the day before — Monday
+//    10:00) it stays 7-a-side however few are in, so there's time to fill it.
+//  · Only once the deadline has passed with fewer than config.fiveASideBelow
+//    (13) in does it drop to 5-a-side: the top 10 by the usual loyalty ranking
+//    play, the rest go to the bench. 5-a-side needs an alternative (smaller)
+//    pitch — `needsPitch` flags that.
+//  · Before the deadline, with fewer than 13 in, `atRisk` is set: the squad is
+//    14 for now but anyone below 10th could drop to the bench if it stays short.
+//    `opts` = { kickoffAt, now } supplies the deadline; without a kickoff the
+//    deadline is taken as not yet reached.
 //
 // A player's preference comes from the sign-up (`formatPref`, a per-week
 // override) or the player's standing `formatPref` (7 or 8); anyone with no
 // preference is happy with the default and counts for neither camp.
-export function recommendedFormat(signups = [], playersById = {}, config = DEFAULT_CONFIG) {
+export function recommendedFormat(signups = [], playersById = {}, config = DEFAULT_CONFIG, opts = {}) {
   const c = withDefaults(config);
+  const minFor7 = Number(c.fiveASideBelow) > 0 ? Number(c.fiveASideBelow) : 13;
+  const cutoffISO = opts.kickoffAt ? squadLockCutoffISO(opts.kickoffAt, c) : null;
+  const pastDeadline = !!cutoffISO && asTime(opts.now || new Date()) >= new Date(cutoffISO).getTime();
   const bias = Number(c.eightASideBias) > 0 ? Number(c.eightASideBias) : 1.25;
   const avail = signups.filter(s => s && s.status !== 'out' && s.status !== 'withdrawn');
   const count = avail.length;
@@ -315,32 +324,33 @@ export function recommendedFormat(signups = [], playersById = {}, config = DEFAU
   if (count >= 16 && wantsEight) {
     format = 8; capacity = 16;
     note = `The loyalty behind 8-a-side (${pts8}) beats 7-a-side's ${pts7} × ${bias} = ${round1(threshold)}, so it flips to 8.`;
-  } else if (count >= 14) {
+  } else if (count < minFor7 && pastDeadline) {
+    format = 5; capacity = 10; needsPitch = true;
+    note = `Only ${count} in at the squad deadline — under ${minFor7}, so it's 5-a-side: the top 10 play, if a smaller pitch can be found; otherwise change the date/time or cancel.`;
+  } else if (count < minFor7) {
+    format = 7; capacity = 14;
+    note = `Only ${count} in so far. It stays 7-a-side until the squad deadline; if we're still under ${minFor7} then, it drops to 5-a-side and only the top 10 play.`;
+  } else {
     format = 7; capacity = 14;
     note = (n8 && count < 16)
       ? `${n8} would prefer 8-a-side, but there aren't ${16} in for it — staying 7-a-side.`
       : `7-a-side is the weekly default; the 8-camp's loyalty (${pts8}) doesn't clear ${pts7} × ${bias} = ${round1(threshold)}.`;
-  } else if (count > 10) {
-    format = 5; capacity = 10; needsPitch = true;
-    note = `Only ${count} in — too few for 7-a-side. The top 10 play a 5-a-side, if a smaller pitch can be found; otherwise change the date/time or cancel.`;
-  } else {
-    format = 5; capacity = 10; needsPitch = true;
-    note = `Only ${count} in — a 5-a-side, if a smaller pitch can be found.`;
   }
-  return { format, capacity, count, wantsEight, pts7, pts8, n7, n8, eightBias: bias, threshold, needsPitch, note };
+  const atRisk = !pastDeadline && count < minFor7;
+  return { format, capacity, count, wantsEight, pts7, pts8, n7, n8, eightBias: bias, threshold, needsPitch, note, atRisk, minFor7, pastDeadline, deadlineISO: cutoffISO };
 }
 
 function round1(n) { return Math.round(n * 10) / 10; }
 
 // The squad size to actually use for a game. While the organiser hasn't locked
-// it (game.capacityLocked), it follows the recommended format live — so the
-// squad grows/shrinks (10 → 14 → 16) as people sign up and register their 7-vs-8
-// preference. Once locked (a manual size, or "finalise"), the stored capacity
-// wins. Falls back to the config default when there's no game.
-export function effectiveCapacity(game, signups = [], playersById = {}, config = DEFAULT_CONFIG) {
+// it (game.capacityLocked), it follows the recommended format live: 14 by
+// default, 16 on a winning 8-a-side vote, and 10 only once the squad deadline
+// has passed with too few in. Once locked (a manual size, or "finalise"), the
+// stored capacity wins. Falls back to the config default when there's no game.
+export function effectiveCapacity(game, signups = [], playersById = {}, config = DEFAULT_CONFIG, now = new Date()) {
   if (!game) return withDefaults(config).capacity;
   if (game.capacityLocked) return Number(game.capacity) || withDefaults(config).capacity;
-  return recommendedFormat(signups, playersById, config).capacity;
+  return recommendedFormat(signups, playersById, config, { kickoffAt: game.kickoffAt, now }).capacity;
 }
 
 // Map a ranked list to { playerId: 'confirmed' | 'waitlist' } for diffing.

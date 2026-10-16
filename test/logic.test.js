@@ -853,18 +853,28 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
     ok('14 in, no prefs → 7-a-side default', r.format === 7 && r.capacity === 14 && r.needsPitch === false);
   }
 
-  // awkward middle: 12 in → top-10 5-a-side, needs a pitch
+  // Short of players: 7-a-side until the squad deadline (Mon 10:00 for a Tue
+  // 8pm game); only past it with fewer than 13 in does it drop to 5-a-side.
   {
-    const { su, pb } = build([{ n: 12, pref: 0, loyalty: 8 }]);
-    const r = logic.recommendedFormat(su, pb);
-    ok('12 in → 5-a-side, needsPitch', r.format === 5 && r.capacity === 10 && r.needsPitch === true && r.count === 12);
-  }
-
-  // small: 8 in → 5-a-side, needs a smaller pitch
-  {
-    const { su, pb } = build([{ n: 8, pref: 0, loyalty: 8 }]);
-    const r = logic.recommendedFormat(su, pb);
-    ok('8 in → 5-a-side', r.format === 5 && r.capacity === 10 && r.needsPitch === true);
+    const kickoffAt = '2026-10-20T19:00:00.000Z';            // Tue 20 Oct, 8pm BST
+    const before = { kickoffAt, now: new Date('2026-10-19T08:59:00Z') }; // Mon 09:59
+    const after = { kickoffAt, now: new Date('2026-10-19T09:00:00Z') };  // Mon 10:00
+    const twelve = build([{ n: 12, pref: 0, loyalty: 8 }]);
+    const b12 = logic.recommendedFormat(twelve.su, twelve.pb, {}, before);
+    ok('12 in before the deadline → still 7-a-side (14)', b12.format === 7 && b12.capacity === 14 && !b12.needsPitch);
+    ok('…flagged at risk, needing 13', b12.atRisk === true && b12.minFor7 === 13);
+    const a12 = logic.recommendedFormat(twelve.su, twelve.pb, {}, after);
+    ok('12 in once the deadline passes → 5-a-side (top 10), needs a pitch', a12.format === 5 && a12.capacity === 10 && a12.needsPitch && !a12.atRisk);
+    const thirteen = build([{ n: 13, pref: 0, loyalty: 8 }]);
+    const a13 = logic.recommendedFormat(thirteen.su, thirteen.pb, {}, after);
+    ok('13 in past the deadline → stays 7-a-side', a13.format === 7 && a13.capacity === 14 && !a13.atRisk);
+    ok('13 in before the deadline → not at risk', !logic.recommendedFormat(thirteen.su, thirteen.pb, {}, before).atRisk);
+    const eight = build([{ n: 8, pref: 0, loyalty: 8 }]);
+    ok('8 in before the deadline → 7-a-side for now', logic.recommendedFormat(eight.su, eight.pb, {}, before).capacity === 14);
+    ok('8 in after → 5-a-side', logic.recommendedFormat(eight.su, eight.pb, {}, after).capacity === 10);
+    ok('no kickoff known → treated as before the deadline', logic.recommendedFormat(twelve.su, twelve.pb).capacity === 14);
+    ok('the threshold is configurable', logic.recommendedFormat(twelve.su, twelve.pb, { fiveASideBelow: 12 }, after).capacity === 14);
+    ok('the deadline follows the squad-set time', logic.recommendedFormat(twelve.su, twelve.pb, { squadLockTime: '17:00' }, after).capacity === 14);
   }
 
   // withdrawn / out sign-ups don't count toward turnout or preference
@@ -907,7 +917,9 @@ const ok = (name, cond) => { assert.ok(cond, name); console.log('  ✓', name); 
     pb,
     cfg
   ) === 16);
-  ok('auto: 12 in → 10 (top-10 five-a-side)', logic.effectiveCapacity({ capacity: 99 }, mk(12), pb, cfg) === 10);
+  const tue = { capacity: 99, kickoffAt: '2026-10-20T19:00:00.000Z' };
+  ok('auto: 12 in before the deadline → 14', logic.effectiveCapacity(tue, mk(12), pb, cfg, new Date('2026-10-18T12:00:00Z')) === 14);
+  ok('auto: 12 in after the deadline → 10 (top-10 five-a-side)', logic.effectiveCapacity(tue, mk(12), pb, cfg, new Date('2026-10-19T10:00:00Z')) === 10);
   ok('auto: 14 in → 14', logic.effectiveCapacity({ capacity: 99 }, mk(14), pb, cfg) === 14);
   // Locked: the stored capacity wins regardless of turnout.
   ok('locked: stored capacity wins', logic.effectiveCapacity({ capacity: 16, capacityLocked: true }, mk(12), pb, cfg) === 16);
