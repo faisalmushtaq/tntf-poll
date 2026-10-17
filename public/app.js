@@ -728,7 +728,7 @@ function squadLineup(g) {
   if (!risk) return renderLineup(g.confirmed, 1, 'loyalty');
   const when = squadDeadlineLabel(risk.deadlineISO);
   const short = risk.need - risk.count;
-  const msg = `We need ${risk.need} to keep 7-a-side — ${short === 1 ? '1 more' : `${short} more`} by ${when}. If we're still short then, it's 5-a-side: only the top ${FIVE_A_SIDE_SQUAD} play.`;
+  const msg = `We need to get to at least ${risk.need} to have a chance of this being 7-a-side — ${short === 1 ? '1 more' : `${short} more`} by ${when}. If we're still short then, it's 5-a-side: only the top ${FIVE_A_SIDE_SQUAD} play.`;
   if (g.confirmed.length <= FIVE_A_SIDE_SQUAD) {
     return `${renderLineup(g.confirmed, 1, 'loyalty')}<p class="small fmt-risk-note">${msg}</p>`;
   }
