@@ -329,7 +329,7 @@ export function recommendedFormat(signups = [], playersById = {}, config = DEFAU
     note = `Only ${count} in at the squad deadline — under ${minFor7}, so it's 5-a-side: the top 10 play, if a smaller pitch can be found; otherwise change the date/time or cancel.`;
   } else if (count < minFor7) {
     format = 7; capacity = 14;
-    note = `Only ${count} in so far. It stays 7-a-side until the squad deadline; if we're still under ${minFor7} then, it drops to 5-a-side and only the top 10 play.`;
+    note = `Only ${count} in so far. We need to get to at least ${minFor7} by the squad deadline to have a chance of this being 7-a-side; if we're still under ${minFor7} then, it drops to 5-a-side and only the top 10 play.`;
   } else {
     format = 7; capacity = 14;
     note = (n8 && count < 16)
