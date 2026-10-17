@@ -685,7 +685,7 @@ function lastResultCard(g) {
     </div>` : '';
   return `<div class="card">
     <div class="kicker">Last result</div>
-    <h2 style="margin-top:2px">${esc(g.dateLabel || gameDateKey(g))}</h2>
+    <h2 style="margin-top:2px">${esc(gameLabel(g))}</h2>
     ${hasScore
       ? `<div class="scoreline"><span class="sl-side">Bibs</span><span class="sl-num">${b}</span><span class="sl-dash">–</span><span class="sl-num">${n}</span><span class="sl-side">Non-bibs</span></div>
          <p class="hint center" style="margin-top:6px">${res}${size ? ` · ${size}-a-side` : ''}</p>`
@@ -1120,6 +1120,10 @@ function joinScreen() {
 function gameDateKey(g) {
   return g.date || (g.completedAt || g.kickoffAt || '').slice(0, 10) || '';
 }
+// A played game's date as shown in History / match records, with the year.
+function gameLabel(g) {
+  return logic.gameDateLabel(g, state.config) || gameDateKey(g);
+}
 
 function historyScreen() {
   if (history === null) { ensureHistory(); }
@@ -1147,7 +1151,7 @@ function historyRow(g) {
   const hasVid = (m && (m.videos?.length || m.clips?.length)) || (stored && (stored.videos?.length || stored.clips?.length));
   return `<a class="hist-row" role="button" tabindex="0" onclick="viewGame('${g.id}')">
     <div class="hist-main">
-      <div class="hist-date">${esc(g.dateLabel || gameDateKey(g))}</div>
+      <div class="hist-date">${esc(gameLabel(g))}</div>
       <div class="hist-sub">${size ? `${size}-a-side` : ''}${hasVid ? ' · ▶ highlights' : ''}</div>
     </div>
     <div class="hist-score">${hasScore ? `${b}<span>–</span>${n}` : '<span class="tdash">—</span>'}</div>
@@ -1239,7 +1243,7 @@ function gameDetailScreen() {
 
   return `<div class="card">
       <button class="back-link" onclick="navBack()">← Back</button>
-      <h2>${esc(g.dateLabel || gameDateKey(g))}</h2>
+      <h2>${esc(gameLabel(g))}</h2>
       ${scoreline}
       ${scorersLine}
       ${ogLine}
@@ -1400,7 +1404,7 @@ function recordStatsCard(p, isMe) {
       <div class="stat"><div class="statnum">${stats.dropouts}</div><div class="statlbl">dropouts</div></div>
     </div>
     ${stats.history.length ? `<div class="section-title">History</div><p class="hint" style="margin:-2px 0 2px">Tap a game for the line-ups, score and highlights.</p>${stats.history.map(h =>
-      `<a class="histrow" role="button" tabindex="0" onclick="viewGame('${h.gameId}')"><span>${esc(h.dateLabel || 'Game')}</span><span class="hr-right"><span class="pill ${h.played ? 'in' : h.withdrew ? 'out' : 'wait'}">${h.played ? 'played' : h.withdrew ? 'dropped out' : 'reserve'}</span><span class="hr-chev">›</span></span></a>`).join('')}`
+      `<a class="histrow" role="button" tabindex="0" onclick="viewGame('${h.gameId}')"><span>${esc(gameLabel(h) || 'Game')}</span><span class="hr-right"><span class="pill ${h.played ? 'in' : h.withdrew ? 'out' : 'wait'}">${h.played ? 'played' : h.withdrew ? 'dropped out' : 'reserve'}</span><span class="hr-chev">›</span></span></a>`).join('')}`
       : `<p class="hint">No completed games yet${isMe ? ' — your history builds up from here' : ''}.</p>`}
   </div>`;
 }
@@ -1447,7 +1451,7 @@ function selfStatsCard(me) {
     const sc = g.scores && Number.isFinite(Number(g.scores.bibs))
       ? `Bibs ${g.scores.bibs}–${g.scores.nonbibs} Non-bibs${g.scoresAuto ? ' <span class="ss-auto">from players\' goals</span>' : ''}`
       : 'No score yet';
-    const head = `<div class="ss-game"><button type="button" class="ss-title" onclick="viewGame('${g.id}')" aria-label="Open the match record for ${esc(g.dateLabel || gameDateKey(g))}">${esc(g.dateLabel || gameDateKey(g))} <span aria-hidden="true">›</span></button><span class="small">${sc} · you were ${side}</span></div>`;
+    const head = `<div class="ss-game"><button type="button" class="ss-title" onclick="viewGame('${g.id}')" aria-label="Open the match record for ${esc(gameLabel(g))}">${esc(gameLabel(g))} <span aria-hidden="true">›</span></button><span class="small">${sc} · you were ${side}</span></div>`;
     const line = logic.playerLine(g, me.id);
     if (line.source === 'official') {
       return `<div class="ss-row">${head}<div class="ss-official">${line.g} goal${line.g === 1 ? '' : 's'} · ${line.a} assist${line.a === 1 ? '' : 's'}<span class="small">recorded by the Statto</span></div></div>`;
@@ -2037,7 +2041,7 @@ function adminScreen() {
     <div class="card">
       <h2>No game open</h2>
       <p class="hint">Open this week's game — defaults to the next ${esc(state.config.gameDay)} at ${esc(state.config.kickoff)} at ${esc(state.config.venue || 'the usual venue')}. Change the kickoff/venue only if it differs this week.</p>
-      <label class="field">Label</label><input id="gLabel" value="${esc(state.config.gameDay)} game" />
+      <label class="field">Label (blank = the date, e.g. ${esc(logic.nextGameLabel(state.config))})</label><input id="gLabel" value="" placeholder="${esc(logic.nextGameLabel(state.config))}" />
       <label class="field">Squad size (this week's format)</label>
       <div class="aside-row">
         ${[5, 6, 7, 8].map(n => `<button type="button" class="aside-btn open-aside${state.config.capacity === n * 2 ? ' on' : ''}" data-cap="${n * 2}" onclick="pickOpenCap(${n * 2})">${n}-a-side</button>`).join('')}
@@ -2189,7 +2193,7 @@ function adminMatchesTab() {
     const b = g.scores?.bibs, n = g.scores?.nonbibs;
     const score = Number.isFinite(b) && Number.isFinite(n) ? `${b}–${n}` : '—';
     return `<button class="match-row" onclick="openAdminMatch('${g.id}')">
-        <span class="match-date">${esc(g.dateLabel || gameDateKey(g))}</span>
+        <span class="match-date">${esc(gameLabel(g))}</span>
         <span class="match-score">${score}</span>
         <span class="match-count">${logic.gamePlayers(g).length} played ›</span>
       </button>`;
@@ -2235,7 +2239,7 @@ function adminMatchEditor(g) {
     </div>`).join('');
   return `<button class="back-link" onclick="closeAdminMatch()">← All matches</button>
     <div class="card">
-      <h2>${esc(g.dateLabel || gameDateKey(g))}</h2>
+      <h2>${esc(gameLabel(g))}</h2>
       <div class="section-title">Score</div>
       <div class="btn-row">
         <div><label class="field">Bibs</label><input id="mScoreBibs" type="number" inputmode="numeric" value="${Number.isFinite(b) ? b : ''}" placeholder="0" /></div>
@@ -2300,7 +2304,7 @@ function stattoScreen() {
     const hasScore = Number.isFinite(b) && Number.isFinite(n);
     const scorers = logic.gameScorers(g).reduce((s, [, v]) => s + v, 0);
     return `<a class="hist-row" role="button" tabindex="0" onclick="selectStattoGame('${g.id}')">
-      <div class="hist-main"><div class="hist-date">${esc(g.dateLabel || gameDateKey(g))}</div>
+      <div class="hist-main"><div class="hist-date">${esc(gameLabel(g))}</div>
         <div class="hist-sub">${scorers ? `${scorers} goal${scorers === 1 ? '' : 's'} logged` : 'no scorers yet'}</div></div>
       <div class="hist-score">${hasScore ? `${b}<span>–</span>${n}` : '<span class="tdash">—</span>'}</div>
       <div class="hist-res">edit ›</div>
@@ -2321,7 +2325,7 @@ function stattoScreen() {
 function importCard(games) {
   const stats = logic.STATS.map(s => s.label).slice(0, 6).join(', ');
   const d = importDraft || {};
-  const gameOpts = games.map(g => `<option value="${g.id}"${d.targetGameId === g.id ? ' selected' : ''}>${esc(g.dateLabel || g.date || g.id)}</option>`).join('');
+  const gameOpts = games.map(g => `<option value="${g.id}"${d.targetGameId === g.id ? ' selected' : ''}>${esc(gameLabel(g) || g.id)}</option>`).join('');
   const preview = d.resolved ? importPreview(d.resolved) : '';
   return `<div class="card">
     <h2>Import from a spreadsheet</h2>
@@ -2411,7 +2415,7 @@ function stattoEditor(g) {
   const hasOg = g.ownGoals && Object.values(g.ownGoals).some(v => Number(v) > 0);
   return `<div class="card">
     <button class="back-link" onclick="stattoBack()">← All games</button>
-    <h2>${esc(g.dateLabel || gameDateKey(g))}</h2>
+    <h2>${esc(gameLabel(g))}</h2>
     <div class="section-title">Score</div>
     <div class="btn-row">
       <div><label class="field">Bibs</label><input id="ssBibs" type="number" inputmode="numeric" value="${Number.isFinite(b) ? b : ''}" placeholder="0" /></div>
@@ -2999,10 +3003,14 @@ window.openGame = async () => {
 window.rescheduleGame = async (id) => {
   const kick = document.getElementById('reKick').value;
   const venue = document.getElementById('reVenue').value.trim();
-  const dateLabel = document.getElementById('reLabel').value.trim();
+  let dateLabel = document.getElementById('reLabel').value.trim();
   if (!kick) return toast('Pick a new kickoff date & time', true);
   const kickoffAt = logic.clubDateTimeToISO(kick, state.config);
   if (!kickoffAt) return toast('Enter a valid kickoff date and time', true);
+  // Label left as it was (or blank) → follow the new date, so a game moved to
+  // Wednesday isn't still announced as "Tuesday …".
+  const g = state.game && state.game.id === id ? state.game : null;
+  if (!dateLabel || (g && dateLabel === g.dateLabel)) dateLabel = logic.dayLabel(kickoffAt, state.config);
   try {
     await db.rescheduleGame(id, { kickoffAt, venue, dateLabel });
     delete weatherCache['g-' + id]; delete weatherCache['h-' + id]; // refetch for the new kickoff

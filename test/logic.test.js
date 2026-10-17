@@ -1154,4 +1154,17 @@ console.log('\nWhich notifications go out, and how');
   ok('…as do the notifier\'s own messages', ['squad-set', 'promoted', 'bumped', 'squad-locked'].every(k => kinds.includes(k)));
 }
 
+console.log('\nGame dates (History / match records)');
+{
+  const cfg = { timeZone: 'Europe/London' };
+  ok('from kick-off, with the year', logic.gameDateLabel({ dateLabel: 'Tuesday game', kickoffAt: '2026-10-06T18:00:00.000Z' }, cfg) === 'Tuesday 6 Oct 2026');
+  ok('September is always "Sep"', logic.gameDateLabel({ kickoffAt: '2026-09-15T18:00:00.000Z' }, cfg) === 'Tuesday 15 Sep 2026');
+  ok('club time zone decides the day (late kick-off)', logic.gameDateLabel({ kickoffAt: '2026-06-30T23:30:00.000Z' }, cfg) === 'Wednesday 1 Jul 2026');
+  ok('imported games use their calendar date', logic.gameDateLabel({ date: '2026-02-02', dateLabel: 'Mon 2 Feb' }, cfg) === 'Monday 2 Feb 2026');
+  ok('no date → the stored label', logic.gameDateLabel({ dateLabel: 'Cup final' }, cfg) === 'Cup final');
+  ok('nothing → empty', logic.gameDateLabel(null, cfg) === '' && logic.gameDateLabel({}, cfg) === '');
+  ok('bad kick-off falls through to the label', logic.gameDateLabel({ kickoffAt: 'nope', dateLabel: 'x' }, cfg) === 'x');
+  ok('next game label has no year', /^Tuesday \d{1,2} [A-Z][a-z]{2}$/.test(logic.nextGameLabel({ ...cfg, gameDay: 'Tuesday', kickoff: '20:00' })));
+}
+
 console.log(`\n${pass} checks passed ✅`);

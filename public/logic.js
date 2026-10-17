@@ -404,7 +404,7 @@ export function playerStats(playerId, games = []) {
     invited += 1;
     if (wasConfirmed) played += 1;
     if (withdrew) dropouts += 1;
-    history.push({ gameId: g.id, dateLabel: g.dateLabel, completedAt: g.completedAt, played: wasConfirmed, reserve: wasReserve && !wasConfirmed, withdrew });
+    history.push({ gameId: g.id, dateLabel: g.dateLabel, kickoffAt: g.kickoffAt, date: g.date, completedAt: g.completedAt, played: wasConfirmed, reserve: wasReserve && !wasConfirmed, withdrew });
   }
   history.sort((a, b) => new Date(b.completedAt || 0) - new Date(a.completedAt || 0));
   // Attendance is turnout across ALL the club's games, not just those you were in.
@@ -895,9 +895,33 @@ export function nextKickoffISO(config = DEFAULT_CONFIG, now = new Date()) {
 }
 
 export function nextGameLabel(config = DEFAULT_CONFIG, now = new Date()) {
-  const c = withDefaults(config);
-  const d = new Date(nextKickoffISO(c, now));
-  return d.toLocaleDateString('en-GB', { timeZone: clubTimeZone(c), weekday: 'long', day: 'numeric', month: 'short' });
+  return dayLabel(nextKickoffISO(withDefaults(config), now), config);
+}
+
+// "Tuesday 6 Oct" (or "Tuesday 6 Oct 2026" with { year: true }) for a moment,
+// on the club's calendar. Month names are spelt out here rather than left to
+// the browser, which writes September as "Sep" on some devices and "Sept" on
+// others.
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export function dayLabel(iso, config = DEFAULT_CONFIG, { year = false, timeZone } = {}) {
+  const d = new Date(iso);
+  if (!iso || Number.isNaN(d.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: timeZone || clubTimeZone(withDefaults(config)), weekday: 'long', day: 'numeric', month: 'numeric', year: 'numeric' }).formatToParts(d);
+  const get = t => parts.find(p => p.type === t)?.value;
+  return `${get('weekday')} ${Number(get('day'))} ${MONTHS_SHORT[Number(get('month')) - 1]}${year ? ` ${get('year')}` : ''}`;
+}
+
+// How a game's date is shown in History and on match records: worked out from
+// when it actually kicked off, with the year — so a game opened with a
+// placeholder label ("Tuesday game") still shows its real date, and seasons
+// don't run together. Falls back to the stored label if there's no date.
+export function gameDateLabel(game, config = DEFAULT_CONFIG) {
+  if (!game) return '';
+  const fromKickoff = game.kickoffAt ? dayLabel(game.kickoffAt, config, { year: true }) : '';
+  if (fromKickoff) return fromKickoff;
+  // Imported games carry just a calendar date (YYYY-MM-DD): read it as that day.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(game.date || '')) return dayLabel(`${game.date}T12:00:00Z`, config, { year: true, timeZone: 'UTC' });
+  return game.dateLabel || '';
 }
 
 // The most recent occurrence of `dayName` at HH:MM in the club's timezone.
