@@ -597,7 +597,12 @@ label.field { display: block; font-size: 13px; color: var(--muted); margin: 12px
 /* Squad list: the 5-a-side cut-off while we're short before the deadline. */
 .fmt-cut { margin: 10px 0 8px; padding-top: 10px; border-top: 2px dashed var(--amber); }
 .fmt-cut span { display: block; font-size: 13.5px; line-height: 1.45; color: var(--amber); }
-.fmt-atrisk .lu-row { opacity: .72; border-style: dashed; }
+/* The players who'd drop to the bench if it goes 5-a-side: one dashed box
+   around the group, with room inside so names and scores don't touch it. */
+.fmt-atrisk { border: 1.5px dashed var(--muted); border-radius: 10px; padding: 2px 14px; overflow: hidden; }
+.fmt-atrisk .lu-row { opacity: .72; border-bottom-style: dashed; }
+.fmt-atrisk .lu-col:last-child .lu-row:last-child { border-bottom: 0; }
+.fmt-atrisk .lu-row.me { margin: 0 -14px; padding: 10px 14px; }
 .fmt-risk-note { color: var(--amber); margin-top: 8px; }
 .penalty-scale .pts { white-space: nowrap; flex: none; padding-left: 10px; }
 
