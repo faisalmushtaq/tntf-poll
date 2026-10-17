@@ -287,7 +287,7 @@ function createLocalDB() {
     async openGame({ dateLabel, kickoffAt, capacity, venue }) {
       const game = {
         id: uuid(), status: 'open',
-        dateLabel: dateLabel || logic.nextGameLabel(db.config),
+        dateLabel: dateLabel || (kickoffAt ? logic.dayLabel(kickoffAt, db.config) : logic.nextGameLabel(db.config)),
         kickoffAt: kickoffAt || logic.nextKickoffISO(db.config),
         capacity: Number(capacity) || db.config.capacity,
         venue: venue || db.config.venue || '',
@@ -769,7 +769,7 @@ async function createFirestoreDB() {
       const id = uuid();
       const game = {
         id, status: 'open',
-        dateLabel: dateLabel || logic.nextGameLabel(cfg()),
+        dateLabel: dateLabel || (kickoffAt ? logic.dayLabel(kickoffAt, cfg()) : logic.nextGameLabel(cfg())),
         kickoffAt: kickoffAt || logic.nextKickoffISO(cfg()),
         capacity: Number(capacity) || cfg().capacity,
         venue: venue || cfg().venue || '',
