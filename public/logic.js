@@ -898,7 +898,7 @@ export function nextGameLabel(config = DEFAULT_CONFIG, now = new Date()) {
   return dayLabel(nextKickoffISO(withDefaults(config), now), config);
 }
 
-// "Tuesday 6 Oct" (or "Tuesday 6 Oct 2026" with { year: true }) for a moment,
+// "Tue 6 Oct" (or "Tue 6 Oct 2026" with { year: true }) for a moment,
 // on the club's calendar. Month names are spelt out here rather than left to
 // the browser, which writes September as "Sep" on some devices and "Sept" on
 // others.
@@ -908,7 +908,7 @@ export function dayLabel(iso, config = DEFAULT_CONFIG, { year = false, timeZone 
   if (!iso || Number.isNaN(d.getTime())) return '';
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone: timeZone || clubTimeZone(withDefaults(config)), weekday: 'long', day: 'numeric', month: 'numeric', year: 'numeric' }).formatToParts(d);
   const get = t => parts.find(p => p.type === t)?.value;
-  return `${get('weekday')} ${Number(get('day'))} ${MONTHS_SHORT[Number(get('month')) - 1]}${year ? ` ${get('year')}` : ''}`;
+  return `${get('weekday').slice(0, 3)} ${Number(get('day'))} ${MONTHS_SHORT[Number(get('month')) - 1]}${year ? ` ${get('year')}` : ''}`;
 }
 
 // How a game's date is shown in History and on match records: worked out from
