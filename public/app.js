@@ -609,6 +609,56 @@ function paymentsAdmin(g) {
     <div class="pay-list">${rows || '<div class="empty">No one confirmed yet.</div>'}</div>`;
 }
 
+// Organiser: look back over the last four weeks' payments and receipts. Pick a
+// game and its sign-ups are fetched (one small read) on demand.
+let pastPay = null; // { gameId, loading, signups, error }
+function pastPaymentsCard(currentId) {
+  if (history === null) { ensureHistory(); return ''; }
+  const games = logic.pastPaymentGames(history, new Date(), { excludeId: currentId });
+  if (!games.length) return '';
+  const sel = pastPay && games.find(g => g.id === pastPay.gameId);
+  const chips = games.map(g => `<button type="button" class="aside-btn${sel && sel.id === g.id ? ' on' : ''}" onclick="openPastPay('${g.id}')">${esc(logic.gameDateLabel(g, state.config).replace(/ \d{4}$/, ''))}</button>`).join('');
+  let body = `<p class="small">Pick a week to see who paid and check their receipts.</p>`;
+  if (sel) {
+    if (pastPay.loading) body = '<p class="hint">Loading…</p>';
+    else if (pastPay.error) body = `<p class="hint">${esc(pastPay.error)}</p>`;
+    else {
+      const roster = logic.pastPaymentRoster(sel, pastPay.signups, state.playersById);
+      const paid = roster.filter(r => r.paid).length, proofs = roster.filter(r => r.proofAt).length;
+      const rows = roster.map(r => `<div class="pay-line">
+          <span class="pay-name">${esc(r.name)}</span>
+          ${r.proofAt ? `<button class="pay-proof" onclick="viewProof('${r.playerId}','${sel.id}')" title="Uploaded ${esc(fmtShortTime(r.proofAt))}">${ICON('icon-confirmed', 'inline-ico')}proof</button>` : ''}
+          <button class="pay-toggle${r.paid ? ' ok' : ''}" onclick="togglePastPaid('${r.playerId}','${sel.id}',${r.paid ? 'false' : 'true'})">${r.paid ? `${ICON('icon-confirmed', 'inline-ico')} paid` : 'mark paid'}</button>
+        </div>`).join('');
+      body = `<div class="section-title">${esc(logic.gameDateLabel(sel, state.config))} · ${paid}/${roster.length} paid${proofs ? ` · ${proofs} with proof` : ''}</div>
+        <div class="pay-list">${rows || '<div class="empty">No one on the team sheet for this game.</div>'}</div>`;
+    }
+  }
+  return `<div class="card">
+      <h2>Past weeks' payments</h2>
+      <p class="hint" style="margin-top:-2px">The last four weeks. Receipts are kept for ${logic.PROOF_RETENTION_DAYS} days, then deleted (the paid tick stays).</p>
+      <div class="aside-row past-pay-weeks">${chips}</div>
+      ${body}
+    </div>`;
+}
+window.openPastPay = async (gameId) => {
+  if (pastPay && pastPay.gameId === gameId && !pastPay.loading) { pastPay = null; render(); return; } // tap again to close
+  pastPay = { gameId, loading: true }; render();
+  try {
+    const signups = await db.loadGameSignups(gameId);
+    if (pastPay && pastPay.gameId === gameId) pastPay = { gameId, signups };
+  } catch (e) {
+    if (pastPay && pastPay.gameId === gameId) pastPay = { gameId, error: e.message || 'Couldn\'t load that week' };
+  }
+  render();
+};
+window.togglePastPaid = async (playerId, gameId, paid) => {
+  try {
+    await db.setPaid(playerId, gameId, asBool(paid));
+    if (pastPay && pastPay.gameId === gameId) { pastPay = { gameId, signups: await db.loadGameSignups(gameId) }; render(); }
+  } catch (e) { toast(e.message, true); }
+};
+
 // Players who withdrew from a game, with the penalty each was docked. Works
 // for the current game (inline signups) and any past game (denormalized
 // withdrawnIds/withdrawnPenalties, or inline signups in demo mode).
@@ -2073,7 +2123,8 @@ function adminScreen() {
   // --- tab bodies ---
   const weekTab = `${g ? `${lineupBuilderCard(g)}${paymentsAdmin(g)}${announceCard(lineupAnn)}` : ''}
     ${announceCard(otherAnn)}
-    ${gameCard}`;
+    ${gameCard}
+    ${pastPaymentsCard(g ? g.id : null)}`;
 
   const playersTab = `<div class="card">
       <h2>Roster</h2>

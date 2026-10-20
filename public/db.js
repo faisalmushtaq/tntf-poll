@@ -398,6 +398,10 @@ function createLocalDB() {
     async getPaymentProof(playerId, gameId) {
       return (db.proofs && db.proofs[gameId] && db.proofs[gameId][playerId]) || null;
     },
+    async loadGameSignups(gameId) {
+      const g = db.games.find(x => x.id === gameId);
+      return g ? (g.signups || []).map(x => ({ ...x })) : [];
+    },
     // Taking a proof down (the wrong picture, say) also un-ticks the payment it
     // was vouching for.
     async removePaymentProof(playerId, gameId) {
@@ -883,6 +887,12 @@ async function createFirestoreDB() {
     async getPaymentProof(playerId, gameId) {
       const snap = await getDoc(proofRef(gameId, playerId));
       return snap.exists() ? snap.data() : null;
+    },
+    // One past game's sign-ups (paid ticks, receipt times) — for the
+    // organiser's look back over recent weeks. Only fetched on request.
+    async loadGameSignups(gameId) {
+      const qs = await getDocs(signupsCol(gameId));
+      return qs.docs.map(d => ({ playerId: d.id, ...d.data() }));
     },
     async removePaymentProof(playerId, gameId) {
       const batch = writeBatch(dbf);

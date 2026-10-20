@@ -1167,4 +1167,36 @@ console.log('\nGame dates (History / match records)');
   ok('next game label has no year', /^Tue \d{1,2} [A-Z][a-z]{2}$/.test(logic.nextGameLabel({ ...cfg, gameDay: 'Tuesday', kickoff: '20:00' })));
 }
 
+console.log('\nPast weeks\' payments');
+{
+  const now = new Date('2026-10-20T12:00:00Z');
+  const ago = d => new Date(now.getTime() - d * 86400000).toISOString();
+  const games = [
+    { id: 'a', status: 'completed', kickoffAt: ago(1) },
+    { id: 'b', status: 'completed', kickoffAt: ago(8) },
+    { id: 'c', status: 'completed', kickoffAt: ago(27) },
+    { id: 'd', status: 'completed', kickoffAt: ago(29) },
+    { id: 'e', status: 'cancelled', kickoffAt: ago(15) },
+    { id: 'f', status: 'completed', date: ago(20).slice(0, 10) },
+    { id: 'g', status: 'open', kickoffAt: ago(-1) }
+  ];
+  ok('last 4 weeks of played games, newest first', logic.pastPaymentGames(games, now).map(g => g.id).join() === 'a,b,f,c');
+  ok('current game left out', !logic.pastPaymentGames(games, now, { excludeId: 'a' }).some(g => g.id === 'a'));
+  ok('nothing → empty', logic.pastPaymentGames(null, now).length === 0);
+  const players = { p1: { name: 'Al' }, p2: { name: 'Bo' }, p3: { name: 'Cy' }, p4: { name: 'Di' } };
+  const signups = [
+    { playerId: 'p1', status: 'in', paid: true, proofAt: ago(1) },
+    { playerId: 'p2', status: 'in' },
+    { playerId: 'p3', status: 'in' },               // reserve, not on the sheet
+    { playerId: 'p4', status: 'withdrawn', paid: true }
+  ];
+  const r = logic.pastPaymentRoster({ teams: { bibs: ['p1'], nonbibs: ['p2', 'x9'] }, guests: { x9: 'Guest Gus' } }, signups, players);
+  ok('team sheet (with guests), unpaid first', r.map(x => x.name).join() === 'Bo,Guest Gus,Al');
+  ok('paid tick and receipt carried', r.find(x => x.playerId === 'p1').paid && r.find(x => x.playerId === 'p1').proofAt);
+  ok('withdrawn players not listed', !r.some(x => x.playerId === 'p4'));
+  const noSheet = logic.pastPaymentRoster({}, signups, players);
+  ok('no team sheet → everyone signed up', noSheet.map(x => x.playerId).sort().join() === 'p1,p2,p3');
+  ok('someone off the sheet who paid is still listed', logic.pastPaymentRoster({ teams: { bibs: ['p2'], nonbibs: [] } }, signups, players).some(x => x.playerId === 'p1'));
+}
+
 console.log(`\n${pass} checks passed ✅`);

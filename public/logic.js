@@ -1192,6 +1192,45 @@ export const PROOF_MAX_EDGE = 1600;
 // to settle any "did you actually pay?" question.
 export const PROOF_RETENTION_DAYS = 30;
 
+// --- looking back at past weeks' payments ------------------------------------
+// The organiser can go back over the last few weeks to chase payments and check
+// receipts. Played games that kicked off in the last `days` days, newest first.
+// (Receipts are kept PROOF_RETENTION_DAYS, so four weeks is all still on file.)
+export const PAST_PAYMENT_DAYS = 28;
+const gameTime = g => {
+  const t = new Date(g.kickoffAt || (g.date ? `${g.date}T12:00:00Z` : g.completedAt || '')).getTime();
+  return Number.isNaN(t) ? null : t;
+};
+export function pastPaymentGames(games, now = new Date(), { days = PAST_PAYMENT_DAYS, excludeId = null } = {}) {
+  const from = now.getTime() - days * 86400000;
+  return (games || [])
+    .filter(g => g && g.status === 'completed' && g.id !== excludeId)
+    .map(g => ({ g, t: gameTime(g) }))
+    .filter(x => x.t != null && x.t >= from && x.t <= now.getTime())
+    .sort((a, b) => b.t - a.t)
+    .map(x => x.g);
+}
+
+// Who owed for a past game: its team sheet (or, failing that, everyone who was
+// signed up and didn't withdraw), plus anyone marked paid or with a receipt, so
+// no payment is ever hidden. Sorted by name, unpaid first.
+export function pastPaymentRoster(game, signups, playersById) {
+  const by = {};
+  for (const s of signups || []) if (s.status !== 'withdrawn') by[s.playerId] = s;
+  const teamIds = game && game.teams ? [...(game.teams.bibs || []), ...(game.teams.nonbibs || [])] : [];
+  const ids = teamIds.length ? teamIds : Object.values(by).filter(s => s.status === 'in').map(s => s.playerId);
+  for (const s of Object.values(by)) if (s.paid || s.proofAt) ids.push(s.playerId);
+  const guests = (game && game.guests) || {};
+  const nameOf = id => playersById?.[id]?.name || (typeof guests[id] === 'string' ? guests[id] : guests[id]?.name) || null;
+  const seen = new Set(), out = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue; seen.add(id);
+    const name = nameOf(id); if (!name) continue;
+    out.push({ playerId: id, name, paid: !!by[id]?.paid, proofAt: by[id]?.proofAt || null });
+  }
+  return out.sort((a, b) => (a.paid - b.paid) || a.name.localeCompare(b.name));
+}
+
 // Has this proof passed its retention period? A record with no readable upload
 // time is treated as expired — it can't be dated, so it shouldn't linger.
 export function proofExpired(record, now = new Date(), days = PROOF_RETENTION_DAYS) {
