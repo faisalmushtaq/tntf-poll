@@ -44,6 +44,9 @@ you exactly where you were.
   posting screenshots in the group chat. You can view or remove it afterwards,
   and it's deleted automatically after 30 days. "Paid another way" is still
   there for cash.
+  The organiser can look back too: **Organiser → Past weeks' payments** lists
+  the last four weeks' games — tap one to see who paid, open their receipts,
+  and mark late payers off.
 - **Join / You** — one nav slot: **Join** (onboarding) when signed out, your
   **You** profile (attendance, games, record, history, notifications, account)
   once you're in.
