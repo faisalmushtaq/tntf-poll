@@ -128,10 +128,17 @@ You can still open a game by hand any time. These run on the notifier, so they
 happen on time only if it runs every few minutes — see the external timer under
 *Turn on notifications* below.
 
+**Short of players?** In **Organiser → This week**, *Send a "we're short"
+call-out* emails and pushes everyone on the roster who hasn't answered the poll
+yet (not those who are in, nor those who've said they can't make it), with an
+optional line of your own: *"We're short for Tue 27 Oct — only 9 in so far, and
+we need 5 more."* It goes out on the notifier's next run; the review card lets
+you untick people or hold it, and it's dropped if registration closes first.
+
 **You choose which messages go out, and how.** **Organiser → Settings →
 Notifications** has an Email and a Push tick for each kind of message: poll's
 open, squad set, moved up, dropped to the reserves, line-up, game moved, no game
-this week, and your own squad-locked alert. Untick both to stop that message
+this week, the "we're short" call-out, and your own squad-locked alert. Untick both to stop that message
 altogether (a staged announcement with both off is closed without sending, and
 its review card says so; *Share to WhatsApp* still works). Everything is on
 until you change it.

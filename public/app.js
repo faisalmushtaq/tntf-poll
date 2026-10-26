@@ -609,6 +609,27 @@ function paymentsAdmin(g) {
     <div class="pay-list">${rows || '<div class="empty">No one confirmed yet.</div>'}</div>`;
 }
 
+// Organiser: "we're short" call-out — email + push to everyone who hasn't
+// answered the poll yet (not those in, nor those who've said they're out).
+function shortCalloutSection(g) {
+  const answered = new Set([...(g.confirmed || []), ...(g.waitlist || [])].map(r => r.playerId).concat((g.unavailable || []).map(u => u.playerId), (g.withdrawn || []).map(w => w.playerId)));
+  const reach = state.roster.filter(p => !answered.has(p.id)).length;
+  const need = Math.max(0, g.capacity - g.confirmed.length);
+  const ch = logic.notifyChannelsFor(state.config, 'short');
+  const how = ch.email && ch.push ? 'an email and a push' : ch.email ? 'an email (push is off for this in Settings)' : ch.push ? 'a push (email is off for this in Settings)' : null;
+  return `<div class="section-title">Short of players?</div>
+    <p class="hint" style="margin-top:-2px">${g.confirmed.length} in${need ? `, ${need} more needed` : ''}. Send ${how || 'a message'} to the <b>${reach}</b> on the roster who haven't answered yet — not those who are in or have said they can't make it. You can untick people or hold it before it goes.</p>
+    ${how ? '' : '<p class="small">Email and push are both off for call-outs in Settings → Notifications, so only Share to WhatsApp would work.</p>'}
+    <label class="field">Add a line of your own (optional)</label>
+    <input id="shortNote" maxlength="280" placeholder="e.g. Need 2 more or it's 5-a-side!" />
+    <button class="btn-ghost mt" onclick="sendShortCallout('${g.id}')" ${reach ? '' : 'disabled'}>${ICON('icon-bell', 'inline-ico')}Send a "we're short" call-out</button>`;
+}
+window.sendShortCallout = async (id) => {
+  const note = document.getElementById('shortNote')?.value || '';
+  try { await db.sendShortCallout(id, { note }); render(); toast('Call-out going out on the next run — review it above'); window.scrollTo(0, 0); }
+  catch (e) { toast(e.message, true); }
+};
+
 // Organiser: look back over the last four weeks' payments and receipts. Pick a
 // game and its sign-ups are fetched (one small read) on demand.
 let pastPay = null; // { gameId, loading, signups, error }
@@ -2064,6 +2085,7 @@ function adminScreen() {
       ${g.status === 'open'
         ? `<button class="btn-warn" onclick="admin('lockGame','${g.id}','Squad locked')">Lock squad (stop registration)</button>`
         : `<button class="btn-ghost" onclick="admin('reopenGame','${g.id}','Reopened')">Reopen registration</button>`}
+      ${g.status === 'open' ? shortCalloutSection(g) : ''}
       <div class="section-title">Reschedule this week</div>
       <p class="hint" style="margin-top:-2px">Poor turnout, or a one-off change? Shift the day/time or venue — everyone sees it and the countdown and drop-out penalties update to the new kickoff.</p>
       <label class="field">New kickoff (day &amp; time)</label>

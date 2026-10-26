@@ -977,6 +977,7 @@ export const NOTIFY_KINDS = [
   { key: 'lineup',       label: 'Line-up',                              who: 'The squad' },
   { key: 'reschedule',   label: 'Game moved',                           who: 'Everyone' },
   { key: 'cancellation', label: 'No game this week',                    who: 'Everyone' },
+  { key: 'short',        label: 'We\'re short — call-out',               who: 'Everyone not signed up' },
   { key: 'squad-locked', label: 'Squad locked (to you)',                who: 'Organiser' }
 ];
 export function notifyChannelsFor(config, kind) {
@@ -994,7 +995,7 @@ export function notifyChannelsFor(config, kind) {
 // `sendNow`: skip the review window and send on the next notifier run — used
 // when the weekly poll opens itself at its scheduled time, so the "poll's open"
 // message goes out at that time rather than an hour later.
-export function buildAnnouncement(kind, { game = {}, recipients = [], config = {}, teams = null, reserves = [], sendNow = false } = {}, now = new Date()) {
+export function buildAnnouncement(kind, { game = {}, recipients = [], config = {}, teams = null, reserves = [], sendNow = false, extra = {} } = {}, now = new Date()) {
   const c = withDefaults(config);
   // A published line-up can contain more or fewer players than the stored game
   // capacity. Price the announcement from the actual unique team-sheet size.
@@ -1029,8 +1030,26 @@ export function buildAnnouncement(kind, { game = {}, recipients = [], config = {
     graceMinutes: mins,
     sendAfter,
     status: 'pending',
-    createdAt: now.toISOString()
+    createdAt: now.toISOString(),
+    ...extra
   };
+}
+
+// "We're short" call-out, sent by the organiser when the squad's not filling.
+// Goes to everyone on the roster who hasn't already answered — not those who
+// are in, nor those who've said they can't make it or dropped out — and goes
+// out on the notifier's next run (the organiser pressed the button, so there's
+// no review wait; they can still untick people or hold it). `note` is an
+// optional line of the organiser's own.
+export function shortCallout({ game = {}, signups = [], players = {}, config = {}, note = '' } = {}, now = new Date()) {
+  const answered = new Set((signups || []).filter(s => ['in', 'out', 'withdrawn'].includes(s.status)).map(s => s.playerId));
+  const count = (signups || []).filter(s => s.status === 'in').length;
+  const capacity = effectiveCapacity(game, signups, players, config, now);
+  const recipients = Object.values(players || {}).filter(p => p && p.id && !p.guest && !answered.has(p.id));
+  return buildAnnouncement('short', {
+    game: { ...game, capacity }, recipients, config, sendNow: true,
+    extra: { count, needed: Math.max(0, capacity - count), note: String(note || '').trim().slice(0, 280) }
+  }, now);
 }
 
 // Per-player pitch cost for an announcement (total ÷ squad size), or 0.
@@ -1070,6 +1089,15 @@ export function announcementContent(ann = {}, clubName = 'the club') {
       if (per) paragraphs.push(`It's £${per.toFixed(2)} each this week — the pitch is £${Number(ann.pitchCost).toFixed(2)} split ${ann.capacity} ways.`);
       paragraphs.push(`There may be a few last-minute changes — check the app for the latest.`);
       return { subject: `${clubName} — line-up for ${label}`, heading: `Line-up`, paragraphs };
+    }
+    case 'short': {
+      const need = Number(ann.needed) || 0;
+      const paragraphs = [
+        `We're short for ${label} — only ${Number(ann.count) || 0} in so far${need ? `, and we need ${need} more` : ''}. Kick-off ${when}${at}.`
+      ];
+      if (ann.note) paragraphs.push(ann.note);
+      paragraphs.push(`Free? Get your name in on the app — and bring a mate if you can.`);
+      return { subject: `🆘 ${clubName} — we're short for ${label}`, heading: need ? `We need ${need} more` : `We're short`, paragraphs };
     }
     case 'poll-open':
     default:
@@ -1164,6 +1192,7 @@ function asTime(now) {
 export function announcementValid(ann, game, currentGameId) {
   if (!ann || !game || ann.gameId !== currentGameId) return false;
   if (ann.kind === 'cancellation') return game.status === 'cancelled';
+  if (ann.kind === 'short') return game.status === 'open'; // no use once registration's closed
   return game.status === 'open' || game.status === 'locked';
 }
 

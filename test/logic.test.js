@@ -1199,4 +1199,25 @@ console.log('\nPast weeks\' payments');
   ok('someone off the sheet who paid is still listed', logic.pastPaymentRoster({ teams: { bibs: ['p2'], nonbibs: [] } }, signups, players).some(x => x.playerId === 'p1'));
 }
 
+console.log('\n"We\'re short" call-out');
+{
+  const now = new Date('2026-10-26T12:00:00Z');
+  const players = Object.fromEntries(['a', 'b', 'c', 'd', 'e', 'f'].map(id => [id, { id, name: id.toUpperCase(), email: `${id}@x`, loyalty: 1 }]));
+  players.g = { id: 'g', name: 'Guest', guest: true };
+  const signups = [{ playerId: 'a', status: 'in' }, { playerId: 'b', status: 'in' }, { playerId: 'c', status: 'out' }, { playerId: 'd', status: 'withdrawn' }];
+  const game = { id: 'gm', status: 'open', dateLabel: 'Tue 27 Oct', kickoffAt: '2026-10-27T20:00:00Z', capacity: 14, capacityLocked: true };
+  const ann = logic.shortCallout({ game, signups, players, config: {}, note: '  Need 2 more!  ' }, now);
+  ok('goes only to those who haven\'t answered', ann.recipients.map(r => r.id).sort().join() === 'e,f');
+  ok('kind short, sends on the next run', ann.kind === 'short' && ann.sendAfter === now.toISOString() && ann.status === 'pending');
+  ok('counts who\'s in and how many more are needed', ann.count === 2 && ann.needed === 12);
+  ok('note trimmed', ann.note === 'Need 2 more!');
+  const c = logic.announcementContent(ann, 'TNTF');
+  ok('subject says we\'re short', /we're short for Tue 27 Oct/.test(c.subject));
+  ok('body: count, need, note, call to action', /only 2 in so far, and we need 12 more/.test(c.paragraphs[0]) && c.paragraphs[1] === 'Need 2 more!' && /Get your name in/.test(c.paragraphs[2]));
+  ok('heading names the number', c.heading === 'We need 12 more');
+  ok('valid while open', logic.announcementValid(ann, game, 'gm'));
+  ok('dropped once registration closes', !logic.announcementValid(ann, { ...game, status: 'locked' }, 'gm'));
+  ok('has its own notification setting', logic.NOTIFY_KINDS.some(k => k.key === 'short') && logic.notifyChannelsFor({}, 'short').email);
+}
+
 console.log(`\n${pass} checks passed ✅`);
