@@ -123,6 +123,13 @@ export const __testGameRefs = { stripPlayer, repointPlayer, guestPlayersForGame 
 
 // Shared shape emitted to subscribers. Guests are available for team sheets and
 // historic match display, while the roster deliberately remains registered players only.
+function assertNoOtherPending(ann) {
+  if (ann && ann.status === 'pending' && ann.kind !== 'short') {
+    const what = { lineup: 'line-up', 'poll-open': '"poll\'s open"', reschedule: '"game moved"', cancellation: '"no game"' }[ann.kind] || 'other';
+    throw new Error(`There's a ${what} announcement waiting — send or hold it first`);
+  }
+}
+
 function assemble(config, playersById, game, signups, announcement) {
   const guests = guestPlayersForGame(game);
   const roster = Object.values(playersById)
@@ -433,6 +440,14 @@ function createLocalDB() {
       // Stage a "no game this week" announcement for review before it goes out.
       db.announcement = logic.buildAnnouncement('cancellation', { game: g, recipients: Object.values(db.players), config: db.config });
       persist();
+    },
+    async sendShortCallout(id, { note } = {}) {
+      const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
+      if (g.status !== 'open') throw new Error('Registration is closed');
+      assertNoOtherPending(db.announcement);
+      db.announcement = logic.shortCallout({ game: g, signups: g.signups, players: db.players, config: db.config, note });
+      persist();
+      return db.announcement;
     },
     async completeGame(id, opts = {}) {
       const g = db.games.find(x => x.id === id); if (!g) throw new Error('No game');
@@ -920,6 +935,14 @@ async function createFirestoreDB() {
       // Stage a "no game this week" announcement for review before it goes out.
       const g = { ...(cache.game || {}), id, status: 'cancelled' };
       await setDoc(announceRef, logic.buildAnnouncement('cancellation', { game: g, recipients: Object.values(cache.players), config: cfg() }));
+    },
+    async sendShortCallout(id, { note } = {}) {
+      if (!cache.game || cache.game.id !== id) throw new Error('No game');
+      if (cache.game.status !== 'open') throw new Error('Registration is closed');
+      assertNoOtherPending(cache.announcement);
+      const ann = logic.shortCallout({ game: cache.game, signups: cache.signups, players: cache.players, config: cfg(), note });
+      await setDoc(announceRef, ann);
+      return ann;
     },
     async announceLineup(id) {
       const g = cache.game && cache.game.id === id ? cache.game : { ...(cache.game || {}), id };
