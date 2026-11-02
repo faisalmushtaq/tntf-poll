@@ -430,7 +430,7 @@ function weekScreen() {
         <div class="date">${ICON('icon-fixture-date', 'fx-ico')}${esc(dateLine)}</div>
         <div class="fixture">${ICON('icon-kickoff-time', 'fx-ico')}${timeLine}${g.venue ? ` · ${ICON('icon-pitch-location', 'fx-ico')}${esc(g.venue)}` : ''}</div>
         ${weatherBlock(g)}
-        <div class="count">${ICON('icon-squad-players', 'fx-ico')}${g.confirmed.length}/${g.capacity} confirmed${g.waitlist.length ? ` · ${g.waitlist.length} on the bench` : ''}${g.unavailable.length ? ` · ${g.unavailable.length} out` : ''} · ${fmtCountdown(g.kickoffAt)}</div>
+        <div class="count">${ICON('icon-squad-players', 'fx-ico')}${squadCountText(g)}${g.waitlist.length ? ` · ${g.waitlist.length} on the bench` : ''}${g.unavailable.length ? ` · ${g.unavailable.length} out` : ''} · ${fmtCountdown(g.kickoffAt)}</div>
         <div class="capbar"><span style="width:${pct}%"></span></div>
       </div>
       ${mine}
@@ -584,6 +584,12 @@ function pushPrompt(g) {
   return `<div class="pay-row push-prompt"><span class="pay-label">${body}</span><div class="pay-actions">${actions}</div></div>`;
 }
 window.snoozePushPrompt = () => { lsSet('tntf.pushPromptSnoozed', String(Date.now())); render(); };
+
+// "13 confirmed so far, of 14 spots" — not "13/14", which reads like 14 are in.
+function squadCountText(g) {
+  const n = g.confirmed.length, cap = g.capacity;
+  return n >= cap ? `Squad full — all ${cap} spots taken` : `${n} confirmed so far, of ${cap} spots`;
+}
 
 // "Tue 18:42" — short enough to sit inside a sentence.
 function fmtShortTime(iso) {
@@ -2063,7 +2069,7 @@ function adminScreen() {
   const gameCard = g ? `
     <div class="card">
       <h2>${esc(g.dateLabel)} — ${esc(g.status)}</h2>
-      <p class="hint">${g.confirmed.length}/${g.capacity} confirmed · ${g.waitlist.length} waiting</p>
+      <p class="hint">${squadCountText(g)} · ${g.waitlist.length} waiting</p>
       ${formatRecCard(g)}
       <div class="section-title">Squad size · ${g.capacity % 2 === 0 ? `${g.capacity / 2}-a-side` : `${g.capacity} players`} ${g.capacityLocked ? '<span class="cap-tag locked">locked</span>' : '<span class="cap-tag auto">auto</span>'}</div>
       <p class="hint" style="margin-top:-2px">${g.capacityLocked
